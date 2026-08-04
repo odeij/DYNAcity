@@ -1,0 +1,24 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Raw AUB/BBED data and generated research artifacts never belong in Git.
+data/
+artifacts/
+models/
+*.las
+*.laz
+*.copc.laz
+*.parquet
+*.joblib
+
+# Local configuration and secrets.
+.env
+config.local.json
+

@@ -1,0 +1,41 @@
+{
+  "snapshot": {
+    "snapshot_id": "beirut-zone-2024",
+    "as_of": "2024-04-30",
+    "crs": "EPSG:32636",
+    "data_version": "BBED-2024-example",
+    "objects": [
+      {
+        "object_id": "101",
+        "parcel_id": "P-10",
+        "state": "active_construction",
+        "raw_state": "Under Construction",
+        "footprint_area_m2": 320.0,
+        "floors": 6,
+        "height_m": 20.0,
+        "building_use": "Residential",
+        "sector": "Example",
+        "features": {
+          "permit_known": 1,
+          "completion_known": 0,
+          "years_since_permit": 4,
+          "years_since_completion": null,
+          "lidar_available": 1
+        },
+        "provenance": {
+          "geometry": "BBED",
+          "lidar": "AUB 2020"
+        }
+      }
+    ]
+  },
+  "scenario": {
+    "scenario_id": "business-as-usual",
+    "baseline_snapshot_id": "beirut-zone-2024",
+    "horizon_years": 6,
+    "interventions": [],
+    "requested_kpis": []
+  },
+  "draws": 500,
+  "seed": 42
+}

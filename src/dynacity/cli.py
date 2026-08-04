@@ -1,0 +1,203 @@
+"""Command-line entrypoints for data preparation, training, and inference."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from datetime import date
+from pathlib import Path
+
+import pandas as pd
+
+from .bbed import BBEDClient, write_snapshot
+from .contracts import ForecastRequest
+from .engine import ForecastEngine
+from .features import extract_building_features, load_points
+from .las import (
+    LASHeader,
+    classification_sample,
+    copc_pipeline,
+    run_pdal_pipeline,
+)
+from .models import ModelBundle, temporal_benchmark
+from .panel import PanelBuilder, assert_no_temporal_leakage
+from .service import create_app
+from .snapshot import snapshot_from_bbed
+
+
+def _json(path: str | Path) -> dict:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _write_json(path: str | Path, payload: dict) -> None:
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def command_inspect_las(args: argparse.Namespace) -> None:
+    payload = LASHeader.read(args.path).as_dict()
+    if args.sample_classes:
+        payload["classification_sample"] = classification_sample(
+            args.path, args.sample_classes
+        )
+    print(json.dumps(payload, indent=2))
+
+
+def command_fetch_bbed(args: argparse.Namespace) -> None:
+    client = BBEDClient(layer_url=args.layer_url)
+    collection = client.fetch_features(
+        where=args.where,
+        bbox=tuple(args.bbox) if args.bbox else None,
+    )
+    output, manifest = write_snapshot(
+        collection, client.snapshot_manifest(collection), args.output
+    )
+    print(f"wrote {len(collection['features'])} features to {output}")
+    print(f"wrote provenance manifest to {manifest}")
+
+
+def command_build_copc(args: argparse.Namespace) -> None:
+    pipeline = copc_pipeline(args.source, args.output, source_crs=args.crs)
+    if args.dry_run:
+        print(json.dumps(pipeline, indent=2))
+        return
+    run_pdal_pipeline(pipeline)
+    print(f"wrote {args.output}")
+
+
+def command_extract_features(args: argparse.Namespace) -> None:
+    collection = _json(args.bbed)
+    points = load_points(args.las, max_points=args.max_points)
+    frame = extract_building_features(points, collection, id_field=args.id_field)
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(args.output, index=False)
+    print(f"wrote {len(frame)} building feature rows to {args.output}")
+
+
+def command_build_panel(args: argparse.Namespace) -> None:
+    lidar = pd.read_csv(args.lidar_features) if args.lidar_features else None
+    panel = PanelBuilder(lidar_acquisition_year=args.lidar_year).build(
+        _json(args.bbed), lidar
+    )
+    assert_no_temporal_leakage(panel)
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    panel.to_csv(args.output, index=False)
+    print(f"wrote {len(panel)} transition rows to {args.output}")
+
+
+def command_build_snapshot(args: argparse.Namespace) -> None:
+    lidar = pd.read_csv(args.lidar_features) if args.lidar_features else None
+    snapshot = snapshot_from_bbed(
+        _json(args.bbed),
+        snapshot_id=args.snapshot_id,
+        as_of=date.fromisoformat(args.as_of),
+        data_version=args.data_version,
+        lidar_features=lidar,
+    )
+    _write_json(args.output, snapshot.model_dump(mode="json"))
+    print(f"wrote {len(snapshot.objects)} urban objects to {args.output}")
+
+
+def command_train(args: argparse.Namespace) -> None:
+    panel = pd.read_csv(args.panel)
+    assert_no_temporal_leakage(panel)
+    bundle, metrics = temporal_benchmark(panel)
+    bundle.data_version = args.data_version
+    bundle.save(args.output)
+    report_path = Path(args.output).with_suffix(".metrics.json")
+    _write_json(report_path, metrics)
+    print(f"selected {bundle.metrics['selected_model']} -> {args.output}")
+    print(f"metrics -> {report_path}")
+
+
+def command_forecast(args: argparse.Namespace) -> None:
+    bundle = ModelBundle.load(args.model)
+    request = ForecastRequest.model_validate(_json(args.request))
+    result = ForecastEngine(bundle).forecast(request)
+    _write_json(args.output, result.model_dump(mode="json"))
+    print(f"forecast -> {args.output}")
+
+
+def command_serve(args: argparse.Namespace) -> None:
+    import uvicorn
+
+    engine = ForecastEngine(ModelBundle.load(args.model))
+    uvicorn.run(create_app(engine), host=args.host, port=args.port)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="dynacity")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    inspect_las = subparsers.add_parser("inspect-las")
+    inspect_las.add_argument("path")
+    inspect_las.add_argument("--sample-classes", type=int, default=0)
+    inspect_las.set_defaults(func=command_inspect_las)
+
+    fetch = subparsers.add_parser("fetch-bbed")
+    fetch.add_argument("--output", required=True)
+    fetch.add_argument("--where", default="1=1")
+    fetch.add_argument("--bbox", nargs=4, type=float)
+    fetch.add_argument("--layer-url", default=BBEDClient.layer_url)
+    fetch.set_defaults(func=command_fetch_bbed)
+
+    copc = subparsers.add_parser("build-copc")
+    copc.add_argument("source")
+    copc.add_argument("output")
+    copc.add_argument("--crs", default="EPSG:32636")
+    copc.add_argument("--dry-run", action="store_true")
+    copc.set_defaults(func=command_build_copc)
+
+    features = subparsers.add_parser("extract-features")
+    features.add_argument("--las", required=True)
+    features.add_argument("--bbed", required=True)
+    features.add_argument("--output", required=True)
+    features.add_argument("--id-field", default="BULBuildingID")
+    features.add_argument("--max-points", type=int, default=10_000_000)
+    features.set_defaults(func=command_extract_features)
+
+    panel = subparsers.add_parser("build-panel")
+    panel.add_argument("--bbed", required=True)
+    panel.add_argument("--output", required=True)
+    panel.add_argument("--lidar-features")
+    panel.add_argument("--lidar-year", type=int, default=2020)
+    panel.set_defaults(func=command_build_panel)
+
+    snapshot = subparsers.add_parser("build-snapshot")
+    snapshot.add_argument("--bbed", required=True)
+    snapshot.add_argument("--output", required=True)
+    snapshot.add_argument("--snapshot-id", required=True)
+    snapshot.add_argument("--as-of", default="2024-04-30")
+    snapshot.add_argument("--data-version", required=True)
+    snapshot.add_argument("--lidar-features")
+    snapshot.set_defaults(func=command_build_snapshot)
+
+    train = subparsers.add_parser("train")
+    train.add_argument("--panel", required=True)
+    train.add_argument("--output", required=True)
+    train.add_argument("--data-version", default="BBED-2018-2024")
+    train.set_defaults(func=command_train)
+
+    forecast = subparsers.add_parser("forecast")
+    forecast.add_argument("--model", required=True)
+    forecast.add_argument("--request", required=True)
+    forecast.add_argument("--output", required=True)
+    forecast.set_defaults(func=command_forecast)
+
+    serve = subparsers.add_parser("serve")
+    serve.add_argument("--model", required=True)
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.set_defaults(func=command_serve)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
+

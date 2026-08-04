@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dynacity-forecasting"
+version = "0.1.0"
+description = "Uncertainty-aware urban-form forecasting for the DynaCITY Beirut pilot"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "joblib>=1.4,<2",
+  "numpy>=2,<3",
+  "pandas>=2.2,<4",
+  "pydantic>=2.10,<3",
+  "scikit-learn>=1.6,<2",
+  "shapely>=2.0,<3",
+  "uvicorn>=0.34,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1",
+  "pytest>=8.3,<10",
+  "pytest-cov>=6,<8",
+]
+graph = [
+  "torch>=2.5,<3",
+]
+
+[project.scripts]
+dynacity = "dynacity.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dynacity"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
