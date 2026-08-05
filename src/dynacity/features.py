@@ -1,4 +1,18 @@
-"""Urban morphology features derived from LAS points inside BBED polygons."""
+"""Urban morphology features derived from LAS points inside BBED polygons.
+
+Turns a point cloud into one row of shape descriptors per BBED building. BBED
+polygons define what a building *is*; the cloud only measures the points falling
+inside them. Segmenting buildings from the cloud itself was rejected — Beirut's
+attached fabric cannot be reliably split at party walls from geometry alone.
+
+Every feature here is static morphology (heights, roughness, vegetation cover,
+point coverage). None of it encodes status, and none of it is time-varying, so
+the output can be joined to any interval — subject to the acquisition-year
+leakage rule enforced in `panel.PanelBuilder`.
+
+Buildings the cloud does not cover yield NaN rather than being dropped, so the
+absence of coverage stays visible downstream as an explicit missing modality.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +39,14 @@ class PointArrays:
 
 
 def load_points(path: str | Path, *, max_points: int = 10_000_000) -> PointArrays:
+    """Read a whole cloud into memory as flat arrays.
+
+    Fully materialised — the polygon join below needs random access across all
+    points, not a stream. Budget roughly 30 bytes per point: 10M points is
+    ~300 MB, and the guard in `iter_point_chunks` exists as much for this as for
+    read time. Larger clouds should be tiled to COPC first.
+    """
+
     chunks = list(iter_point_chunks(path, max_points=max_points))
     if not chunks:
         raise ValueError(f"no points found in {path}")
@@ -53,8 +75,28 @@ def height_above_ground(
     grid_size_m: float = 3.0,
     ground_quantile: float = 0.05,
 ) -> np.ndarray:
+    """Normalise elevations to height above a locally-estimated ground surface.
+
+    Raw z is elevation above the CRS datum, which conflates building height with
+    terrain — and Beirut is steep enough that this matters. Ground is estimated
+    per `grid_size_m` cell as a low quantile of the elevations in that cell,
+    which is a standard cheap surrogate for a DTM and needs no ground
+    classification (this project's clouds are unclassified).
+
+    `grid_size_m` trades terrain fidelity against robustness: cells must stay
+    large enough to contain some near-ground return, or a cell covering only a
+    rooftop would treat the roof as ground and flatten the building to zero
+    height. `ground_quantile` above 0 rather than the minimum resists outlying
+    low points.
+
+    Clamped at 0 — negative heights are measurement artifacts, not basements.
+    """
+
     if not len(x):
         return np.array([], dtype=np.float64)
+    # Flatten the 2D cell grid to a single integer key, then sort so each
+    # cell's points are contiguous — this replaces a per-cell mask (O(cells ×
+    # points)) with one sort plus a linear scan over run boundaries.
     gx = np.floor((x - x.min()) / grid_size_m).astype(np.int64)
     gy = np.floor((y - y.min()) / grid_size_m).astype(np.int64)
     width = int(gx.max()) + 1
@@ -76,6 +118,21 @@ def vegetation_mask(
     *,
     threshold: float = 0.08,
 ) -> np.ndarray | None:
+    """Flag likely vegetation points using the Excess Green index (2G − R − B).
+
+    A standard RGB-only greenness index, used because these clouds carry colour
+    but no near-infrared band (which NDVI would require). Vegetation is
+    separated so that tree canopy overhanging a footprint does not get measured
+    as roof height.
+
+    Returns None when the cloud has no colour at all, which callers treat as
+    "no vegetation information" rather than "no vegetation".
+
+    Channel depth is inferred from the observed maximum: LAS stores colour as
+    16-bit, but 8-bit values are common in practice, and normalising by the
+    wrong scale would push every point below the threshold.
+    """
+
     if red is None or green is None or blue is None:
         return None
     maximum = max(float(red.max()), float(green.max()), float(blue.max()), 1.0)
@@ -93,6 +150,14 @@ def extract_building_features(
     *,
     id_field: str = "BULBuildingID",
 ) -> pd.DataFrame:
+    """Produce one morphology row per BBED building.
+
+    Height normalisation runs once over the whole cloud rather than per
+    building, so ground estimation uses the full surrounding terrain instead of
+    only the points within a footprint — a building whose polygon contains no
+    ground return still gets a sane height.
+    """
+
     hag = height_above_ground(points.x, points.y, points.z)
     vegetation = vegetation_mask(points.red, points.green, points.blue)
     rows: list[dict] = []
@@ -101,6 +166,9 @@ def extract_building_features(
     for feature, object_id in zip(features, object_ids, strict=True):
         if not feature.get("geometry"):
             continue
+        # Two-stage point-in-polygon: cheap bounding-box filter first, exact
+        # containment only on the survivors. Testing every point against every
+        # polygon directly would be intractable at these point counts.
         polygon = shape(feature["geometry"])
         minx, miny, maxx, maxy = polygon.bounds
         bbox = (
@@ -129,9 +197,16 @@ def extract_building_features(
                 if vegetation is not None
                 else np.zeros(len(indexes), dtype=bool)
             )
+            # Measure the structure, not the canopy over it. If excluding
+            # vegetation would leave nothing at all, fall back to using every
+            # point — a fully "green" footprint is more likely a misclassified
+            # roof than an empty lot.
             solid = local_hag[~local_vegetation]
             if not len(solid):
                 solid = local_hag
+            # Roughness is measured on the upper quartile of heights — i.e. the
+            # roof surface — so that facade returns down the building's sides do
+            # not register as roof articulation.
             roof_cutoff = np.quantile(solid, 0.75)
             roof = solid[solid >= roof_cutoff]
             row.update(
@@ -143,6 +218,9 @@ def extract_building_features(
                 vegetation_ratio=float(local_vegetation.mean()),
             )
         else:
+            # No points inside this footprint: the cloud does not cover this
+            # building. NaN rather than 0 — zero height is a measurement, absence
+            # is not — and `point_count` of 0 records why.
             row.update(
                 height_p50_m=np.nan,
                 height_p90_m=np.nan,

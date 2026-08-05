@@ -1,4 +1,17 @@
-"""Runtime configuration with private data kept outside the repository."""
+"""Runtime configuration with private data kept outside the repository.
+
+Locates the two private roots — raw/derived data and generated artifacts — and
+enforces that neither lives inside the working tree.
+
+The `.gitignore` patterns are a second line of defence, not the first: they can
+be bypassed with `git add -f`, and they do nothing about a file being written
+somewhere unexpected in the first place. `validate_private_roots` makes the
+boundary a startup failure instead of a review-time catch.
+
+Nothing here has a usable default for the roots. Requiring them to be set
+explicitly means a fresh checkout cannot silently start writing BBED extracts or
+trained models into the repository.
+"""
 
 from __future__ import annotations
 
@@ -57,6 +70,14 @@ class Settings:
         )
 
     def validate_private_roots(self, repository_root: str | Path) -> None:
+        """Refuse roots that resolve inside the repository.
+
+        Paths are resolved before comparison so symlinks and `..` segments
+        cannot smuggle a root back inside the tree. Checking `repo in
+        resolved.parents` catches nesting at any depth, not just direct
+        children.
+        """
+
         repo = Path(repository_root).resolve()
         for label, path in (
             ("data_root", self.data_root),

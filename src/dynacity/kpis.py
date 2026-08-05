@@ -1,4 +1,18 @@
-"""Urban-form KPI definitions used by every forecast rollout."""
+"""Urban-form KPI definitions used by every forecast rollout.
+
+Reduces one realised city — a state per building — to the aggregate indicators
+planners actually ask about. Called once per Monte Carlo draw per step, so the
+spread of each KPI across draws becomes its uncertainty band.
+
+Two conventions hold throughout:
+
+- Geometry is static. Only the *state* changes across a rollout; footprint,
+  floors, and height stay as observed. A demolished building keeps its recorded
+  footprint and simply stops counting toward built metrics.
+- Nothing is imputed. Buildings with no recorded height are excluded from the
+  height quantiles rather than filled in, so those KPIs describe the measured
+  subset and are not diluted by invented values.
+"""
 
 from __future__ import annotations
 
@@ -41,6 +55,14 @@ def compute_kpis(
     objects: Sequence[UrbanObjectState],
     states: Sequence[str | CanonicalState],
 ) -> dict[str, float]:
+    """Aggregate one realised assignment of states over the object set.
+
+    `states` is positionally aligned with `objects` — element i is the state
+    building i holds in this particular draw. Every value is returned as a float
+    (including the counts) so the caller can take quantiles across draws without
+    dtype juggling.
+    """
+
     state_values = [str(state) for state in states]
     areas = np.asarray([item.footprint_area_m2 for item in objects], dtype=np.float64)
     floors = np.asarray(
@@ -57,6 +79,10 @@ def compute_kpis(
     vacant = np.asarray([value == CanonicalState.VACANT_OR_EVICTED.value for value in state_values])
     demolished = np.asarray([value == CanonicalState.DEMOLISHED.value for value in state_values])
     empty = np.asarray([value == CanonicalState.EMPTY_OR_PARKING.value for value in state_values])
+    # "Built" is defined by exclusion — anything not empty, demolished, or
+    # unknown counts as standing. Excluding unknown is the conservative choice:
+    # a building whose state could not be determined is left out of built-area
+    # totals rather than assumed to be standing.
     built = ~(empty | demolished | np.asarray([value == "unknown" for value in state_values]))
     known_heights = heights[built & ~np.isnan(heights)]
     total_area = float(areas.sum())
@@ -67,9 +93,17 @@ def compute_kpis(
         "vacant_count": float(vacant.sum()),
         "demolished_count": float(demolished.sum()),
         "empty_or_parking_area_m2": float(areas[empty].sum()),
+        # footprint × floors — an estimate, not a survey measurement. Buildings
+        # with no recorded floor count contribute 0 here (see the `floors`
+        # coercion above), so this reads as a lower bound.
         "estimated_gross_floor_area_m2": float((areas[built] * floors[built]).sum()),
+        # Guarded against an all-unknown-height draw, where np.quantile on an
+        # empty array would otherwise raise mid-rollout.
         "height_p50_m": float(np.quantile(known_heights, 0.50)) if len(known_heights) else 0.0,
         "height_p90_m": float(np.quantile(known_heights, 0.90)) if len(known_heights) else 0.0,
+        # Denominator is the total footprint of every object in the snapshot,
+        # including demolished and empty ones, so this stays comparable across
+        # steps as buildings leave the built set.
         "built_land_fraction": float(areas[built].sum() / total_area) if total_area else 0.0,
     }
 

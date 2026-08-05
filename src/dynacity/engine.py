@@ -1,4 +1,31 @@
-"""Scenario-conditioned probabilistic rollout engine."""
+"""Scenario-conditioned probabilistic rollout engine.
+
+Turns a one-step transition model into a multi-year forecast with uncertainty
+bands. The mechanism is deliberately simple:
+
+    for each 2-year step:
+        predict P(next state) for every object, in every Monte Carlo draw
+        apply any scenario interventions active at this step
+        sample a concrete state per object per draw
+        compute KPIs for each draw's sampled city
+
+Two properties follow from that loop and are the reason the design is worth
+stating explicitly:
+
+- Uncertainty compounds honestly. Step 2 predicts from step 1's *sampled*
+  state, not from the true state or from a probability-weighted average, so
+  early-step error propagates instead of being averaged away. Wider bands at
+  6 years than at 2 years are the model being truthful about horizon, not a
+  defect.
+- Interventions are sensitivity analysis, never causal claims. They shift
+  target-state log-odds by an amount the caller supplies; the engine has no way
+  to verify that number. Any result carrying interventions is stamped
+  `assumption_based_scenario` and warned about.
+
+The one non-sampled output is `first_step_transitions` — the raw, unsampled
+probabilities from step 1, exposed so callers can audit the model directly
+without the Monte Carlo layer in between.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +52,18 @@ class ForecastEngine:
 
     @staticmethod
     def _frame(objects: list[UrbanObjectState], states: list[str], interval: int = 2) -> pd.DataFrame:
+        """Rebuild the panel's column layout from API snapshot objects.
+
+        The forecaster was fitted on `panel.PanelBuilder` output, so inference
+        input must present the same column names and meanings. This is the
+        adapter between the two shapes — the API's nested `features` dict is
+        flattened back out to the flat columns the model expects.
+
+        `interval` is fixed at 2 because that is the step size the rollout
+        advances by; multi-year horizons come from repeated steps, never from
+        asking the model for a longer interval directly.
+        """
+
         rows = []
         for item, state in zip(objects, states, strict=True):
             row = {
@@ -58,6 +97,20 @@ class ForecastEngine:
         object_ids: np.ndarray,
         current_states: np.ndarray,
     ) -> np.ndarray:
+        """Shift target-state log-odds for the rows an intervention applies to.
+
+        Each intervention is scoped two ways, and both must match: by explicit
+        `object_ids` (empty = all objects) and by `eligible_from_states`
+        (empty = any state). An empty scope means "everything", so an
+        under-specified intervention is broad rather than inert.
+
+        Adjustments are applied in list order and compose multiplicatively in
+        odds space, so two interventions targeting the same state at the same
+        step stack. Working in log-odds rather than on probabilities directly is
+        what keeps the row normalised and bounded — a large delta saturates
+        toward certainty instead of pushing past 1.
+        """
+
         adjusted = probabilities
         for intervention in request.scenario.interventions:
             if intervention.active_step != step:
@@ -79,6 +132,19 @@ class ForecastEngine:
 
     @staticmethod
     def _ood_score(objects: list[UrbanObjectState]) -> float:
+        """Crude out-of-distribution signal in [0, 1]; higher = trust it less.
+
+        Deliberately a coverage heuristic, not a learned density estimate: it
+        measures how much of the input the model is effectively guessing about
+        (unknown states, absent geometry) rather than how far the input sits
+        from the training manifold. The 0.6/0.4 split weights unknown status
+        above missing geometry because status is the model's primary predictor.
+
+        An empty input scores 1.0 — maximally untrustworthy — though `forecast`
+        rejects that case before this is reached. A learned score is listed as
+        future work in docs/forecasting-engine.md.
+        """
+
         if not objects:
             return 1.0
         unknown = np.mean([item.state == CanonicalState.UNKNOWN for item in objects])
@@ -88,12 +154,21 @@ class ForecastEngine:
         return float(np.clip(0.6 * unknown + 0.4 * missing_geometry, 0.0, 1.0))
 
     def forecast(self, request: ForecastRequest) -> ForecastResult:
+        """Roll the transition model forward and summarise the KPI distribution.
+
+        Returns both the audited first step (exact probabilities) and the
+        sampled horizon (p05/p50/p95 bands per KPI per 2-year offset).
+        """
+
         objects = request.snapshot.objects
         if not objects:
             raise ValueError("forecast snapshot contains no urban objects")
         initial_states = [item.state.value for item in objects]
         base = self._frame(objects, initial_states)
         object_ids = base["object_id"].astype(str).to_numpy()
+        # Step 1 is computed once, unsampled, and returned verbatim. This is the
+        # part of the output a reviewer can check against the model directly —
+        # everything below is Monte Carlo on top of it.
         first = self.bundle.forecaster.predict_proba(base).reindex(columns=LABELS).to_numpy()
         first = self._apply_interventions(
             first,
@@ -113,9 +188,14 @@ class ForecastEngine:
             for row, item in enumerate(objects)
         ]
 
+        # Seeded from the request so a given (snapshot, scenario, seed) triple
+        # reproduces byte-identical bands — required for the result to be
+        # citable.
         rng = np.random.default_rng(request.seed)
         draws = request.draws
         object_count = len(objects)
+        # (draws, objects): every draw is an independent parallel future of the
+        # whole city, all starting from the same observed state.
         state_matrix = np.tile(np.asarray(initial_states, dtype=object), (draws, 1))
         requested_kpis = request.scenario.requested_kpis or list(DEFAULT_KPIS)
         unknown_kpis = sorted(set(requested_kpis) - set(DEFAULT_KPIS))
@@ -123,8 +203,14 @@ class ForecastEngine:
             raise ValueError(f"unsupported KPIs: {unknown_kpis}")
         sampled_kpis: dict[tuple[int, str], list[float]] = {}
         tiled_ids = np.tile(object_ids, draws)
+        # horizon_years // 2 steps: the model was fitted on 2-year transitions,
+        # so a 6-year horizon is three applications rather than one long jump.
         for step in range(1, request.scenario.horizon_years // 2 + 1):
             flat_states = state_matrix.reshape(-1)
+            # All draws are predicted in one batched call: the covariates are
+            # static per object, so only `current_state` differs between draws.
+            # This is the step that makes error compound — the model conditions
+            # on the previous step's *sampled* state, not on the truth.
             expanded = pd.concat([base] * draws, ignore_index=True)
             expanded["current_state"] = flat_states
             probabilities = self.bundle.forecaster.predict_proba(expanded).reindex(
@@ -137,15 +223,26 @@ class ForecastEngine:
                 object_ids=tiled_ids,
                 current_states=flat_states,
             )
+            # Collapse each row's distribution to one concrete state. Sampling
+            # rather than taking the argmax is what preserves realistic
+            # co-occurrence: a city where 3% of buildings were demolished is a
+            # coherent scenario, whereas argmax would demolish either none or
+            # implausibly many in lockstep.
             sampled = sample_categorical(probabilities, rng)
             state_matrix = np.asarray(LABELS, dtype=object)[sampled].reshape(
                 draws, object_count
             )
+            # KPIs are computed per draw, on that draw's fully-realised city, so
+            # the spread across draws is the actual KPI distribution. Computing
+            # them from mean probabilities instead would collapse the
+            # uncertainty this whole loop exists to measure.
             for draw_states in state_matrix:
                 values = compute_kpis(objects, draw_states)
                 for kpi in requested_kpis:
                     sampled_kpis.setdefault((step * 2, kpi), []).append(values[kpi])
 
+        # Empirical quantiles across draws — no distributional assumption is
+        # made, so the bands can be asymmetric where the underlying KPI is.
         estimates = []
         for (year_offset, kpi), values in sorted(sampled_kpis.items()):
             p05, p50, p95 = np.quantile(values, [0.05, 0.50, 0.95])
@@ -160,6 +257,8 @@ class ForecastEngine:
                 )
             )
 
+        # Warnings travel with the result rather than being logged, so a caller
+        # reading only the JSON still sees the caveats that apply to it.
         warnings = []
         if request.scenario.interventions:
             warnings.append(
@@ -175,6 +274,10 @@ class ForecastEngine:
             baseline_snapshot_id=request.snapshot.snapshot_id,
             model_version=self.bundle.model_version,
             data_version=request.snapshot.data_version,
+            # The presence of any intervention downgrades the entire result's
+            # evidence level. There is no partial credit: once a
+            # caller-supplied effect size is in the rollout, the output is a
+            # what-if, not an empirical projection.
             evidence_level=(
                 EvidenceLevel.ASSUMPTION_BASED_SCENARIO
                 if request.scenario.interventions

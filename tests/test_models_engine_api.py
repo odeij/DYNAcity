@@ -65,7 +65,21 @@ def test_models_return_normalized_probabilities_and_temporal_report():
     assert 0 <= metrics["macro_f1"] <= 1
     bundle, report = temporal_benchmark(panel)
     assert bundle.metrics["selected_model"] in {"no_change", "markov", "gradient"}
+    assert bundle.training_intervals == ["2018-2022", "2022-2024"]
     assert set(report) == {"no_change", "markov", "gradient"}
+
+
+def test_temporal_benchmark_excludes_direct_2018_to_2024_rows():
+    panel = synthetic_panel()
+    _, expected_report = temporal_benchmark(panel)
+    direct = panel[panel.target_year == 2022].copy()
+    direct["target_year"] = 2024
+    direct["interval_years"] = 6
+    direct["target_state"] = CanonicalState.DEMOLISHED.value
+
+    _, actual_report = temporal_benchmark(pd.concat([panel, direct], ignore_index=True))
+
+    assert actual_report == expected_report
 
 
 def engine_fixture() -> ForecastEngine:

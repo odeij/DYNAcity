@@ -1,4 +1,17 @@
-"""Privacy-minimizing client for the public BBED ArcGIS feature layer."""
+"""Privacy-minimizing client for the public BBED ArcGIS feature layer.
+
+Fetches building records from the Beirut Built Environment Database (Beirut
+Urban Lab, AUB) through its public ArcGIS REST endpoint.
+
+"Privacy-minimizing" is enforced, not aspirational: `BBED_FIELDS` is an
+allowlist and `fetch_features` raises on any request outside it, so owner names,
+contacts, and other occupant-identifying attributes cannot be pulled even by
+mistake. The layer exposes more than this module will ask for.
+
+Downloads are paired with a `snapshot_manifest` recording source, timestamp,
+field list, content hash, and the ODbL attribution the licence requires — a
+fetched extract stays traceable and correctly credited.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +27,10 @@ from urllib.request import Request, urlopen
 from .config import DEFAULT_BBED_LAYER_URL
 
 
+# The privacy allowlist. Every field here is structural (identity, geometry,
+# use, status history) — none identifies an owner or occupant. This tuple is the
+# single point of control: `fetch_features` validates against it, and widening
+# it is a privacy decision, not a configuration tweak.
 BBED_FIELDS: tuple[str, ...] = (
     "OBJECTID",
     "BULBuildingID",
@@ -35,7 +52,25 @@ BBED_FIELDS: tuple[str, ...] = (
 def resolved_object_ids(
     features: Iterable[dict], *, preferred_field: str = "BULBuildingID"
 ) -> list[str]:
-    """Return stable composite IDs across full-layer and spatial BBED queries."""
+    """Return stable composite IDs across full-layer and spatial BBED queries.
+
+    Neither available identifier works alone. `BULBuildingID` is the meaningful
+    building reference but is not unique — the same id repeats across records —
+    while ArcGIS `OBJECTID` is unique but is a row identifier that carries no
+    domain meaning. Composing them (`BULBuildingID:x|OBJECTID:y`) yields an id
+    that is both unique and traceable.
+
+    Crucially the composite is *stable across query subsets*: pulling a spatial
+    bounding box rather than the full layer returns the same ids for the same
+    buildings, which is what lets a morphology table extracted from one extent
+    join to a panel built from another.
+
+    Records missing the preferred field fall back to `OBJECTID:` alone rather
+    than being dropped. Raises if uniqueness still fails — that indicates the
+    source layer violated its own key, and continuing would corrupt every
+    downstream join.
+    """
+
     feature_list = list(features)
     resolved: list[str] = []
     for feature in feature_list:
@@ -77,12 +112,17 @@ class BBEDClient:
         fields: Iterable[str] = BBED_FIELDS,
     ) -> dict:
         requested = tuple(fields)
+        # The privacy gate. Checked before any network call, so a disallowed
+        # field can never reach the server — not even to be discarded locally.
         disallowed = sorted(set(requested) - set(BBED_FIELDS))
         if disallowed:
             raise ValueError(f"fields are not in the privacy allowlist: {disallowed}")
 
         features: list[dict] = []
         offset = 0
+        # ArcGIS caps rows per response, so paginate until a short page arrives.
+        # Ordering by OBJECTID makes the paging deterministic — without a stable
+        # sort the server may repeat or skip records between pages.
         while True:
             params: dict[str, str | int] = {
                 "f": "geojson",
@@ -124,6 +164,15 @@ class BBEDClient:
         }
 
     def snapshot_manifest(self, collection: dict) -> dict:
+        """Describe a fetched extract so it stays reproducible and attributable.
+
+        The hash is taken over a canonical serialisation (sorted keys, no
+        incidental whitespace) so the same features hash identically regardless
+        of how the JSON was formatted — it identifies content, not bytes on
+        disk. The licence string is not decorative: BBED is ODbL, and
+        redistribution requires this attribution.
+        """
+
         canonical = json.dumps(collection, sort_keys=True, separators=(",", ":"))
         return {
             "source": self.layer_url,

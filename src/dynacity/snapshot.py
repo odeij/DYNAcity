@@ -1,4 +1,15 @@
-"""Convert an allowlisted BBED snapshot into the inference contract."""
+"""Convert an allowlisted BBED snapshot into the inference contract.
+
+The bridge from stored data to a forecastable city: BBED GeoJSON in, a validated
+`UrbanStateSnapshot` out.
+
+Where `panel.PanelBuilder` builds *historical intervals* for training, this
+builds a *single present-day state* for inference. The two must agree on
+feature semantics — same names, same "knowable as of" rule — or the model would
+be served covariates that mean something different from what it learned. The
+difference is the reference year: the panel anchors on each interval's start,
+this anchors on the snapshot's `as_of` date.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +25,13 @@ from .status import canonicalize_status
 
 
 def _optional_nonnegative(value: object) -> float | None:
+    """Coerce to a non-negative float, or None if the value is unusable.
+
+    None (not NaN) because these feed pydantic fields typed `float | None`.
+    Negative values are rejected rather than clamped: a negative floor count or
+    height is a data error, and preserving it as 0 would disguise that.
+    """
+
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -31,6 +49,17 @@ def snapshot_from_bbed(
     data_version: str,
     lidar_features: pd.DataFrame | None = None,
 ) -> UrbanStateSnapshot:
+    """Build a validated present-state snapshot from a BBED collection.
+
+    `snapshot_id` and `data_version` are caller-supplied and echoed into every
+    `ForecastResult`, which is what makes a forecast traceable back to the exact
+    input city it was produced from.
+
+    Unlike the panel, morphology is attached unconditionally when present: this
+    describes the current state, so there is no earlier interval for the
+    post-acquisition data to leak into.
+    """
+
     lidar_lookup: dict[str, dict] = {}
     if lidar_features is not None and not lidar_features.empty:
         lidar_lookup = {
@@ -70,6 +99,9 @@ def snapshot_from_bbed(
         for key, value in lidar_lookup.get(object_id, {}).items():
             if key != "object_id":
                 features[f"lidar_{key}"] = value
+        # Prefer the 2024 current-status column; fall back to 2022 where the
+        # newest wave has no record for this building, so a stale-but-real state
+        # is used rather than defaulting the object to unknown.
         raw_state = props.get("F5__Current_status") or props.get("Status2022")
         objects.append(
             UrbanObjectState(

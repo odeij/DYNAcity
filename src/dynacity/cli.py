@@ -1,4 +1,26 @@
-"""Command-line entrypoints for data preparation, training, and inference."""
+"""Command-line entrypoints for data preparation, training, and inference.
+
+Each subcommand is one stage of the pipeline, and stages communicate through
+files rather than in-process state:
+
+    fetch-bbed      → BBED GeoJSON + provenance manifest
+    inspect-las     → header report (no point data read)
+    build-copc      → tiled COPC for large clouds
+    extract-features→ per-building morphology CSV
+    build-panel     → transition panel CSV
+    summarize-transitions → descriptive interval JSON (never modelled)
+    build-snapshot  → present-state snapshot JSON
+    train           → ModelBundle + sibling .metrics.json
+    forecast        → ForecastResult JSON
+    serve           → the same forecast over HTTP
+
+Keeping the boundaries on disk means each stage is independently inspectable and
+re-runnable — the panel can be examined before training, the metrics before
+serving.
+
+Every path here is caller-supplied and expected to sit under the private roots
+from `config.Settings`; nothing defaults to a location inside the repository.
+"""
 
 from __future__ import annotations
 
@@ -23,6 +45,7 @@ from .models import ModelBundle, temporal_benchmark
 from .panel import PanelBuilder, assert_no_temporal_leakage
 from .service import create_app
 from .snapshot import snapshot_from_bbed
+from .transitions import summarize_interval
 
 
 def _json(path: str | Path) -> dict:
@@ -45,6 +68,13 @@ def command_inspect_las(args: argparse.Namespace) -> None:
 
 
 def command_fetch_bbed(args: argparse.Namespace) -> None:
+    """Download the allowlisted BBED fields and their provenance manifest.
+
+    Only `bbed.BBED_FIELDS` are ever requested. The manifest is written beside
+    the data and records source, timestamp, content hash, and the ODbL
+    attribution — keep them together.
+    """
+
     client = BBEDClient(layer_url=args.layer_url)
     collection = client.fetch_features(
         where=args.where,
@@ -58,6 +88,13 @@ def command_fetch_bbed(args: argparse.Namespace) -> None:
 
 
 def command_build_copc(args: argparse.Namespace) -> None:
+    """Convert LAS to COPC via PDAL, asserting the CRS on the way through.
+
+    `--dry-run` prints the pipeline without executing it — worth using, since
+    the CRS is asserted rather than read from the file and a wrong value
+    misplaces the entire cloud.
+    """
+
     pipeline = copc_pipeline(args.source, args.output, source_crs=args.crs)
     if args.dry_run:
         print(json.dumps(pipeline, indent=2))
@@ -67,6 +104,14 @@ def command_build_copc(args: argparse.Namespace) -> None:
 
 
 def command_extract_features(args: argparse.Namespace) -> None:
+    """Join a point cloud to BBED polygons and write the morphology table.
+
+    Fails rather than truncating when the cloud exceeds `--max-points`
+    (default 10M). Most of this project's clouds do; raising the limit also
+    raises memory use roughly linearly, so tiling to COPC first is usually the
+    better route.
+    """
+
     collection = _json(args.bbed)
     points = load_points(args.las, max_points=args.max_points)
     frame = extract_building_features(points, collection, id_field=args.id_field)
@@ -76,6 +121,12 @@ def command_extract_features(args: argparse.Namespace) -> None:
 
 
 def command_build_panel(args: argparse.Namespace) -> None:
+    """Build the transition panel, refusing to write it if leakage is present.
+
+    The check runs before the CSV is written, so a leaking panel never reaches
+    disk where it could later be trained on by accident.
+    """
+
     lidar = pd.read_csv(args.lidar_features) if args.lidar_features else None
     panel = PanelBuilder(lidar_acquisition_year=args.lidar_year).build(
         _json(args.bbed), lidar
@@ -99,7 +150,40 @@ def command_build_snapshot(args: argparse.Namespace) -> None:
     print(f"wrote {len(snapshot.objects)} urban objects to {args.output}")
 
 
+def command_summarize_transitions(args: argparse.Namespace) -> None:
+    """Report observed transitions for one interval — descriptive only.
+
+    Defaults to the full 2018→2024 span, which `temporal_benchmark` explicitly
+    excludes. Nothing this writes is ever consumed by training; it exists so the
+    six-year change can be reported directly rather than inferred by chaining
+    two modelled steps.
+    """
+
+    panel = pd.read_csv(args.panel)
+    summary = summarize_interval(
+        panel,
+        start_year=args.start_year,
+        target_year=args.target_year,
+    )
+    _write_json(args.output, summary)
+    print(
+        f"summarized {summary['total_rows']} "
+        f"{args.start_year}->{args.target_year} transition rows -> {args.output}"
+    )
+
+
 def command_train(args: argparse.Namespace) -> None:
+    """Run the benchmark and persist the winning bundle plus every candidate's scores.
+
+    Leakage is re-checked here even though `build-panel` already did: panels
+    round-trip through CSV and may be edited, regenerated by an older build, or
+    hand-assembled between the two commands.
+
+    The metrics file holds *all* candidates, not just the winner, and is written
+    next to the model. That is what keeps a negative result — the learned model
+    failing the gate — visible rather than discarded.
+    """
+
     panel = pd.read_csv(args.panel)
     assert_no_temporal_leakage(panel)
     bundle, metrics = temporal_benchmark(panel)
@@ -163,6 +247,13 @@ def build_parser() -> argparse.ArgumentParser:
     panel.add_argument("--lidar-features")
     panel.add_argument("--lidar-year", type=int, default=2020)
     panel.set_defaults(func=command_build_panel)
+
+    summary = subparsers.add_parser("summarize-transitions")
+    summary.add_argument("--panel", required=True)
+    summary.add_argument("--output", required=True)
+    summary.add_argument("--start-year", type=int, default=2018)
+    summary.add_argument("--target-year", type=int, default=2024)
+    summary.set_defaults(func=command_summarize_transitions)
 
     snapshot = subparsers.add_parser("build-snapshot")
     snapshot.add_argument("--bbed", required=True)
