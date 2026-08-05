@@ -18,6 +18,11 @@ models/
 *.parquet
 *.joblib
 
+# Local presentation decks, inspection dumps, and rendered slide exports.
+*.pptx
+*.pptx.inspect.ndjson
+DynaCITY-T5.1-Data-Acquisition-and-Results/
+
 # Local configuration and secrets.
 .env
 config.local.json
