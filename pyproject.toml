@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dynacity-bbed"
+version = "0.1.0"
+description = "Register BBED building footprints to Beirut point clouds and transfer urban attributes."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "laspy[lazrs]>=2.5,<3",
+  "numpy>=1.26,<3",
+  "pyproj>=3.6,<4",
+  "pyshp>=2.3,<4",
+  "requests>=2.31,<3",
+  "shapely>=2.0,<3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[project.scripts]
+dynacity-bbed = "dynacity_bbed.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+

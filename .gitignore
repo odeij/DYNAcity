@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+.tmp/
+
+# Task 2 inputs and generated artifacts are too large for Git.
+data/
+outputs/
+*.las
+*.laz
+*.copc.laz
