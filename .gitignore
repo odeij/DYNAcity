@@ -11,3 +11,7 @@ outputs/
 *.las
 *.laz
 *.copc.laz
+web/node_modules/
+web/dist/
+web/public/data/
+*.tsbuildinfo

@@ -39,6 +39,85 @@ The following facts were established by the team for the cropped test data:
 - The BBED basemap footprint service declares `EPSG:32636`. A live query over the presentation's 369 × 99 m extent returns the recorded 55 footprints.
 - The full BBED backend contains many unrelated projects. The presentation records nine Beirut layers verified by geographic extent, including buildings, parcels, heritage, zoning/security, and property titles.
 
+## Latest completed Task 2 run (August 2026)
+
+The direct BBED-to-point-cloud pipeline has now been run successfully on
+`TheStreetScape.las`. It uses boundary-inclusive 2D point-in-polygon matching:
+each LAS point is assigned to the BBED footprint containing its XY coordinate.
+If footprints overlap, the smallest footprint wins.
+
+| Result | Completed-run value |
+|---|---:|
+| Source points | 4,800,668 |
+| BBED footprints intersecting the tile | 56 |
+| Points assigned to a BBED footprint | 1,599,469 |
+| Points outside all BBED footprints | 3,201,199 |
+| Matched-point ratio | 33.32% |
+| Footprints containing points | 40 of 56 (71.43%) |
+| Points inside overlapping footprints | 0 |
+
+The main output in this workspace is
+`src/dynacity_bbed/outputs/TheStreetScape/enriched.las`. It preserves the
+original point-cloud dimensions and adds the numeric BBED match fields described
+below. The complete string and numeric building records are retained in
+`building_lookup.csv` and `registered_bbed.geojson`.
+
+This direct enrichment is **not semantic point-cloud segmentation**. It is a
+footprint-based assignment: points inside the same BBED polygon receive the same
+run-local `bbed_id`, while roads, vegetation, façades outside a footprint, and
+other unmatched points retain `bbed_id = -1`.
+
+### BBED attribute completeness
+
+A footprint match does not guarantee that BBED has a complete survey record for
+that footprint. The LAS `bbed_id` is a local zero-based link to the lookup table;
+it is not the official `BULBuildingID`.
+
+In this run, 35 of the 56 footprints have no usable `NoofFloor` value. Thirty-four
+are geometry-only ArcGIS records whose descriptive fields—including parcel ID,
+building use, floor count, and building height—are already `null` in the live
+BBED source. The pipeline preserves these missing values rather than inventing
+them. The interface should therefore describe them as **Missing in BBED source**.
+Any height or floor count later derived from the point cloud must be explicitly
+labelled as an estimate.
+
+### Mapped BBED-to-point-cloud figure
+
+<!--
+Add the final CloudCompare or web-viewer screenshot at:
+docs/images/bbed-pointcloud-mapping.png
+
+Recommended content: top view of enriched.las colored by bbed_id, with the BBED
+footprint boundaries visible and one selected building's attributes displayed.
+-->
+
+![BBED footprints and attributes mapped to the augmented point cloud](docs/images/bbed-pointcloud-mapping.png)
+
+### Web viewer
+
+A React/deck.gl interface was added under [`web/`](web/README.md). It provides:
+
+- a locked top-down point-cloud view with pan, zoom, and fit-to-data;
+- RGB and BBED-ID point coloring;
+- footprint hover summaries;
+- click selection with a full BBED and point-cloud statistics sidebar; and
+- local LAS/LAZ plus registered-GeoJSON file selection.
+
+For browser performance, the prepared viewer displays 960,134 evenly sampled
+points from the 4,800,668-point LAS. This sampling affects only visualization;
+the hover polygons and their BBED records remain complete.
+
+<!--
+Add the web-interface screenshot at:
+docs/images/dynacity-web-viewer.png
+
+Recommended content: the complete desktop interface in top view, with a building
+highlighted or selected, its hover summary visible if possible, and the BBED
+details sidebar open.
+-->
+
+![DYNAcity web viewer showing the augmented point cloud and BBED building details](docs/images/dynacity-web-viewer.png)
+
 ## July 30 experiment recorded in the presentation
 
 The cloud-derived building path was:
