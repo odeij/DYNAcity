@@ -46,16 +46,15 @@ export function HoverTooltip({hover}: HoverTooltipProps) {
 
 type MapLegendProps = {
   colorMode: ColorMode;
-  scaleMetres: number;
-  scalePixels: number;
+  elevationRange: number;
 };
 
-export function MapLegend({colorMode, scaleMetres, scalePixels}: MapLegendProps) {
+export function MapLegend({colorMode, elevationRange}: MapLegendProps) {
   return (
     <div className="map-meta">
       <div className="map-instruction">
         <MousePointer2 size={14} />
-        Hover a footprint · Click for full BBED record
+        Drag to orbit · Shift-drag to pan · Scroll to zoom
       </div>
       <div className="legend-row">
         <span className="legend-item">
@@ -65,12 +64,16 @@ export function MapLegend({colorMode, scaleMetres, scalePixels}: MapLegendProps)
           <i className="legend-swatch selected" /> Selected
         </span>
         <span className="legend-item">
-          <i className={`legend-swatch ${colorMode}`} /> {colorMode === 'rgb' ? 'RGB points' : 'BBED IDs'}
+          <i className={`legend-swatch ${colorMode}`} />{' '}
+          {colorMode === 'rgb' ? 'RGB points' : 'BBED IDs'}
         </span>
       </div>
-      <div className="scale" aria-label={`${scaleMetres} metre map scale`}>
-        <span>{scaleMetres} m</span>
-        <i style={{width: scalePixels}} />
+      <div
+        className="elevation-range"
+        aria-label={`${elevationRange.toFixed(1)} metre relative elevation range`}
+      >
+        <span>Relative elevation</span>
+        <strong>0–{elevationRange.toFixed(1)} m</strong>
       </div>
     </div>
   );

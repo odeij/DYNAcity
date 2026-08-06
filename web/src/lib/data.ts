@@ -101,22 +101,27 @@ export async function loadLocalDataset(
   const pointCount = Math.floor(source.length / 3);
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
+  let minZ = Number.POSITIVE_INFINITY;
   let maxX = Number.NEGATIVE_INFINITY;
   let maxY = Number.NEGATIVE_INFINITY;
+  let maxZ = Number.NEGATIVE_INFINITY;
   for (let index = 0; index < pointCount; index += 1) {
     const x = Number(source[index * 3]);
     const y = Number(source[index * 3 + 1]);
+    const z = Number(source[index * 3 + 2]);
     minX = Math.min(minX, x);
     minY = Math.min(minY, y);
+    minZ = Math.min(minZ, z);
     maxX = Math.max(maxX, x);
     maxY = Math.max(maxY, y);
+    maxZ = Math.max(maxZ, z);
   }
 
   const positions = new Float32Array(pointCount * 3);
   for (let index = 0; index < pointCount; index += 1) {
     positions[index * 3] = Number(source[index * 3]) - minX;
     positions[index * 3 + 1] = Number(source[index * 3 + 1]) - minY;
-    positions[index * 3 + 2] = 0;
+    positions[index * 3 + 2] = Number(source[index * 3 + 2]) - minZ;
   }
 
   const colorAttribute = parsed.attributes?.COLOR_0;
@@ -146,8 +151,15 @@ export async function loadLocalDataset(
     renderedPointCount: pointCount,
     sampleStride: Math.max(1, Math.round(sourceCount / Math.max(pointCount, 1))),
     crs: 'EPSG:32636',
-    origin: [minX, minY],
-    bounds: {minX: 0, minY: 0, maxX: maxX - minX, maxY: maxY - minY},
+    origin: [minX, minY, minZ],
+    bounds: {
+      minX: 0,
+      minY: 0,
+      minZ: 0,
+      maxX: maxX - minX,
+      maxY: maxY - minY,
+      maxZ: maxZ - minZ
+    },
     positions: '',
     rgbColors: '',
     bbedColors: '',

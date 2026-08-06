@@ -97,7 +97,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .viewer canvas { outline: none; }
 
 .top-view-badge { position: absolute; top: 16px; left: 18px; display: flex; align-items: center; gap: 8px; padding: 7px 9px 7px 7px; border: 1px solid rgba(181, 218, 230, 0.14); border-radius: 5px; color: #93aab5; background: rgba(7, 20, 31, 0.82); font-size: 10px; letter-spacing: 0.025em; pointer-events: none; }
-.top-view-badge span { display: grid; place-items: center; width: 20px; height: 20px; color: #80dfe4; border: 1px solid rgba(128, 223, 228, 0.34); border-radius: 50%; font-size: 9px; font-weight: 600; }
+.top-view-badge span { display: grid; place-items: center; min-width: 28px; height: 20px; padding: 0 5px; color: #80dfe4; border: 1px solid rgba(128, 223, 228, 0.34); border-radius: 10px; font-size: 8px; font-weight: 600; }
 
 .map-meta { position: absolute; left: 18px; bottom: 17px; color: #9db1bb; pointer-events: none; }
 .map-instruction { display: flex; align-items: center; gap: 7px; margin-bottom: 12px; font-size: 10px; }
@@ -108,8 +108,9 @@ button { -webkit-tap-highlight-color: transparent; }
 .legend-swatch.selected { background: var(--coral); }
 .legend-swatch.rgb { height: 8px; background: linear-gradient(90deg, #b67a57, #7f9d81, #7396ac); }
 .legend-swatch.bbed { height: 8px; background: linear-gradient(90deg, #f05f5f, #e0cf57, #5dd2cb, #7c8be8); }
-.scale { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; font-size: 9px; }
-.scale i { display: block; max-width: 120px; height: 5px; border: 1px solid #a8bac2; border-top: 0; }
+.elevation-range { display: flex; align-items: baseline; gap: 8px; font-size: 9px; }
+.elevation-range span { color: #708894; }
+.elevation-range strong { color: #b7c8cf; font-size: 10px; font-weight: 500; }
 
 .hover-tooltip { position: absolute; z-index: 5; width: 220px; padding: 13px 14px 12px; border: 1px solid rgba(104, 229, 234, 0.42); border-radius: 5px; color: #dce9ed; background: rgba(8, 24, 35, 0.96); box-shadow: 0 12px 26px rgba(0, 0, 0, 0.3); pointer-events: none; }
 .hover-tooltip > p { margin: 0 0 10px; color: #fff; font-size: 12px; font-weight: 600; }

@@ -3,8 +3,10 @@ export type ColorMode = 'rgb' | 'bbed';
 export type Bounds = {
   minX: number;
   minY: number;
+  minZ: number;
   maxX: number;
   maxY: number;
+  maxZ: number;
 };
 
 export type DatasetManifest = {
@@ -14,7 +16,7 @@ export type DatasetManifest = {
   renderedPointCount: number;
   sampleStride: number;
   crs: string;
-  origin: [number, number];
+  origin: [number, number, number];
   bounds: Bounds;
   positions: string;
   rgbColors: string;

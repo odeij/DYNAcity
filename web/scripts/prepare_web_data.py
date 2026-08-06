@@ -87,6 +87,7 @@ def prepare_data(las_path: Path, geojson_path: Path, output_dir: Path, max_point
         render_count = math.ceil(source_count / stride)
         origin_x = float(header.mins[0])
         origin_y = float(header.mins[1])
+        origin_z = float(header.mins[2])
         dimension_names = set(header.point_format.dimension_names)
 
         positions = np.empty(render_count * 3, dtype="<f4")
@@ -104,7 +105,7 @@ def prepare_data(las_path: Path, geojson_path: Path, output_dir: Path, max_point
             chunk_positions = np.empty((count, 3), dtype="<f4")
             chunk_positions[:, 0] = np.asarray(chunk.x)[indices] - origin_x
             chunk_positions[:, 1] = np.asarray(chunk.y)[indices] - origin_y
-            chunk_positions[:, 2] = 0.0
+            chunk_positions[:, 2] = np.asarray(chunk.z)[indices] - origin_z
             positions[xyz_destination] = chunk_positions.reshape(-1)
 
             if {"red", "green", "blue"}.issubset(dimension_names):
@@ -160,12 +161,14 @@ def prepare_data(las_path: Path, geojson_path: Path, output_dir: Path, max_point
         "renderedPointCount": render_count,
         "sampleStride": stride,
         "crs": "EPSG:32636",
-        "origin": [origin_x, origin_y],
+        "origin": [origin_x, origin_y, origin_z],
         "bounds": {
             "minX": 0.0,
             "minY": 0.0,
+            "minZ": 0.0,
             "maxX": float(header.maxs[0]) - origin_x,
             "maxY": float(header.maxs[1]) - origin_y,
+            "maxZ": float(header.maxs[2]) - origin_z,
         },
         "positions": "positions.bin",
         "rgbColors": "colors-rgb.bin",
@@ -190,4 +193,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

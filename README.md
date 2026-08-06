@@ -97,7 +97,7 @@ footprint boundaries visible and one selected building's attributes displayed.
 
 A React/deck.gl interface was added under [`web/`](web/README.md). It provides:
 
-- a locked top-down point-cloud view with pan, zoom, and fit-to-data;
+- an interactive 3D orbit view with rotate, pan, zoom, and fit-to-data;
 - RGB and BBED-ID point coloring;
 - footprint hover summaries;
 - click selection with a full BBED and point-cloud statistics sidebar; and
@@ -111,12 +111,12 @@ the hover polygons and their BBED records remain complete.
 Add the web-interface screenshot at:
 docs/images/dynacity-web-viewer.png
 
-Recommended content: the complete desktop interface in top view, with a building
-highlighted or selected, its hover summary visible if possible, and the BBED
-details sidebar open.
+Recommended content: the complete desktop interface in the angled 3D orbit view,
+with a building highlighted or selected, its hover summary visible if possible,
+and the BBED details sidebar open.
 -->
 
-![DYNAcity web viewer showing the augmented point cloud and BBED building details](docs/images/dynacity-web-viewer.png)
+![DYNAcity 3D web viewer showing the augmented point cloud and BBED building details](docs/images/dynacity-web-viewer.png)
 
 ## July 30 experiment recorded in the presentation
 
