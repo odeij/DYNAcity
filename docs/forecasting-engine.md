@@ -1,6 +1,6 @@
 # Forecasting Engine Design
 
-For the decision-by-decision engineering rationale, including the canonical-state ontology and rejected alternatives, see [Implementation Rationale](implementation-rationale.md).
+For the decision-by-decision engineering rationale, including the canonical-state ontology and rejected alternatives, see [Implementation Rationale](implementation-rationale.md). For how this engine maps onto the funded Task 5.1/5.2 module breakdown, including which modules are not yet implemented, see [Task 5 AI Module Specification](task-5-module-specification.md).
 
 ## Supported question
 
