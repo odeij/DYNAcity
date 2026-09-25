@@ -25,6 +25,12 @@ dev = [
   "pytest>=8.3,<10",
   "pytest-cov>=6,<8",
 ]
+llm = [
+  "anthropic>=1.8,<2",
+]
+gemini = [
+  "google-genai>=2.25,<3",
+]
 graph = [
   "torch>=2.5,<3",
 ]

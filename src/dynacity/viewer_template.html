@@ -1,0 +1,744 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>__DYNACITY_TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/deck.gl@9.4.0/dist.min.js"></script>
+<style>
+:root {
+  --font: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --sky-top: #9fbbd3;
+  --sky-mid: #c7d8e5;
+  --sky-horizon: #e6eef3;
+  --ink: #f7fbff;
+  --ink-2: rgba(234, 245, 255, 0.82);
+  --ink-3: rgba(219, 236, 250, 0.64);
+  --accent: #8dd0ff;
+  --accent-strong: #53b8fb;
+  --rim: rgba(226, 243, 255, 0.4);
+  --line: rgba(230, 244, 255, 0.2);
+  --glass: linear-gradient(145deg, rgba(127, 157, 182, 0.5) 0%, rgba(65, 98, 128, 0.62) 38%, rgba(34, 62, 83, 0.76) 100%);
+  --glass-solid: linear-gradient(145deg, rgba(92, 124, 150, 0.9), rgba(34, 62, 83, 0.94));
+  --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 0 0 1px rgba(224, 241, 255, 0.09), 0 14px 42px rgba(13, 38, 61, 0.19), 0 3px 10px rgba(10, 31, 49, 0.1);
+  --control: rgba(29, 58, 82, 0.24);
+  --control-hover: rgba(228, 244, 255, 0.16);
+  --tab-on-bg: #fbfdff;
+  --tab-on-ink: #1d2b44;
+  --ok: #78ef8f;
+  --warn: #ffd58b;
+  --bad: #ff8a92;
+  --edge: clamp(10px, 1.2vw, 16px);
+  --r-sm: 10px;
+  --r-md: 15px;
+  --r-lg: 22px;
+  --blur: blur(24px) saturate(145%);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sky-top: #16212c;
+    --sky-mid: #22313f;
+    --sky-horizon: #2f4152;
+  }
+}
+:root[data-theme="dark"] {
+  --sky-top: #16212c;
+  --sky-mid: #22313f;
+  --sky-horizon: #2f4152;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body {
+  font: 13px/1.4 var(--font);
+  letter-spacing: -0.012em;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-mid) 42%, var(--sky-horizon) 62%, var(--sky-horizon) 100%);
+  -webkit-font-smoothing: antialiased;
+}
+#scene { position: absolute; inset: 0; z-index: 0; }
+button, input { font: inherit; color: inherit; letter-spacing: inherit; }
+button { cursor: pointer; touch-action: manipulation; }
+:focus-visible { outline: 2px solid #d8f0ff; outline-offset: 2px; }
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--rim);
+  border-radius: var(--r-lg);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+}
+.chrome { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
+.chrome > * { pointer-events: auto; }
+
+/* brand */
+.brand { position: absolute; top: var(--edge); left: var(--edge); display: flex; align-items: center; gap: 10px; min-height: 38px; text-shadow: 0 1px 10px rgba(20, 50, 80, 0.55), 0 0 2px rgba(20, 50, 80, 0.35); pointer-events: none; }
+.brand svg { width: 28px; height: 28px; flex: none; }
+.brand .word { font-size: 21px; font-weight: 600; letter-spacing: -0.5px; }
+.brand .div { width: 1px; height: 20px; background: #f6fcff66; }
+.brand .city { font-size: 13px; font-weight: 500; color: #f4f9fd; }
+
+/* lens tabs */
+.tabs { position: absolute; top: var(--edge); left: 50%; transform: translateX(-50%); display: flex; gap: 2px; height: 38px; padding: 3px; border: 1px solid #e5f5ff55; border-radius: 20px; background: linear-gradient(120deg, #508cc566, #2d67a255); box-shadow: inset 0 1px 0 #ffffff14; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+.tab { border: 0; border-radius: 16px; padding: 4px 14px; background: transparent; color: #f5faff; font-size: 12px; white-space: nowrap; }
+.tab:hover { background: var(--control-hover); }
+.tab[aria-selected="true"] { background: var(--tab-on-bg); color: var(--tab-on-ink); font-weight: 600; box-shadow: 0 0 0 1px #dff0ff55; }
+.tab[hidden] { display: none; }
+
+/* status pill */
+.status { position: absolute; top: var(--edge); right: var(--edge); display: flex; align-items: center; gap: 9px; min-height: 38px; padding: 8px 12px; border: 1px solid #e8f6ff29; border-radius: 13px; background: #40699270; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); font-size: 12px; white-space: nowrap; }
+.status .sep { width: 1px; height: 14px; background: #f6fcff44; }
+.status b { font-weight: 600; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgba(255, 255, 255, 0.14); }
+.badge i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.badge.assumed i { background: var(--warn); }
+
+/* tool rail */
+.rail { position: absolute; top: calc(var(--edge) + 54px); left: var(--edge); display: grid; gap: 2px; width: 48px; padding: 4px; border-radius: var(--r-md); }
+.rail button { width: 38px; height: 38px; display: grid; place-items: center; border: 0; border-radius: 11px; background: transparent; color: #f2f9ff; }
+.rail button:hover { background: var(--control-hover); }
+.rail button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.9); color: var(--tab-on-ink); }
+.rail svg { width: 19px; height: 19px; }
+
+/* right column */
+.side { position: absolute; top: calc(var(--edge) + 54px); right: var(--edge); bottom: 190px; width: min(320px, calc(100vw - 2 * var(--edge))); display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+.side > .panel { pointer-events: auto; }
+.panel { padding: 14px 16px; max-height: 100%; overflow: auto; scrollbar-width: thin; }
+.panel[hidden] { display: none; }
+.panel h2 { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
+.panel .sub { color: var(--ink-3); font-size: 11.5px; margin-bottom: 10px; }
+.panel .close { float: right; border: 0; background: transparent; color: var(--ink-2); width: 24px; height: 24px; border-radius: 8px; margin: -4px -6px 0 0; }
+.panel .close:hover { background: var(--control-hover); }
+.legend-row { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 9px; padding: 4px 0; font-size: 12px; }
+.legend-row .sw { width: 12px; height: 12px; border-radius: 4px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35); }
+.legend-row .n { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.legend-row.muted { opacity: 0.55; }
+.ramp { height: 10px; border-radius: 999px; margin: 6px 0 4px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3); }
+.ramp-labels { display: flex; justify-content: space-between; color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.note { margin-top: 10px; color: var(--ink-3); font-size: 11.5px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; margin: 8px 0 10px; }
+.kv dt { color: var(--ink-3); }
+.kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.pbar { display: grid; grid-template-columns: 12px 1fr 44px; align-items: center; gap: 8px; margin: 5px 0; font-size: 12px; }
+.pbar .sw { width: 10px; height: 10px; border-radius: 3px; }
+.pbar .track { position: relative; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
+.pbar .fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: #eaf5ff; }
+.pbar .ghost { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #ffd58b; border-radius: 1px; }
+.pbar .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.pbar .lbl { grid-column: 2 / 4; color: var(--ink-2); font-size: 11.5px; margin-bottom: -3px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgba(255, 255, 255, 0.14); margin: 2px 4px 2px 0; }
+.chip.hard { background: rgba(255, 115, 125, 0.28); }
+.chip.soft { background: rgba(255, 213, 139, 0.22); }
+.chip.ok { background: rgba(120, 239, 143, 0.22); }
+.issue { font-size: 12px; color: var(--ink-2); margin: 6px 0; padding-left: 10px; border-left: 2px solid rgba(255, 255, 255, 0.25); }
+.issue.hard { border-color: var(--bad); }
+.issue.soft { border-color: var(--warn); }
+.issue code { font: 600 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); }
+.lever { padding: 9px 10px; margin: 8px 0; border-radius: var(--r-sm); background: rgba(255, 255, 255, 0.08); border: 1px solid var(--line); font-size: 12px; }
+.lever:hover { background: rgba(255, 255, 255, 0.14); }
+.lever .t { font-weight: 600; margin-bottom: 3px; display: flex; gap: 6px; align-items: center; }
+.lever .m { color: var(--ink-3); font-size: 11.5px; overflow-wrap: anywhere; }
+.warn-list { margin: 8px 0 0; padding-left: 16px; color: var(--ink-2); font-size: 11.5px; }
+
+/* bottom: prompt + dock */
+.bottom { position: absolute; left: 50%; bottom: var(--edge); transform: translateX(-50%); width: min(1000px, calc(100vw - 2 * var(--edge))); display: grid; gap: 10px; }
+.prompt { display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 6px 0 16px; border-radius: 16px; }
+.prompt svg { width: 18px; height: 18px; flex: none; color: #e9f6ff; }
+.prompt input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; outline: none; font-size: 14px; }
+.prompt input::placeholder { color: rgba(230, 242, 252, 0.72); }
+.prompt input:disabled { cursor: not-allowed; }
+.prompt .go { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.5); background: rgba(255, 255, 255, 0.22); color: #fff; }
+.prompt .go:hover:not(:disabled) { background: rgba(255, 255, 255, 0.34); }
+.prompt .go:disabled { opacity: 0.45; cursor: not-allowed; }
+.prompt .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.35); border-top-color: #fff; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.progress { justify-self: start; font-size: 12px; color: var(--ink); padding: 5px 12px; border-radius: 999px; background: rgba(34, 62, 83, 0.72); border: 1px solid var(--rim); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+.progress:empty { display: none; }
+.dock { display: flex; align-items: stretch; gap: 12px; padding: 10px 14px; border-radius: 18px; overflow-x: auto; scrollbar-width: none; }
+.seg { display: flex; align-self: center; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); flex: none; }
+.seg button { border: 0; border-radius: 999px; padding: 5px 11px; background: transparent; font-size: 12px; font-variant-numeric: tabular-nums; }
+.seg button[aria-pressed="true"] { background: #fff; color: var(--tab-on-ink); font-weight: 600; }
+.kpi { flex: 1 0 92px; min-width: 92px; padding-left: 10px; border-left: 2px solid var(--kpi-rule, rgba(255, 255, 255, 0.35)); }
+.kpi .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.kpi .v small { font-size: 12px; font-weight: 500; color: var(--ink-2); margin-left: 4px; }
+.kpi .l { font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); }
+.kpi .r { font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.dock .more { flex: none; align-self: center; border: 1px solid var(--line); background: var(--control); border-radius: 999px; padding: 6px 12px; font-size: 12px; }
+.dock .more:hover { background: var(--control-hover); }
+.dock .empty { align-self: center; color: var(--ink-2); font-size: 12px; }
+table.kpis { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.kpis th { text-align: right; font-weight: 500; color: var(--ink-3); padding: 4px 0 6px 10px; }
+table.kpis th:first-child, table.kpis td:first-child { text-align: left; padding-left: 0; }
+table.kpis td { text-align: right; padding: 5px 0 5px 10px; border-top: 1px solid var(--line); }
+.attrib { margin-top: -4px; font-size: 10px; color: rgba(30, 50, 70, 0.72); text-align: center; pointer-events: none; }
+:root[data-theme="dark"] .attrib { color: rgba(220, 235, 248, 0.6); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .attrib { color: rgba(220, 235, 248, 0.6); } }
+
+/* hover card */
+.tip { position: absolute; z-index: 30; pointer-events: none; min-width: 200px; max-width: 260px; padding: 10px 12px; border-radius: 14px; background: var(--glass-solid); border: 1px solid var(--rim); box-shadow: var(--glass-shadow); font-size: 12px; }
+.tip[hidden] { display: none; }
+.tip .h { font-weight: 600; margin-bottom: 2px; overflow-wrap: anywhere; }
+.tip .s { color: var(--ink-3); margin-bottom: 6px; }
+.empty-state { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: #1e3346; }
+.empty-state[hidden] { display: none; }
+
+@media (max-width: 760px) {
+  .brand .city, .brand .div, .status .opt { display: none; }
+  .status { padding: 6px 8px; min-height: 34px; }
+  .tabs { top: calc(var(--edge) + 46px); max-width: calc(100vw - 2 * var(--edge)); overflow-x: auto; scrollbar-width: none; }
+  .tab { padding: 4px 10px; }
+  .rail { top: calc(var(--edge) + 96px); }
+  .side { top: calc(var(--edge) + 96px); left: calc(var(--edge) + 58px); right: var(--edge); width: auto; bottom: 200px; }
+}
+@media (prefers-reduced-motion: reduce) { .prompt .spin { animation-duration: 2s; } }
+</style>
+</head>
+<body>
+<div id="scene" aria-label="3D view of Beirut buildings"></div>
+<div class="empty-state" id="empty" hidden>
+  <div><h1 style="font-size:18px;margin:0 0 6px">No data embedded</h1><p style="margin:0">Generate this page with <code>dynacity export-viewer</code>.</p></div>
+</div>
+
+<div class="chrome">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5c2.6 2.7 3.9 5.9 3.9 9.5s-1.3 6.8-3.9 9.5c-2.6-2.7-3.9-5.9-3.9-9.5s1.3-6.8 3.9-9.5z"/></svg>
+    <span class="word">DynaCITY</span><span class="div"></span><span class="city">Beirut</span>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Map lens">
+    <button class="tab" role="tab" data-lens="observed" aria-selected="true">Observed</button>
+    <button class="tab" role="tab" data-lens="forecast" aria-selected="false">Forecast +2y</button>
+    <button class="tab" role="tab" data-lens="change" aria-selected="false">Change risk</button>
+    <button class="tab" role="tab" data-lens="delta" aria-selected="false" hidden>Δ vs baseline</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <nav class="rail glass" aria-label="View tools">
+    <button id="t-reset" title="Reset view" aria-label="Reset view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
+    <button id="t-2d" title="Top-down view" aria-label="Top-down view" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg></button>
+    <button id="t-legend" title="Legend" aria-label="Legend" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg></button>
+    <button id="t-kpis" title="All KPIs table" aria-label="All KPIs table" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
+    <button id="t-info" title="About this forecast" aria-label="About this forecast" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg></button>
+  </nav>
+
+  <aside class="side" aria-live="polite">
+    <section class="panel glass" id="p-scenario" hidden></section>
+    <section class="panel glass" id="p-inspect" hidden></section>
+    <section class="panel glass" id="p-kpis" hidden></section>
+    <section class="panel glass" id="p-info" hidden></section>
+    <section class="panel glass" id="p-legend"></section>
+  </aside>
+
+  <div class="bottom">
+    <div class="progress" id="progress"></div>
+    <form class="prompt glass" id="prompt" autocomplete="off">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11 2.5 12.6 8a3 3 0 0 0 2 2l5.4 1.5-5.4 1.6a3 3 0 0 0-2 2L11 20.5l-1.6-5.4a3 3 0 0 0-2-2L2 11.5 7.4 10a3 3 0 0 0 2-2zM19 2l.7 2.3L22 5l-2.3.7L19 8l-.7-2.3L16 5l2.3-.7z"/></svg>
+      <input id="q" name="q" aria-label="Describe a scenario" maxlength="4000">
+      <button class="go" id="go" type="submit" aria-label="Run scenario"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    </form>
+    <div class="dock glass" id="dock"></div>
+    <div class="attrib" id="attrib"></div>
+  </div>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script>
+const DATA = /*__DYNACITY_DATA__*/null;
+
+// Canonical states in legend order. Stable/built is the neutral city massing;
+// the six change states use a categorical set validated for colour-vision
+// deficiency in this adjacency order (worst CVD ΔE 9.1, normal-vision ΔE 16.3).
+const STATES = {
+  stable_built: { label: 'Stable / built', color: '#9fb3c8' },
+  active_construction: { label: 'Active construction', color: '#eda100' },
+  renovated: { label: 'Renovated', color: '#1baf7a' },
+  stalled_or_cancelled: { label: 'Stalled or cancelled', color: '#eb6834' },
+  vacant_or_evicted: { label: 'Vacant or evicted', color: '#4a3aa7' },
+  empty_or_parking: { label: 'Empty lot or parking', color: '#2a78d6' },
+  demolished: { label: 'Demolished', color: '#e34948' },
+  unknown: { label: 'Unknown / not surveyed', color: '#d3d8dd' },
+};
+const ORDER = Object.keys(STATES);
+const RAMP = ['#e3eefc', '#b7d3f6', '#86b6ef', '#5598e7', '#2a78d6', '#1c5cab', '#104281'];
+const DIVERGE = { low: '#256abf', mid: '#c9ced3', high: '#eb6834' };
+const NO_DATA = '#d8dde2';
+const KPI_TILES = ['completed_count', 'active_construction_count', 'stalled_count', 'vacant_count', 'demolished_count', 'built_land_fraction'];
+const KPI_LABELS = {
+  completed_count: 'Completed', active_construction_count: 'Construction', stalled_count: 'Stalled',
+  vacant_count: 'Vacant', demolished_count: 'Demolished', empty_or_parking_area_m2: 'Empty / parking area',
+  estimated_gross_floor_area_m2: 'Gross floor area', height_p50_m: 'Median height', height_p90_m: 'Height p90',
+  built_land_fraction: 'Built land',
+};
+const KPI_RULE = {
+  completed_count: STATES.stable_built.color, active_construction_count: STATES.active_construction.color,
+  stalled_count: STATES.stalled_or_cancelled.color, vacant_count: STATES.vacant_or_evicted.color,
+  demolished_count: STATES.demolished.color, built_land_fraction: '#ffffff',
+};
+// Pale warm white for OpenStreetMap context buildings: present, not modelled.
+const CONTEXT_RGB = [238, 235, 229];
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+const pct = (v) => `${(v * 100).toFixed(v < 0.1 && v > 0 ? 1 : 0)}%`;
+const fmt = (v, unit) => unit === 'ratio' ? pct(v) : unit === 'm2' ? `${Math.round(v).toLocaleString()} m²` : unit === 'm' ? `${v.toFixed(1)} m` : Math.round(v).toLocaleString();
+const stateLabel = (s) => STATES[s]?.label ?? s;
+
+const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false };
+
+function rampColor(t, stops = RAMP) {
+  const x = Math.max(0, Math.min(1, t)) * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(x));
+  return mix(hex(stops[i]), hex(stops[i + 1]), x - i);
+}
+// Δ for a building = change in the chance of reaching the target state of the
+// first lever that covers it. That is what a lever claims to move; "chance of
+// leaving the current state" understates it when a building was already likely
+// to change, just to something else. The symmetric scale is fitted to the
+// largest |Δ| in the scenario (floor 2 points); the legend prints the range.
+let deltaScale = 0.3, leverTarget = new Map();
+function updateDeltaScale() {
+  leverTarget = new Map();
+  for (const lever of ui.scenario?.compilation?.scenario?.interventions ?? []) {
+    const ids = lever.object_ids.length ? lever.object_ids : DATA.buildings.map((b) => b.id);
+    for (const id of ids) if (!leverTarget.has(id)) leverTarget.set(id, lever.target_state);
+  }
+  let m = 0;
+  for (const b of DATA.buildings) { const d = deltaFor(b); if (d !== null) m = Math.max(m, Math.abs(d)); }
+  deltaScale = Math.max(m, 0.02);
+}
+function deltaFor(b) {
+  const a = scenP(b), z = baseP(b);
+  if (!a || !z) return null;
+  const target = leverTarget.get(b.id);
+  return target ? (a[target] ?? 0) - (z[target] ?? 0) : 0;
+}
+function divergeColor(d) {
+  const t = Math.max(-1, Math.min(1, d / deltaScale));
+  return t < 0 ? mix(hex(DIVERGE.mid), hex(DIVERGE.low), -t) : mix(hex(DIVERGE.mid), hex(DIVERGE.high), t);
+}
+const baseP = (b) => DATA.forecast?.p?.[b.id];
+const scenP = (b) => ui.scenario?.forecast?.p?.[b.id];
+const activeP = (b) => scenP(b) ?? baseP(b);
+const argmax = (p) => Object.entries(p).reduce((a, e) => (e[1] > a[1] ? e : a), ['unknown', -1])[0];
+const leaveProb = (p, s) => 1 - (p?.[s] ?? 0);
+
+function fill(b) {
+  let rgb;
+  if (ui.lens === 'observed') rgb = hex(STATES[b.state].color);
+  else if (ui.lens === 'forecast') { const p = activeP(b); rgb = p ? hex(STATES[argmax(p)].color) : hex(NO_DATA); }
+  else if (ui.lens === 'change') { const p = activeP(b); rgb = p ? rampColor(leaveProb(p, b.state)) : hex(NO_DATA); }
+  else { const d = deltaFor(b); rgb = d === null ? hex(NO_DATA) : divergeColor(d); }
+  if (ui.selected === b.id) rgb = mix(rgb, [255, 255, 255], 0.45);
+  const dim = ui.highlight && !ui.highlight.has(b.id);
+  return [...rgb, dim ? 70 : 255];
+}
+function elevation(b) {
+  const flat = ui.lens === 'observed' && (b.state === 'empty_or_parking' || b.state === 'demolished');
+  return flat ? 0.8 : Math.max(b.h, 1.5);
+}
+
+let deckgl = null, map = null, home = null;
+const isDark = () => document.documentElement.dataset.theme === 'dark' || (document.documentElement.dataset.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+
+// Spatial index of BBED footprints (≈110 m cells) so OpenStreetMap context
+// buildings sitting on a BBED footprint can be skipped instead of doubled.
+const CELL = 0.001;
+const footprintIndex = new Map();
+function indexFootprints() {
+  for (const b of DATA.buildings) for (const ring of b.rings) {
+    let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+    for (const [x, y] of ring) { w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y); }
+    for (let i = Math.floor(w / CELL); i <= Math.floor(e / CELL); i++) for (let j = Math.floor(s / CELL); j <= Math.floor(n / CELL); j++) {
+      const key = `${i}:${j}`;
+      if (!footprintIndex.has(key)) footprintIndex.set(key, []);
+      footprintIndex.get(key).push(ring);
+    }
+  }
+}
+function inRing([x, y], ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+function coveredByBbed(feature) {
+  const g = feature.geometry;
+  const ring = g.type === 'Polygon' ? g.coordinates[0] : g.type === 'MultiPolygon' ? g.coordinates[0][0] : null;
+  if (!ring) return false;
+  const c = ring.reduce((a, p) => [a[0] + p[0] / ring.length, a[1] + p[1] / ring.length], [0, 0]);
+  const cands = footprintIndex.get(`${Math.floor(c[0] / CELL)}:${Math.floor(c[1] / CELL)}`) || [];
+  return cands.some((r) => inRing(c, r));
+}
+
+// Open on the densest ~600 m of surveyed buildings, the way God's Plan opens
+// on downtown, rather than on the whole (sparse) survey extent.
+function homeBounds() {
+  const bins = new Map();
+  for (const b of DATA.buildings) {
+    const [x, y] = b.rings[0][0];
+    const key = `${Math.floor(x / 0.006)}:${Math.floor(y / 0.006)}`;
+    bins.set(key, (bins.get(key) || 0) + 1);
+  }
+  const [best] = [...bins.entries()].sort((a, b) => b[1] - a[1])[0];
+  const [i, j] = best.split(':').map(Number);
+  const cx = (i + 0.5) * 0.006, cy = (j + 0.5) * 0.006;
+  return [[cx - 0.0065, cy - 0.0055], [cx + 0.0065, cy + 0.0055]];
+}
+
+function lighting() {
+  const ambient = new deck.AmbientLight({ color: [255, 255, 255], intensity: 1.05 });
+  const sun = new deck.DirectionalLight({ color: [255, 248, 236], intensity: 1.3, direction: [-3, -8, -3] });
+  const sky = new deck.DirectionalLight({ color: [196, 220, 245], intensity: 0.5, direction: [4, 6, -1] });
+  return new deck.LightingEffect({ ambient, sun, sky });
+}
+const MATERIAL = { ambient: 0.42, diffuse: 0.62, shininess: 24, specularColor: [70, 76, 84] };
+
+function layers() {
+  const out = [];
+  if (!map) {
+    // No basemap: a plain ground slab under the survey extent.
+    const [[w, s], [e, n]] = DATA.bounds, pad = Math.max(e - w, n - s) * 0.1 + 0.0005;
+    out.push(new deck.SolidPolygonLayer({
+      id: 'ground', data: [[[w - pad, s - pad], [e + pad, s - pad], [e + pad, n + pad], [w - pad, n + pad]]],
+      getPolygon: (d) => d, getFillColor: isDark() ? [58, 70, 80] : [221, 228, 224], material: false,
+    }));
+  } else if (DATA.basemap?.context_tiles) {
+    out.push(new deck.MVTLayer({
+      id: 'context', data: DATA.basemap.context_tiles, minZoom: 13, maxZoom: 14, binary: false,
+      loadOptions: { mvt: { layers: ['building'], coordinates: 'wgs84' } },
+      renderSubLayers: (props) => new deck.GeoJsonLayer({
+        ...props,
+        data: (props.data || []).filter((f) => f.properties?.hide_3d !== true && !coveredByBbed(f)),
+        extruded: true, stroked: false, filled: true, pickable: false,
+        getElevation: (f) => Math.max(Number(f.properties?.render_height) || 6, 3),
+        getFillColor: isDark() ? [92, 104, 116, 235] : [...CONTEXT_RGB, 235], material: MATERIAL,
+      }),
+    }));
+  }
+  out.push(new deck.SolidPolygonLayer({
+    id: 'buildings',
+    data: DATA.buildings.flatMap((b) => b.rings.map((ring) => ({ b, ring }))),
+    getPolygon: (d) => d.ring, extruded: true, getElevation: (d) => elevation(d.b), getFillColor: (d) => fill(d.b),
+    pickable: true, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL,
+    // No colour transition: an interrupted fade can leave a lens showing the
+    // previous lens's colours, and a data view must never show stale values.
+    updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.scenario], getElevation: [ui.lens] },
+  }));
+  return out;
+}
+function render() { if (deckgl) deckgl.setProps({ layers: layers() }); }
+
+const deckProps = () => ({
+  layers: layers(),
+  effects: [lighting()],
+  getCursor: ({ isHovering, isDragging }) => (isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'),
+  onHover: showTip,
+  onClick: ({ object }) => { ui.selected = object ? object.b.id : null; renderInspector(); render(); },
+});
+
+function initScene() {
+  indexFootprints();
+  const bounds = homeBounds();
+  const style = DATA.basemap && (isDark() ? DATA.basemap.style_dark : DATA.basemap.style_light);
+  if (style && window.maplibregl) {
+    map = new maplibregl.Map({
+      container: 'scene', style, bounds, fitBoundsOptions: { padding: 40 },
+      pitch: 74, bearing: -20, maxPitch: 85, attributionControl: false, canvasContextAttributes: { antialias: true },
+    });
+    map.on('style.load', () => {
+      const dark = isDark();
+      try {
+        map.setSky({
+          'sky-color': dark ? '#16212c' : '#8fb2cf', 'horizon-color': dark ? '#2f4152' : '#e3edf3',
+          'fog-color': dark ? '#22313f' : '#dfe9ef', 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.55,
+        });
+      } catch (err) { /* older style spec: plain background is fine */ }
+      // The basemap's own flat building fills sit under our 3D buildings.
+      for (const id of ['building', 'building-top']) if (map.getLayer(id)) map.setPaintProperty(id, 'fill-opacity', 0.35);
+    });
+    map.once('load', () => { home = { center: map.getCenter(), zoom: map.getZoom(), pitch: 74, bearing: -20 }; });
+    deckgl = new deck.MapboxOverlay({ interleaved: false, ...deckProps() });
+    map.addControl(deckgl);
+  } else {
+    const [[w, s], [e, n]] = bounds;
+    home = { longitude: (w + e) / 2, latitude: (s + n) / 2, zoom: 15.6, pitch: 62, bearing: -20 };
+    deckgl = new deck.Deck({
+      parent: $('scene'), views: new deck.MapView({ repeat: false }),
+      initialViewState: { ...home, maxPitch: 75 }, controller: { dragRotate: true, touchRotate: true, inertia: 250 },
+      parameters: { clearColor: [0, 0, 0, 0] }, ...deckProps(),
+    });
+  }
+}
+// Fly to the buildings a scenario touches, so the result is on screen.
+function focusOn(ids) {
+  const wanted = new Set(ids);
+  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+  for (const b of DATA.buildings) if (wanted.has(b.id)) for (const [x, y] of b.rings[0]) {
+    w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y);
+  }
+  if (!Number.isFinite(w) || !map) return;
+  const padX = Math.max((e - w) * 0.25, 0.002), padY = Math.max((n - s) * 0.25, 0.002);
+  const cam = map.cameraForBounds([[w - padX, s - padY], [e + padX, n + padY]], { padding: 60, bearing: map.getBearing() });
+  if (cam) map.easeTo({ ...cam, pitch: 68, bearing: map.getBearing(), duration: 1400 });
+}
+function flyTo(update) {
+  if (map) {
+    if (home) map.easeTo({ ...home, ...update, duration: 700 });
+    return;
+  }
+  deckgl.setProps({ initialViewState: { ...home, maxPitch: 75, ...update, transitionDuration: 650, transitionInterpolator: new deck.LinearInterpolator(['pitch', 'bearing', 'zoom', 'longitude', 'latitude']) } });
+}
+
+function probRows(p, compare, current) {
+  const entries = ORDER.map((s) => [s, p?.[s] ?? 0]).filter(([s, v]) => v >= 0.005 || (compare?.[s] ?? 0) >= 0.005).sort((a, b) => b[1] - a[1]);
+  return entries.map(([s, v]) => `
+    <div class="pbar"><span class="sw" style="background:${STATES[s].color}"></span>
+      <div><div class="lbl">${esc(stateLabel(s))}${s === current ? ' · stays' : ''}</div>
+      <div class="track"><div class="fill" style="width:${(v * 100).toFixed(1)}%"></div>${compare ? `<div class="ghost" style="left:calc(${((compare[s] ?? 0) * 100).toFixed(1)}% - 1px)" title="baseline ${pct(compare[s] ?? 0)}"></div>` : ''}</div></div>
+      <span class="v">${pct(v)}</span></div>`).join('');
+}
+function showTip({ object, x, y }) {
+  const tip = $('tip');
+  if (!object) { tip.hidden = true; return; }
+  const b = object.b, p = activeP(b);
+  tip.innerHTML = `<div class="h">${esc(b.sector || 'Building')} · ${esc(b.use || 'use n/a')}</div>
+    <div class="s">${esc(stateLabel(b.state))} · ${b.h.toFixed(1)} m${b.est ? ' (est.)' : ''}</div>
+    ${p ? `<div class="s" style="margin:6px 0 0">In 2 years${ui.scenario ? ' (scenario)' : ''}</div>${probRows(Object.fromEntries(Object.entries(p).sort((a, c) => c[1] - a[1]).slice(0, 3)), null, b.state)}` : ''}`;
+  tip.hidden = false;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = `${Math.min(x + 16, innerWidth - w - 10)}px`;
+  tip.style.top = `${Math.min(y + 16, innerHeight - h - 10)}px`;
+}
+
+function renderStatus() {
+  const f = ui.scenario?.forecast ?? DATA.forecast;
+  const assumed = f?.evidence_level === 'assumption_based_scenario';
+  $('status').innerHTML = `<span class="opt"><b>${esc(DATA.snapshot.data_version)}</b></span><span class="sep opt"></span>
+    <span class="opt">${DATA.coverage.drawn.toLocaleString()} buildings</span>
+    ${f ? `<span class="sep opt"></span><span class="badge ${assumed ? 'assumed' : ''}"><i></i>${assumed ? 'Assumption-based scenario' : 'Business as usual'}</span>` : ''}`;
+}
+
+function counts(fn) {
+  const c = Object.fromEntries(ORDER.map((s) => [s, 0]));
+  for (const b of DATA.buildings) { const s = fn(b); if (s) c[s] += 1; }
+  return c;
+}
+function renderLegend() {
+  const el = $('p-legend');
+  if (el.hidden) return;
+  let body = '';
+  if (ui.lens === 'observed' || ui.lens === 'forecast') {
+    const c = ui.lens === 'observed' ? counts((b) => b.state) : counts((b) => { const p = activeP(b); return p ? argmax(p) : null; });
+    const title = ui.lens === 'observed' ? `Observed state · ${esc(DATA.snapshot.as_of.slice(0, 4))}` : `Most likely state in 2 years${ui.scenario ? ' · scenario' : ''}`;
+    body = `<h2>${title}</h2><div class="sub">Building count per canonical BBED state</div>` +
+      ORDER.map((s) => `<div class="legend-row ${c[s] ? '' : 'muted'}"><span class="sw" style="background:${STATES[s].color}"></span><span>${esc(STATES[s].label)}</span><span class="n">${c[s].toLocaleString()}</span></div>`).join('');
+    if (ui.lens === 'forecast') body += `<div class="note">Colour is the single most likely state; hover a building for the full distribution.</div>`;
+  } else if (ui.lens === 'change') {
+    body = `<h2>Chance of leaving current state</h2><div class="sub">Next 2-year step${ui.scenario ? ', under the scenario' : ''}</div>
+      <div class="ramp" style="background:linear-gradient(90deg,${RAMP.join(',')})"></div><div class="ramp-labels"><span>0%</span><span>50%</span><span>100%</span></div>
+      <div class="note">Model probability, not a certainty. Grey = no forecast for this building.</div>`;
+  } else {
+    body = `<h2>Scenario vs baseline</h2><div class="sub">Change in chance of reaching each lever's target state, next 2 years</div>
+      <div class="ramp" style="background:linear-gradient(90deg,${DIVERGE.low},${DIVERGE.mid},${DIVERGE.high})"></div><div class="ramp-labels"><span>−${(deltaScale * 100).toFixed(0)} pts</span><span>no change</span><span>+${(deltaScale * 100).toFixed(0)} pts</span></div>
+      <div class="note">Orange = more likely to reach the lever's target; blue = less likely. Grey buildings are outside every lever.</div>`;
+  }
+  el.innerHTML = body;
+}
+
+function renderInspector() {
+  const el = $('p-inspect');
+  const b = DATA.buildings.find((x) => x.id === ui.selected);
+  if (!b) { el.hidden = true; return; }
+  const p = activeP(b), base = ui.scenario ? baseP(b) : null;
+  el.hidden = false;
+  el.innerHTML = `<button class="close" aria-label="Close" data-close="inspect">✕</button>
+    <h2>${esc(b.sector || 'Building')}</h2><div class="sub" style="overflow-wrap:anywhere">${esc(b.id)}</div>
+    <dl class="kv"><dt>Observed</dt><dd>${esc(stateLabel(b.state))}</dd><dt>Use</dt><dd>${esc(b.use || '—')}</dd>
+    <dt>Height</dt><dd>${b.h.toFixed(1)} m${b.est ? ' (estimated)' : ''}</dd><dt>Floors</dt><dd>${b.floors ?? '—'}</dd></dl>
+    ${p ? `<div class="sub" style="margin:0 0 4px">Next 2 years${ui.scenario ? ' — scenario; yellow tick = baseline' : ''}</div>${probRows(p, base, b.state)}` : '<div class="note">No forecast for this building.</div>'}`;
+}
+
+function kpiRows(horizon) {
+  const find = (f, k) => f?.kpis.find((x) => x.kpi === k && x.year_offset === horizon);
+  const keys = [...new Set((DATA.forecast?.kpis ?? []).map((k) => k.kpi))];
+  return keys.map((k) => ({ k, base: find(DATA.forecast, k), scen: find(ui.scenario?.forecast, k) })).filter((r) => r.base);
+}
+function renderDock() {
+  const dock = $('dock');
+  if (!DATA.forecast) { dock.innerHTML = '<span class="empty">No forecast embedded — export with <code>--forecast</code> to see KPI bands.</span>'; return; }
+  const horizons = [...new Set(DATA.forecast.kpis.map((k) => k.year_offset))].sort((a, b) => a - b);
+  if (!horizons.includes(ui.horizon)) ui.horizon = horizons[0];
+  const rows = kpiRows(ui.horizon);
+  const tiles = KPI_TILES.map((k) => rows.find((r) => r.k === k)).filter(Boolean).map(({ k, base, scen }) => {
+    const shown = scen ?? base;
+    const delta = scen ? scen.p50 - base.p50 : null;
+    const dabs = base.unit === 'ratio' ? `${(Math.abs(delta) * 100).toFixed(1)} pts` : fmt(Math.abs(delta ?? 0), base.unit);
+    const dtxt = delta === null ? '' : `<small>${Math.abs(delta) < 1e-9 ? '±0' : (delta > 0 ? '+' : '−') + dabs}</small>`;
+    return `<div class="kpi" style="--kpi-rule:${KPI_RULE[k] || '#fff'}"><div class="l">${esc(KPI_LABELS[k] || k)}</div>
+      <div class="v">${fmt(shown.p50, base.unit)}${dtxt}</div><div class="r">${fmt(shown.p05, base.unit)} – ${fmt(shown.p95, base.unit)}</div></div>`;
+  }).join('');
+  dock.innerHTML = `<div class="seg" role="group" aria-label="Horizon">${horizons.map((h) => `<button data-h="${h}" aria-pressed="${h === ui.horizon}">+${h}y</button>`).join('')}</div>${tiles}
+    <button class="more" id="more">All KPIs</button>`;
+  renderKpiTable();
+}
+function renderKpiTable() {
+  const el = $('p-kpis');
+  if (el.hidden || !DATA.forecast) return;
+  const rows = kpiRows(ui.horizon);
+  const scen = !!ui.scenario;
+  el.innerHTML = `<button class="close" aria-label="Close" data-close="kpis">✕</button><h2>KPIs at +${ui.horizon} years</h2>
+    <div class="sub">Median with 90% band across Monte Carlo draws</div>
+    <table class="kpis"><thead><tr><th>KPI</th><th>Baseline</th>${scen ? '<th>Scenario</th>' : ''}</tr></thead><tbody>
+    ${rows.map(({ k, base, scen: s }) => `<tr><td>${esc(KPI_LABELS[k] || k)}</td>
+      <td>${fmt(base.p50, base.unit)}<br><span style="color:var(--ink-3)">${fmt(base.p05, base.unit)}–${fmt(base.p95, base.unit)}</span></td>
+      ${scen ? `<td>${s ? `${fmt(s.p50, base.unit)}<br><span style="color:var(--ink-3)">${fmt(s.p05, base.unit)}–${fmt(s.p95, base.unit)}</span>` : '—'}</td>` : ''}</tr>`).join('')}
+    </tbody></table>`;
+}
+function renderInfo() {
+  const el = $('p-info');
+  if (el.hidden) return;
+  const f = ui.scenario?.forecast ?? DATA.forecast;
+  el.innerHTML = `<button class="close" aria-label="Close" data-close="info">✕</button><h2>About this view</h2>
+    <div class="sub">What is drawn and how far to trust it</div>
+    <dl class="kv"><dt>Snapshot</dt><dd>${esc(DATA.snapshot.id)}</dd><dt>As of</dt><dd>${esc(DATA.snapshot.as_of)}</dd>
+    <dt>Data version</dt><dd>${esc(DATA.snapshot.data_version)}</dd><dt>Drawn</dt><dd>${DATA.coverage.drawn.toLocaleString()}</dd>
+    <dt>No geometry</dt><dd>${DATA.coverage.missing_geometry.toLocaleString()}</dd><dt>Estimated height</dt><dd>${DATA.coverage.estimated_height.toLocaleString()}</dd>
+    ${f ? `<dt>Model</dt><dd>${esc(f.model_version)}</dd><dt>Out-of-distribution</dt><dd>${f.ood}</dd>${f.evidence_bundle_id ? `<dt>Evidence bundle</dt><dd>${esc(f.evidence_bundle_id)}</dd>` : ''}` : ''}</dl>
+    ${f?.warnings?.length ? `<ul class="warn-list">${f.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+    <div class="note">Forecasts are observational transition probabilities, not causal predictions. Scenario levers carry assumed effect sizes and are labelled assumption-based. ${esc(DATA.attribution)}</div>`;
+}
+function renderScenario() {
+  const el = $('p-scenario');
+  const s = ui.scenario;
+  if (!s) { el.hidden = true; return; }
+  el.hidden = false;
+  const c = s.compilation;
+  const allIssues = c.attempts.flatMap((a, i) => a.report.issues.map((x) => ({ ...x, attempt: i + 1 })));
+  const accepted = !!c.scenario;
+  const levers = accepted ? c.scenario.interventions : [];
+  el.innerHTML = `<button class="close" aria-label="Clear scenario" data-close="scenario">✕</button>
+    <h2>${accepted ? esc(c.scenario.scenario_id) : 'Scenario rejected'}</h2>
+    <div class="sub">${esc(c.request_text)}</div>
+    <div><span class="chip ${accepted ? 'ok' : 'hard'}">${accepted ? 'Validated' : 'Not runnable'}</span>
+      <span class="chip">${c.attempts.length} attempt${c.attempts.length > 1 ? 's' : ''}</span>
+      ${accepted ? `<span class="chip">${c.scenario.horizon_years}-year horizon</span>` : ''}</div>
+    ${levers.map((l, i) => `<div class="lever" data-lever="${i}"><div class="t"><span class="sw" style="width:10px;height:10px;border-radius:3px;background:${STATES[l.target_state].color}"></span>${esc(l.intervention_id)}</div>
+      <div class="m">→ ${esc(stateLabel(l.target_state))} · Δ log-odds ${l.log_odds_delta > 0 ? '+' : ''}${l.log_odds_delta} · step ${l.active_step} · ${l.object_ids.length.toLocaleString()} buildings</div>
+      <div class="m">Source: ${esc(l.effect_source)} · confidence ${esc(l.confidence_grade)}</div></div>`).join('')}
+    ${allIssues.map((x) => `<div class="issue ${x.severity}"><code>${esc(x.code)}</code> ${esc(x.message)}${c.attempts.length > 1 ? ` <span style="color:var(--ink-3)">(attempt ${x.attempt})</span>` : ''}</div>`).join('')}
+    ${accepted ? '<div class="note">Hover a lever to highlight the buildings it acts on.</div>' : ''}`;
+}
+
+function setLens(lens) {
+  ui.lens = lens;
+  history.replaceState(null, '', `#lens=${lens}`);
+  document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.lens === lens)));
+  renderLegend(); render();
+}
+function togglePanel(id, button, force) {
+  const el = $(id);
+  el.hidden = force === undefined ? !el.hidden : !force;
+  if (button) button.setAttribute('aria-pressed', String(!el.hidden));
+  if (id === 'p-legend') renderLegend();
+  if (id === 'p-kpis') renderKpiTable();
+  if (id === 'p-info') renderInfo();
+}
+
+async function runScenario(text) {
+  ui.busy = true; syncPrompt();
+  $('progress').textContent = 'Claude is drafting the scenario · the validator checks it · the engine forecasts…';
+  try {
+    const res = await fetch('/v1/viewer/scenario', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+    ui.scenario = { compilation: body.compilation, forecast: body.forecast };
+    updateDeltaScale();
+    ui.highlight = null;
+    $('progress').textContent = body.forecast ? 'Scenario forecast ready.' : 'The validator rejected the scenario — see why on the right.';
+    document.querySelector('[data-lens="delta"]').hidden = !body.forecast;
+    if (body.forecast) { setLens('delta'); focusOn(body.compilation.scenario.interventions.flatMap((l) => l.object_ids)); }
+  } catch (err) {
+    $('progress').textContent = `Could not run scenario: ${err.message}`;
+  } finally {
+    ui.busy = false; syncPrompt(); renderAll();
+  }
+}
+function syncPrompt() {
+  const q = $('q'), go = $('go');
+  const live = !!DATA.api;
+  q.disabled = !live || ui.busy;
+  q.placeholder = live ? 'Tell the city what happens… e.g. “Push stalled buildings in Mar Mikhael toward renovation”' : 'Run `dynacity serve --snapshot … --bbed …` to describe scenarios here';
+  go.disabled = !live || ui.busy;
+  go.innerHTML = ui.busy ? '<span class="spin" aria-hidden="true"></span>' : '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+}
+function renderAll() { renderStatus(); renderLegend(); renderDock(); renderInspector(); renderScenario(); renderInfo(); render(); }
+
+function wire() {
+  document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => setLens(t.dataset.lens)));
+  const tabs = [...document.querySelectorAll('.tab')];
+  document.querySelector('.tabs').addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const vis = tabs.filter((t) => !t.hidden), i = vis.indexOf(document.activeElement);
+    const next = vis[(i + (e.key === 'ArrowRight' ? 1 : vis.length - 1)) % vis.length];
+    next.focus(); setLens(next.dataset.lens);
+  });
+  $('t-reset').onclick = () => { ui.topDown = false; $('t-2d').setAttribute('aria-pressed', 'false'); flyTo({}); };
+  $('t-2d').onclick = () => { ui.topDown = !ui.topDown; $('t-2d').setAttribute('aria-pressed', String(ui.topDown)); flyTo(ui.topDown ? { pitch: 0, bearing: 0 } : {}); };
+  $('t-legend').onclick = (e) => togglePanel('p-legend', e.currentTarget);
+  $('t-kpis').onclick = (e) => togglePanel('p-kpis', e.currentTarget);
+  $('t-info').onclick = (e) => togglePanel('p-info', e.currentTarget);
+  document.addEventListener('click', (e) => {
+    const h = e.target.closest('[data-h]');
+    if (h) { ui.horizon = Number(h.dataset.h); renderDock(); return; }
+    if (e.target.closest('#more')) { togglePanel('p-kpis', $('t-kpis'), true); return; }
+    const close = e.target.closest('[data-close]');
+    if (!close) return;
+    const which = close.dataset.close;
+    if (which === 'inspect') { ui.selected = null; renderInspector(); render(); }
+    if (which === 'kpis') togglePanel('p-kpis', $('t-kpis'), false);
+    if (which === 'info') togglePanel('p-info', $('t-info'), false);
+    if (which === 'scenario') {
+      ui.scenario = null; ui.highlight = null;
+      document.querySelector('[data-lens="delta"]').hidden = true;
+      if (ui.lens === 'delta') setLens('forecast');
+      $('progress').textContent = ''; renderAll();
+    }
+  });
+  $('p-scenario').addEventListener('mouseover', (e) => {
+    const card = e.target.closest('[data-lever]');
+    const lever = card && ui.scenario?.compilation.scenario?.interventions[Number(card.dataset.lever)];
+    const next = lever ? new Set(lever.object_ids.length ? lever.object_ids : DATA.buildings.map((b) => b.id)) : null;
+    if (next !== ui.highlight) { ui.highlight = next; render(); }
+  });
+  $('p-scenario').addEventListener('mouseleave', () => { ui.highlight = null; render(); });
+  $('prompt').addEventListener('submit', (e) => { e.preventDefault(); const t = $('q').value.trim(); if (t && !ui.busy) runScenario(t); });
+  addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.selected) { ui.selected = null; renderInspector(); render(); } });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
+}
+
+if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
+  $('empty').hidden = false;
+  document.querySelector('.chrome').hidden = true;
+  if (DATA && typeof deck === 'undefined') $('empty').querySelector('p').textContent = 'The 3D library could not load. Check your connection and reload.';
+} else {
+  $('attrib').textContent = [DATA.attribution, DATA.basemap?.attribution].filter(Boolean).join(' ');
+  if (!DATA.forecast) document.querySelectorAll('[data-lens="forecast"],[data-lens="change"]').forEach((t) => (t.hidden = true));
+  // On phones the legend starts collapsed so the city stays visible.
+  if (innerWidth < 760) togglePanel('p-legend', $('t-legend'), false);
+  wire(); syncPrompt(); initScene(); renderAll();
+  const hashLens = new URLSearchParams(location.hash.slice(1)).get('lens');
+  const tab = hashLens && document.querySelector(`.tab[data-lens="${CSS.escape(hashLens)}"]:not([hidden])`);
+  if (tab) setLens(hashLens);
+}
+</script>
+</body>
+</html>

@@ -17,6 +17,18 @@ The core contribution is a versioned urban-state forecasting boundary that combi
 
 BBED polygons remain the canonical building boundaries. Point-cloud-derived watershed instances are useful for detection QA, but attached Beirut buildings cannot be reliably split at party walls from geometry alone.
 
+## Screenshots
+
+These come from running the whole pipeline on the public BBED layer (3,349 buildings, snapshot as of 2024-04-30). The benchmark selected the Markov model, and this is the business-as-usual forecast rendered with `dynacity export-viewer`.
+
+| Observed state (2024) | Most likely state in 2 years |
+| --- | --- |
+| ![Observed state lens](docs/screenshots/viewer-01-observed.jpg) | ![Forecast +2y lens](docs/screenshots/viewer-02-forecast.jpg) |
+| **Chance of leaving the current state** | **All KPIs, p50 with p05–p95 band** |
+| ![Change-risk lens](docs/screenshots/viewer-03-change.jpg) | ![KPI table](docs/screenshots/viewer-04-kpis.jpg) |
+| **About this view (provenance and OOD score)** | **HTTP API (`dynacity serve`)** |
+| ![About panel](docs/screenshots/viewer-05-about.jpg) | ![OpenAPI docs](docs/screenshots/api-docs.png) |
+
 ## Point-cloud provenance
 
 The 2020 point-cloud capture is **photogrammetric (structure-from-motion), not laser-scanned LiDAR**, despite being packaged in `.las` files. Point-level inspection of the source data confirms this: intensity is constant `0` and return number/number-of-returns are always `1` across sampled points — real LiDAR sensors report varying reflectance and, often, multiple returns. The accompanying mesh deliverables carry a glTF `generator` tag of `Agisoft Metashape`, a photogrammetry reconstruction tool; PDAL was used only to export the reconstructed cloud into the `.las` container. Code, CLI flags (`--lidar-features`, `--lidar-year`), and dataframe columns (`lidar_available`, `lidar_acquisition_year`) keep the `lidar` name for continuity with the existing panel/API contract, but functionally they gate on "2020 point-cloud modality available," not on laser LiDAR specifically. The temporal-leakage logic (`panel.assert_no_temporal_leakage`) is unaffected by this distinction — it still correctly forbids the 2020 point-cloud modality from 2018→2022 training rows.
@@ -105,7 +117,33 @@ python -m pip install -e '.[dev]'
    dynacity forecast --model C:\private\forecast.joblib --request request.json --output C:\private\forecast.json
    ```
 
-8. Serve the same model through HTTP:
+   Or write the scenario in plain language and let the compiler draft and check it. It needs one language-model provider: `pip install -e '.[gemini]'` with `GEMINI_API_KEY` set, or `pip install -e '.[llm]'` with `ANTHROPIC_API_KEY` (pick explicitly with `--provider gemini|anthropic` and `--llm-model`). Keep keys in your environment or keychain, never in the repository:
+
+   ```powershell
+   dynacity compile-scenario --snapshot C:\private\snapshot.json --text "Under Law 194/2020, push stalled buildings in Mar Mikhael toward renovation over six years." --output C:\private\compile-report.json --request-output C:\private\request.json
+   ```
+
+   Cite curated evidence instead of free text by freezing a registry (see `examples/evidence_registry.example.json`) and passing it to the compiler:
+
+   ```powershell
+   dynacity freeze-evidence --registry C:\private\evidence.json --as-of 2024-04-30 --output C:\private\evidence-bundle.json
+   dynacity compile-scenario --snapshot C:\private\snapshot.json --text-file scenario.txt --evidence C:\private\evidence-bundle.json --output C:\private\compile-report.json --request-output C:\private\request.json
+   ```
+
+8. Backcast and explore trade-offs: give candidate levers, KPI targets, and objectives, and get the least-intervention combinations that meet the targets plus the Pareto front:
+
+   ```powershell
+   dynacity plan --model C:\private\forecast.joblib --request plan-request.json --output C:\private\plan.json
+   ```
+
+9. Look at it in 3D. Export a static page, or serve it with a live scenario prompt:
+
+   ```powershell
+   dynacity export-viewer --bbed C:\private\bbed.geojson --snapshot C:\private\snapshot.json --forecast C:\private\forecast.json --output C:\private-artifacts\viewer.html
+   dynacity serve --model C:\private\forecast.joblib --snapshot C:\private\snapshot.json --bbed C:\private\bbed.geojson --evidence C:\private\evidence-bundle.json
+   ```
+
+10. Serve the same model through HTTP (`/v1/forecast`, `/v1/plan`, `/v1/scenarios/compile`):
 
    ```powershell
    dynacity serve --model C:\private\forecast.joblib

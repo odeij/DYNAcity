@@ -145,6 +145,9 @@ class ScenarioSpec(BaseModel):
     horizon_years: Literal[2, 4, 6] = 2
     interventions: list[TransitionAdjustment] = Field(default_factory=list)
     requested_kpis: list[str] = Field(default_factory=list)
+    # Id of the frozen `evidence.EvidenceBundle` that `evidence:` effect
+    # sources refer to. Optional so existing scenario files stay valid.
+    evidence_bundle_id: str | None = None
 
 
 class ForecastRequest(BaseModel):
@@ -211,4 +214,5 @@ class ForecastResult(BaseModel):
     kpis: list[KpiEstimate]
     out_of_distribution_score: float = Field(ge=0.0, le=1.0)
     warnings: list[str] = Field(default_factory=list)
+    evidence_bundle_id: str | None = None
 

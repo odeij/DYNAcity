@@ -37,8 +37,12 @@ CLI entry point `dynacity` (`src/dynacity/cli.py`, registered via `[project.scri
 - `dynacity summarize-transitions --panel --output [--start-year --target-year]` — descriptive interval summary (default 2018→2024; excluded from the model benchmark)
 - `dynacity build-snapshot --bbed --snapshot-id --data-version --output`
 - `dynacity train --panel --output` — runs `temporal_benchmark`, writes the selected `ModelBundle` + a sibling `.metrics.json`
+- `dynacity compile-scenario --snapshot --text|--text-file --output [--request-output] [--provider anthropic|gemini --llm-model]` — planner prose → LLM draft → deterministic check (`scenario_compiler.check_draft`) → `ScenarioSpec`; providers in `providers.py` (`llm` extra + `ANTHROPIC_API_KEY`, or `gemini` extra + `GEMINI_API_KEY`)
+- `dynacity freeze-evidence --registry --as-of --output` — curated source registry → content-hashed `evidence.EvidenceBundle`; `compile-scenario --evidence` lets levers cite it
 - `dynacity forecast --model --request --output`
-- `dynacity serve --model [--host --port]` — FastAPI app via uvicorn
+- `dynacity plan --model --request --output` — `planning.plan`: backcast (least-intensive lever combination meeting KPI targets) + Pareto front, by enumerating/sampling lever settings through `ForecastEngine`
+- `dynacity export-viewer --bbed --snapshot [--forecast] --output` — self-contained deck.gl 3D page (`viewer.py` + `viewer_template.html`)
+- `dynacity serve --model [--snapshot --bbed --forecast --evidence] [--host --port]` — FastAPI app via uvicorn; with `--snapshot --bbed` it also serves the live 3D viewer at `/` and `/v1/viewer/scenario`
 
 ## Private data boundary
 
@@ -60,5 +64,7 @@ Data flow: allowlisted BBED snapshot → canonical temporal panel → temporal b
 **Shared contracts** (`contracts.py`, pydantic models with `extra="forbid"`) are the JSON schema used identically by the CLI, `ForecastEngine`, and the FastAPI `service.py`: `ForecastRequest` (a `UrbanStateSnapshot` + `ScenarioSpec` with `TransitionAdjustment` interventions) in, `ForecastResult` (first-step transitions + KPI bands + `out_of_distribution_score` + warnings) out. Scenario interventions shift target-state log-odds for explicit objects/states and require an `effect_source` + `confidence_grade`; this is sensitivity analysis, not a causal estimator — `ForecastResult.evidence_level` distinguishes `empirical_bau` from `assumption_based_scenario` accordingly.
 
 **Object identity**: each object gets a composite ID from `BULBuildingID` + ArcGIS `OBJECTID` (`bbed.resolved_object_ids`), preserving duplicate building IDs and keeping point-cloud features joinable to BBED subsets extracted from a spatial bounding box.
+
+**Scenario front end** (all optional, all downstream of the engine): `scenario_compiler.py` has an LLM draft a `ScenarioDraft` that deterministic code checks and resolves (scope, effect size from `EFFECT_STRENGTH_LOG_ODDS`, provenance quoted/cited/unsourced) — the model never sets numbers or scope. `evidence.py` freezes citable sources. `planning.py` searches lever combinations for backcasts and Pareto fronts. `viewer.py` renders the 3D page; it must never embed per-object `features`. Only aggregate allowlisted BBED attributes are sent to the LLM.
 
 Full design detail (status taxonomy table, evaluation gate, KPI list, known limitations) lives in `docs/forecasting-engine.md`.

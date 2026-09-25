@@ -287,5 +287,6 @@ class ForecastEngine:
             kpis=estimates,
             out_of_distribution_score=ood,
             warnings=warnings,
+            evidence_bundle_id=request.scenario.evidence_bundle_id,
         )
 

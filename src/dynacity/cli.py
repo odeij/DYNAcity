@@ -10,9 +10,13 @@ files rather than in-process state:
     build-panel     → transition panel CSV
     summarize-transitions → descriptive interval JSON (never modelled)
     build-snapshot  → present-state snapshot JSON
+    freeze-evidence → registry JSON → content-hashed EvidenceBundle
+    compile-scenario→ planner prose → checked ScenarioSpec + audit trail
     train           → ModelBundle + sibling .metrics.json
     forecast        → ForecastResult JSON
-    serve           → the same forecast over HTTP
+    plan            → backcast + Pareto front over lever combinations
+    export-viewer   → self-contained 3D HTML of footprints, states, forecasts
+    serve           → the same forecast over HTTP (+ live 3D viewer at /)
 
 Keeping the boundaries on disk means each stage is independently inspectable and
 re-runnable — the panel can be examined before training, the metrics before
@@ -32,8 +36,9 @@ from pathlib import Path
 import pandas as pd
 
 from .bbed import BBEDClient, write_snapshot
-from .contracts import ForecastRequest
+from .contracts import ForecastRequest, ForecastResult, ScenarioSpec, UrbanStateSnapshot
 from .engine import ForecastEngine
+from .evidence import EvidenceBundle, EvidenceRegistry, freeze_bundle, verify_bundle
 from .features import extract_building_features, load_points
 from .las import (
     LASHeader,
@@ -43,8 +48,12 @@ from .las import (
 )
 from .models import ModelBundle, temporal_benchmark
 from .panel import PanelBuilder, assert_no_temporal_leakage
+from .planning import PlanningRequest, plan
+from .providers import resolve_provider
+from .scenario_compiler import compile_scenario
 from .service import create_app
 from .snapshot import snapshot_from_bbed
+from .viewer import build_viewer_payload, render_viewer
 from .transitions import summarize_interval
 
 
@@ -203,11 +212,112 @@ def command_forecast(args: argparse.Namespace) -> None:
     print(f"forecast -> {args.output}")
 
 
+def command_freeze_evidence(args: argparse.Namespace) -> None:
+    registry = EvidenceRegistry.model_validate(_json(args.registry))
+    bundle = freeze_bundle(registry, date.fromisoformat(args.as_of))
+    _write_json(args.output, bundle.model_dump(mode="json"))
+    unverified = [s.source_id for s in bundle.sources if not s.verified]
+    print(f"evidence bundle {bundle.bundle_id} ({len(bundle.sources)} sources) -> {args.output}")
+    if unverified:
+        print(f"  unverified sources cap citing levers at low confidence: {unverified}")
+
+
+def _load_bundle(path: str | None) -> EvidenceBundle | None:
+    if not path:
+        return None
+    bundle = EvidenceBundle.model_validate(_json(path))
+    if not verify_bundle(bundle):
+        raise SystemExit(f"evidence bundle {path} does not match its content hash; re-freeze it")
+    return bundle
+
+
+def command_compile_scenario(args: argparse.Namespace) -> None:
+    snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
+    text = args.text if args.text is not None else Path(args.text_file).read_text(encoding="utf-8")
+    result = compile_scenario(
+        text,
+        snapshot,
+        provider=resolve_provider(args.provider, args.llm_model),
+        max_repairs=args.max_repairs,
+        evidence=_load_bundle(args.evidence),
+    )
+    _write_json(args.output, result.model_dump(mode="json"))
+    print(f"compilation report -> {args.output}")
+    for attempt in result.attempts:
+        for issue in attempt.report.issues:
+            print(f"  [{issue.severity}] {issue.code}: {issue.message}")
+    if not result.ok:
+        raise SystemExit("scenario rejected; see the report for every attempt")
+    if args.request_output:
+        request = ForecastRequest(snapshot=snapshot, scenario=result.scenario)
+        _write_json(args.request_output, request.model_dump(mode="json"))
+        print(f"forecast request -> {args.request_output}")
+
+
+def command_plan(args: argparse.Namespace) -> None:
+    engine = ForecastEngine(ModelBundle.load(args.model))
+    result = plan(engine, PlanningRequest.model_validate(_json(args.request)))
+    _write_json(args.output, result.model_dump(mode="json"))
+    print(
+        f"plan -> {args.output} ({result.evaluated} of {result.space_size} combinations, "
+        f"{result.search}; front {len(result.pareto_front)}, backcast {result.backcast})"
+    )
+
+
+def command_export_viewer(args: argparse.Namespace) -> None:
+    snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
+    forecast = ForecastResult.model_validate(_json(args.forecast)) if args.forecast else None
+    payload = build_viewer_payload(_json(args.bbed), snapshot, forecast, basemap=args.basemap)
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(render_viewer(payload), encoding="utf-8")
+    coverage = payload["coverage"]
+    print(f"viewer -> {args.output} ({coverage['drawn']} buildings drawn, "
+          f"{coverage['missing_geometry']} without geometry)")
+
+
+def _business_as_usual(engine: ForecastEngine, snapshot: UrbanStateSnapshot) -> ForecastResult:
+    return engine.forecast(ForecastRequest(
+        snapshot=snapshot,
+        scenario=ScenarioSpec(scenario_id="business-as-usual", baseline_snapshot_id=snapshot.snapshot_id, horizon_years=6),
+        draws=300,
+    ))
+
+
 def command_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
     engine = ForecastEngine(ModelBundle.load(args.model))
-    uvicorn.run(create_app(engine), host=args.host, port=args.port)
+    viewer_html = snapshot = None
+    if args.snapshot:
+        snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
+    if args.bbed:
+        if snapshot is None:
+            raise SystemExit("--bbed needs --snapshot so footprints can be joined to states")
+        baseline = (
+            ForecastResult.model_validate(_json(args.forecast))
+            if args.forecast
+            else _business_as_usual(engine, snapshot)
+        )
+        viewer_html = render_viewer(
+            build_viewer_payload(_json(args.bbed), snapshot, baseline, api=True, basemap=args.basemap)
+        )
+        print(f"3D viewer at http://{args.host}:{args.port}/")
+    provider = None
+    if snapshot is not None:
+        try:
+            provider = resolve_provider(args.provider, args.llm_model)
+            print(f"scenario prompts use {provider.name}:{provider.model}")
+        except Exception as exc:  # missing SDK or key; the rest of the server still runs
+            print(f"scenario prompts disabled until a key is set: {exc}")
+    app = create_app(
+        engine,
+        scenario_provider=provider,
+        viewer_html=viewer_html,
+        viewer_snapshot=snapshot,
+        evidence=_load_bundle(args.evidence),
+    )
+    uvicorn.run(app, host=args.host, port=args.port)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -270,14 +380,54 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--data-version", default="BBED-2018-2024")
     train.set_defaults(func=command_train)
 
+    freeze = subparsers.add_parser("freeze-evidence")
+    freeze.add_argument("--registry", required=True)
+    freeze.add_argument("--as-of", required=True)
+    freeze.add_argument("--output", required=True)
+    freeze.set_defaults(func=command_freeze_evidence)
+
+    compile_parser = subparsers.add_parser("compile-scenario")
+    compile_parser.add_argument("--snapshot", required=True)
+    source = compile_parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--text")
+    source.add_argument("--text-file")
+    compile_parser.add_argument("--output", required=True)
+    compile_parser.add_argument("--request-output")
+    compile_parser.add_argument("--evidence")
+    compile_parser.add_argument("--provider", choices=["anthropic", "gemini"])
+    compile_parser.add_argument("--llm-model")
+    compile_parser.add_argument("--max-repairs", type=int, default=1)
+    compile_parser.set_defaults(func=command_compile_scenario)
+
     forecast = subparsers.add_parser("forecast")
     forecast.add_argument("--model", required=True)
     forecast.add_argument("--request", required=True)
     forecast.add_argument("--output", required=True)
     forecast.set_defaults(func=command_forecast)
 
+    plan_parser = subparsers.add_parser("plan")
+    plan_parser.add_argument("--model", required=True)
+    plan_parser.add_argument("--request", required=True)
+    plan_parser.add_argument("--output", required=True)
+    plan_parser.set_defaults(func=command_plan)
+
+    viewer = subparsers.add_parser("export-viewer")
+    viewer.add_argument("--bbed", required=True)
+    viewer.add_argument("--snapshot", required=True)
+    viewer.add_argument("--forecast")
+    viewer.add_argument("--output", required=True)
+    viewer.add_argument("--basemap", choices=["carto", "none"], default="carto")
+    viewer.set_defaults(func=command_export_viewer)
+
     serve = subparsers.add_parser("serve")
     serve.add_argument("--model", required=True)
+    serve.add_argument("--snapshot")
+    serve.add_argument("--bbed")
+    serve.add_argument("--forecast")
+    serve.add_argument("--evidence")
+    serve.add_argument("--basemap", choices=["carto", "none"], default="carto")
+    serve.add_argument("--provider", choices=["anthropic", "gemini"])
+    serve.add_argument("--llm-model")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
     serve.set_defaults(func=command_serve)
