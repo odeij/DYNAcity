@@ -103,6 +103,7 @@ button { cursor: pointer; touch-action: manipulation; }
 .rail button:hover { background: var(--control-hover); }
 .rail button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.9); color: var(--tab-on-ink); }
 .rail svg { width: 19px; height: 19px; }
+.rail button[hidden] { display: none; }
 
 /* right column */
 .side { position: absolute; top: calc(var(--edge) + 54px); right: var(--edge); bottom: 190px; width: min(320px, calc(100vw - 2 * var(--edge))); display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
@@ -143,6 +144,8 @@ button { cursor: pointer; touch-action: manipulation; }
 .lever .t { font-weight: 600; margin-bottom: 3px; display: flex; gap: 6px; align-items: center; }
 .lever .m { color: var(--ink-3); font-size: 11.5px; overflow-wrap: anywhere; }
 .warn-list { margin: 8px 0 0; padding-left: 16px; color: var(--ink-2); font-size: 11.5px; }
+.answer-text { margin: 8px 0; font-size: 13px; line-height: 1.45; }
+.lever[data-obj], .lever[data-sector] { cursor: pointer; }
 
 /* bottom: prompt + dock */
 .bottom { position: absolute; left: 50%; bottom: var(--edge); transform: translateX(-50%); width: min(1000px, calc(100vw - 2 * var(--edge))); display: grid; gap: 10px; }
@@ -154,6 +157,9 @@ button { cursor: pointer; touch-action: manipulation; }
 .prompt .go { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.5); background: rgba(255, 255, 255, 0.22); color: #fff; }
 .prompt .go:hover:not(:disabled) { background: rgba(255, 255, 255, 0.34); }
 .prompt .go:disabled { opacity: 0.45; cursor: not-allowed; }
+.prompt .seg { background: rgba(255, 255, 255, 0.12); }
+.prompt .seg button { padding: 4px 10px; }
+.prompt .seg[hidden] { display: none; }
 .prompt .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.35); border-top-color: #fff; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .progress { justify-self: start; font-size: 12px; color: var(--ink); padding: 5px 12px; border-radius: 999px; background: rgba(34, 62, 83, 0.72); border: 1px solid var(--rim); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
@@ -177,6 +183,7 @@ table.kpis td { text-align: right; padding: 5px 0 5px 10px; border-top: 1px soli
 .attrib { margin-top: -4px; font-size: 10px; color: rgba(30, 50, 70, 0.72); text-align: center; pointer-events: none; }
 :root[data-theme="dark"] .attrib { color: rgba(220, 235, 248, 0.6); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .attrib { color: rgba(220, 235, 248, 0.6); } }
+:root[data-satellite] .attrib { color: rgba(240, 247, 252, 0.85); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
 
 /* hover card */
 .tip { position: absolute; z-index: 30; pointer-events: none; min-width: 200px; max-width: 260px; padding: 10px 12px; border-radius: 14px; background: var(--glass-solid); border: 1px solid var(--rim); box-shadow: var(--glass-shadow); font-size: 12px; }
@@ -221,12 +228,14 @@ table.kpis td { text-align: right; padding: 5px 0 5px 10px; border-top: 1px soli
   <nav class="rail glass" aria-label="View tools">
     <button id="t-reset" title="Reset view" aria-label="Reset view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
     <button id="t-2d" title="Top-down view" aria-label="Top-down view" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg></button>
+    <button id="t-sat" title="Satellite view" aria-label="Satellite view" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/><circle cx="15.5" cy="9" r="1.5"/></svg></button>
     <button id="t-legend" title="Legend" aria-label="Legend" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg></button>
     <button id="t-kpis" title="All KPIs table" aria-label="All KPIs table" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
     <button id="t-info" title="About this forecast" aria-label="About this forecast" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg></button>
   </nav>
 
   <aside class="side" aria-live="polite">
+    <section class="panel glass" id="p-answer" hidden></section>
     <section class="panel glass" id="p-scenario" hidden></section>
     <section class="panel glass" id="p-inspect" hidden></section>
     <section class="panel glass" id="p-kpis" hidden></section>
@@ -238,6 +247,10 @@ table.kpis td { text-align: right; padding: 5px 0 5px 10px; border-top: 1px soli
     <div class="progress" id="progress"></div>
     <form class="prompt glass" id="prompt" autocomplete="off">
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11 2.5 12.6 8a3 3 0 0 0 2 2l5.4 1.5-5.4 1.6a3 3 0 0 0-2 2L11 20.5l-1.6-5.4a3 3 0 0 0-2-2L2 11.5 7.4 10a3 3 0 0 0 2-2zM19 2l.7 2.3L22 5l-2.3.7L19 8l-.7-2.3L16 5l2.3-.7z"/></svg>
+      <div class="seg" id="mode" role="group" aria-label="Prompt mode" hidden>
+        <button type="button" data-mode="scenario" aria-pressed="true">Scenario</button>
+        <button type="button" data-mode="ask" aria-pressed="false">Ask</button>
+      </div>
       <input id="q" name="q" aria-label="Describe a scenario" maxlength="4000">
       <button class="go" id="go" type="submit" aria-label="Run scenario"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
     </form>
@@ -290,7 +303,12 @@ const pct = (v) => `${(v * 100).toFixed(v < 0.1 && v > 0 ? 1 : 0)}%`;
 const fmt = (v, unit) => unit === 'ratio' ? pct(v) : unit === 'm2' ? `${Math.round(v).toLocaleString()} m²` : unit === 'm' ? `${v.toFixed(1)} m` : Math.round(v).toLocaleString();
 const stateLabel = (s) => STATES[s]?.label ?? s;
 
-const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false };
+const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, mode: 'scenario', answer: null, answerIds: null, tilesFailed: false };
+// Photorealistic mode: Google 3D Tiles through the server's key-holding proxy,
+// with BBED footprints draped onto the mesh instead of extruded beside it.
+const GOOGLE = !!DATA?.basemap?.tiles_3d;
+const photoreal = () => GOOGLE && !ui.tilesFailed;
+const credits = new Set();
 
 function rampColor(t, stops = RAMP) {
   const x = Math.max(0, Math.min(1, t)) * (stops.length - 1);
@@ -336,7 +354,13 @@ function fill(b) {
   else if (ui.lens === 'change') { const p = activeP(b); rgb = p ? rampColor(leaveProb(p, b.state)) : hex(NO_DATA); }
   else { const d = deltaFor(b); rgb = d === null ? hex(NO_DATA) : divergeColor(d); }
   if (ui.selected === b.id) rgb = mix(rgb, [255, 255, 255], 0.45);
-  const dim = ui.highlight && !ui.highlight.has(b.id);
+  const focus = ui.highlight ?? ui.answerIds;
+  const dim = focus && !focus.has(b.id);
+  if (photoreal()) {
+    // Draped over real imagery: unchanged buildings only tint, so the photo stays readable.
+    const quiet = ui.lens === 'observed' && b.state === 'stable_built' && ui.selected !== b.id;
+    return [...rgb, dim ? 30 : quiet ? 60 : 205];
+  }
   return [...rgb, dim ? 70 : 255];
 }
 function elevation(b) {
@@ -348,17 +372,26 @@ let deckgl = null, map = null, home = null;
 const isDark = () => document.documentElement.dataset.theme === 'dark' || (document.documentElement.dataset.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
 
 // Spatial index of BBED footprints (≈110 m cells) so OpenStreetMap context
-// buildings sitting on a BBED footprint can be skipped instead of doubled.
+// buildings overlapping a BBED footprint can be skipped instead of doubled.
 const CELL = 0.001;
 const footprintIndex = new Map();
+const centroid = (ring) => ring.reduce((a, p) => [a[0] + p[0] / ring.length, a[1] + p[1] / ring.length], [0, 0]);
+function ringBox(ring) {
+  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+  for (const [x, y] of ring) { w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y); }
+  return [w, s, e, n];
+}
+function cellKeys([w, s, e, n]) {
+  const keys = [];
+  for (let i = Math.floor(w / CELL); i <= Math.floor(e / CELL); i++) for (let j = Math.floor(s / CELL); j <= Math.floor(n / CELL); j++) keys.push(`${i}:${j}`);
+  return keys;
+}
 function indexFootprints() {
   for (const b of DATA.buildings) for (const ring of b.rings) {
-    let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
-    for (const [x, y] of ring) { w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y); }
-    for (let i = Math.floor(w / CELL); i <= Math.floor(e / CELL); i++) for (let j = Math.floor(s / CELL); j <= Math.floor(n / CELL); j++) {
-      const key = `${i}:${j}`;
+    const entry = { ring, c: centroid(ring) };
+    for (const key of cellKeys(ringBox(ring))) {
       if (!footprintIndex.has(key)) footprintIndex.set(key, []);
-      footprintIndex.get(key).push(ring);
+      footprintIndex.get(key).push(entry);
     }
   }
 }
@@ -370,13 +403,34 @@ function inRing([x, y], ring) {
   }
   return inside;
 }
-function coveredByBbed(feature) {
-  const g = feature.geometry;
-  const ring = g.type === 'Polygon' ? g.coordinates[0] : g.type === 'MultiPolygon' ? g.coordinates[0][0] : null;
-  if (!ring) return false;
-  const c = ring.reduce((a, p) => [a[0] + p[0] / ring.length, a[1] + p[1] / ring.length], [0, 0]);
-  const cands = footprintIndex.get(`${Math.floor(c[0] / CELL)}:${Math.floor(c[1] / CELL)}`) || [];
-  return cands.some((r) => inRing(c, r));
+// deck.gl hands MVT features to sub-layers in tile-local [0, 1] coordinates
+// (y down, Web Mercator) whatever `loadOptions` ask for, so map them back to
+// lon/lat through the tile's bounds before comparing with BBED footprints.
+function tileToLngLat({ west, north, east, south }) {
+  const merc = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+  const yN = merc(north), yS = merc(south);
+  return ([x, y]) => [west + x * (east - west), (360 / Math.PI) * Math.atan(Math.exp(yN + y * (yS - yN))) - 90];
+}
+// Overlap, not just a shared centre: probe the OSM outline's centre and each
+// corner pulled a third of the way inwards (so a shared party wall doesn't
+// count), and also catch an OSM outline that swallows a whole BBED footprint.
+function coveredByBbed(ring) {
+  const c = centroid(ring);
+  const probes = [c, ...ring.map(([x, y]) => [x + (c[0] - x) / 3, y + (c[1] - y) / 3])];
+  const cands = new Set(cellKeys(ringBox(ring)).flatMap((key) => footprintIndex.get(key) || []));
+  for (const f of cands) if (inRing(f.c, ring) || probes.some((p) => inRing(p, f.ring))) return true;
+  return false;
+}
+// CARTO packs a tile's buildings into a few MultiPolygons (thousands of parts
+// each), so split them and keep each building only if it clears BBED.
+function contextBuildings(features, tile) {
+  const toLngLat = tileToLngLat(tile.bbox);
+  return features.filter((f) => f.properties?.hide_3d !== true).flatMap((f) => {
+    const g = f.geometry;
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+    return polys.filter((poly) => !coveredByBbed(poly[0].map(toLngLat)))
+      .map((poly) => ({ type: 'Feature', properties: f.properties, geometry: { type: 'Polygon', coordinates: poly } }));
+  });
 }
 
 // Open on the densest ~600 m of surveyed buildings, the way God's Plan opens
@@ -402,7 +456,52 @@ function lighting() {
 }
 const MATERIAL = { ambient: 0.42, diffuse: 0.62, shininess: 24, specularColor: [70, 76, 84] };
 
+function googleLayers() {
+  return [
+    new deck.Tile3DLayer({
+      id: 'google-3d', data: DATA.basemap.tiles_3d, operation: 'terrain+draw',
+      // A failed root request (no key, quota, network) switches the page to
+      // plain extruded buildings instead of leaving an empty scene.
+      loadOptions: { fetch: async (url, init) => {
+        const res = await fetch(url, init);
+        if (!res.ok && String(url).includes('root.json')) {
+          let msg = `HTTP ${res.status}`;
+          try { msg = (await res.clone().json()).detail || msg; } catch (err) { /* not JSON */ }
+          tilesUnavailable(msg);
+        }
+        return res;
+      } },
+      // Google's terms: show the data providers of the tiles on screen.
+      onTilesetLoad: (tileset) => {
+        tileset.options.onTraversalComplete = (selected) => {
+          const next = new Set();
+          for (const t of selected) for (const c of (t.content?.gltf?.asset?.copyright || '').split(';')) if (c.trim()) next.add(c.trim());
+          if ([...next].join() !== [...credits].join()) { credits.clear(); next.forEach((c) => credits.add(c)); $('attrib').textContent = attribution(); }
+          return selected;
+        };
+      },
+    }),
+    new deck.SolidPolygonLayer({
+      id: 'buildings-draped',
+      data: DATA.buildings.flatMap((b) => b.rings.map((ring) => ({ b, ring }))),
+      getPolygon: (d) => d.ring, extruded: false, getFillColor: (d) => fill(d.b),
+      pickable: true, autoHighlight: true, highlightColor: [255, 255, 255, 110],
+      extensions: [new deck._TerrainExtension()],
+      updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario] },
+    }),
+  ];
+}
+function tilesUnavailable(msg) {
+  if (ui.tilesFailed) return;
+  ui.tilesFailed = true;
+  document.documentElement.toggleAttribute('data-satellite', false);
+  $('progress').textContent = `Photorealistic tiles unavailable (${msg}) — showing plain 3D buildings.`;
+  $('attrib').textContent = attribution();
+  render();
+}
+
 function layers() {
+  if (photoreal()) return googleLayers();
   const out = [];
   if (!map) {
     // No basemap: a plain ground slab under the survey extent.
@@ -411,13 +510,13 @@ function layers() {
       id: 'ground', data: [[[w - pad, s - pad], [e + pad, s - pad], [e + pad, n + pad], [w - pad, n + pad]]],
       getPolygon: (d) => d, getFillColor: isDark() ? [58, 70, 80] : [221, 228, 224], material: false,
     }));
-  } else if (DATA.basemap?.context_tiles) {
+  } else if (DATA.basemap?.context_tiles && !ui.satellite) {
     out.push(new deck.MVTLayer({
       id: 'context', data: DATA.basemap.context_tiles, minZoom: 13, maxZoom: 14, binary: false,
-      loadOptions: { mvt: { layers: ['building'], coordinates: 'wgs84' } },
+      loadOptions: { mvt: { layers: ['building'] } },
       renderSubLayers: (props) => new deck.GeoJsonLayer({
         ...props,
-        data: (props.data || []).filter((f) => f.properties?.hide_3d !== true && !coveredByBbed(f)),
+        data: contextBuildings(props.data || [], props.tile),
         extruded: true, stroked: false, filled: true, pickable: false,
         getElevation: (f) => Math.max(Number(f.properties?.render_height) || 6, 3),
         getFillColor: isDark() ? [92, 104, 116, 235] : [...CONTEXT_RGB, 235], material: MATERIAL,
@@ -431,9 +530,35 @@ function layers() {
     pickable: true, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL,
     // No colour transition: an interrupted fade can leave a lens showing the
     // previous lens's colours, and a data view must never show stale values.
-    updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.scenario], getElevation: [ui.lens] },
+    updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario], getElevation: [ui.lens] },
   }));
   return out;
+}
+function attribution() {
+  if (GOOGLE) return [DATA.attribution, photoreal() && ['Google', ...credits].join(' · ')].filter(Boolean).join(' ');
+  return [DATA.attribution, DATA.basemap?.attribution, ui.satellite && DATA.basemap?.satellite_attribution].filter(Boolean).join(' ');
+}
+// Colour imagery goes over every road, water, and flat building fill of the
+// basemap but under its trailing label layers, so place names stay readable.
+function applySatellite() {
+  if (!map || !DATA.basemap?.satellite_tiles || !map.isStyleLoaded()) return;
+  if (ui.satellite && !map.getLayer('satellite')) {
+    if (!map.getSource('satellite')) {
+      map.addSource('satellite', { type: 'raster', tiles: [DATA.basemap.satellite_tiles], tileSize: 256, maxzoom: 19 });
+    }
+    const styleLayers = map.getStyle().layers;
+    const before = styleLayers[styleLayers.findLastIndex((l) => l.type !== 'symbol') + 1]?.id;
+    map.addLayer({ id: 'satellite', type: 'raster', source: 'satellite' }, before);
+  } else if (!ui.satellite && map.getLayer('satellite')) {
+    map.removeLayer('satellite');
+  }
+}
+function setSatellite(on) {
+  ui.satellite = on;
+  $('t-sat').setAttribute('aria-pressed', String(on));
+  document.documentElement.toggleAttribute('data-satellite', on);
+  $('attrib').textContent = attribution();
+  applySatellite(); render();
 }
 function render() { if (deckgl) deckgl.setProps({ layers: layers() }); }
 
@@ -450,6 +575,10 @@ function initScene() {
   const bounds = homeBounds();
   const style = DATA.basemap && (isDark() ? DATA.basemap.style_dark : DATA.basemap.style_light);
   if (style && window.maplibregl) {
+    // Beirut's labels are largely Arabic; without this plugin MapLibre draws
+    // them as isolated, left-to-right letters instead of joined script.
+    maplibregl.setRTLTextPlugin('https://cdn.jsdelivr.net/npm/@mapbox/mapbox-gl-rtl-text@0.3.0/dist/mapbox-gl-rtl-text.js', false)
+      .catch(() => { /* offline: labels stay unshaped, the map still works */ });
     map = new maplibregl.Map({
       container: 'scene', style, bounds, fitBoundsOptions: { padding: 40 },
       pitch: 74, bearing: -20, maxPitch: 85, attributionControl: false, canvasContextAttributes: { antialias: true },
@@ -464,10 +593,12 @@ function initScene() {
       } catch (err) { /* older style spec: plain background is fine */ }
       // The basemap's own flat building fills sit under our 3D buildings.
       for (const id of ['building', 'building-top']) if (map.getLayer(id)) map.setPaintProperty(id, 'fill-opacity', 0.35);
+      applySatellite();
     });
     map.once('load', () => { home = { center: map.getCenter(), zoom: map.getZoom(), pitch: 74, bearing: -20 }; });
     deckgl = new deck.MapboxOverlay({ interleaved: false, ...deckProps() });
     map.addControl(deckgl);
+    $('t-sat').hidden = !DATA.basemap.satellite_tiles;
   } else {
     const [[w, s], [e, n]] = bounds;
     home = { longitude: (w + e) / 2, latitude: (s + n) / 2, zoom: 15.6, pitch: 62, bearing: -20 };
@@ -485,7 +616,13 @@ function focusOn(ids) {
   for (const b of DATA.buildings) if (wanted.has(b.id)) for (const [x, y] of b.rings[0]) {
     w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y);
   }
-  if (!Number.isFinite(w) || !map) return;
+  if (!Number.isFinite(w)) return;
+  if (!map) {
+    const vp = new deck.WebMercatorViewport({ width: innerWidth, height: innerHeight });
+    const { longitude, latitude, zoom } = vp.fitBounds([[w, s], [e, n]], { padding: Math.min(120, innerWidth / 5) });
+    deckgl.setProps({ initialViewState: { ...home, maxPitch: 75, longitude, latitude, zoom: Math.min(zoom, 17.5), pitch: 60, bearing: -20, transitionDuration: 1200, transitionInterpolator: new deck.FlyToInterpolator() } });
+    return;
+  }
   const padX = Math.max((e - w) * 0.25, 0.002), padY = Math.max((n - s) * 0.25, 0.002);
   const cam = map.cameraForBounds([[w - padX, s - padY], [e + padX, n + padY]], { padding: 60, bearing: map.getBearing() });
   if (cam) map.easeTo({ ...cam, pitch: 68, bearing: map.getBearing(), duration: 1400 });
@@ -638,6 +775,35 @@ function renderScenario() {
     ${accepted ? '<div class="note">Hover a lever to highlight the buildings it acts on.</div>' : ''}`;
 }
 
+const METRIC_UNIT = { change_probability: 'p', target_probability: 'p', height_m: 'm', floors: 'n', footprint_area_m2: 'm2' };
+function fmtMetric(metric, v) {
+  if (v === null || v === undefined) return 'n/a';
+  const u = METRIC_UNIT[metric];
+  return u === 'p' ? pct(v) : u === 'm' ? `${v.toFixed(1)} m` : u === 'm2' ? `${Math.round(v).toLocaleString()} m²` : Math.round(v).toLocaleString();
+}
+function renderAnswer() {
+  const el = $('p-answer');
+  const r = ui.answer;
+  if (!r) { el.hidden = true; return; }
+  el.hidden = false;
+  const a = r.answer;
+  const allIssues = r.attempts.flatMap((t, i) => t.report.issues.map((x) => ({ ...x, attempt: i + 1 })));
+  const rows = !a ? '' : a.kind === 'by_sector'
+    ? a.sectors.map((g) => `<div class="lever" data-sector="${esc(g.sector)}"><div class="t">${esc(g.sector)}</div>
+        <div class="m">${g.buildings.toLocaleString()} building${g.buildings === 1 ? '' : 's'} · average ${fmtMetric(a.metric, g.mean_value)}</div></div>`).join('')
+    : a.rows.map((x) => `<div class="lever" data-obj="${esc(x.object_id)}"><div class="t"><span class="sw" style="width:10px;height:10px;border-radius:3px;background:${STATES[x.state].color}"></span>${esc(x.sector || 'no sector')} · ${esc(x.building_use || 'use n/a')}</div>
+        <div class="m">${esc(stateLabel(x.state))} · ${fmtMetric(a.metric, x.value)}</div></div>`).join('');
+  el.innerHTML = `<button class="close" aria-label="Clear answer" data-close="answer">✕</button>
+    <h2>${a ? 'Answer' : 'Question not answerable'}</h2><div class="sub">${esc(r.question)}</div>
+    ${a ? `<p class="answer-text">${esc(a.text)}</p>` : ''}
+    <div><span class="chip ${a ? 'ok' : 'hard'}">${a ? 'Computed from the data' : 'Rejected'}</span>
+      ${a ? `<span class="chip">${a.matched.toLocaleString()} match${a.matched === 1 ? '' : 'es'}</span>` : ''}
+      <span class="chip">${r.attempts.length} attempt${r.attempts.length > 1 ? 's' : ''}</span></div>
+    ${rows}
+    ${allIssues.map((x) => `<div class="issue ${x.severity}"><code>${esc(x.code)}</code> ${esc(x.message)}${r.attempts.length > 1 ? ` <span style="color:var(--ink-3)">(attempt ${x.attempt})</span>` : ''}</div>`).join('')}
+    ${a ? `<div class="note">${esc(a.basis)}. The model only chose the query; every number above is computed by code.${a.rows.length || a.sectors.length ? ' Hover a row to find it; click to inspect.' : ''}</div>` : ''}`;
+}
+
 function setLens(lens) {
   ui.lens = lens;
   history.replaceState(null, '', `#lens=${lens}`);
@@ -655,7 +821,7 @@ function togglePanel(id, button, force) {
 
 async function runScenario(text) {
   ui.busy = true; syncPrompt();
-  $('progress').textContent = 'Claude is drafting the scenario · the validator checks it · the engine forecasts…';
+  $('progress').textContent = 'The model drafts the scenario · the validator checks it · the engine forecasts…';
   try {
     const res = await fetch('/v1/viewer/scenario', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
     const body = await res.json();
@@ -672,15 +838,48 @@ async function runScenario(text) {
     ui.busy = false; syncPrompt(); renderAll();
   }
 }
+async function runAsk(question) {
+  ui.busy = true; syncPrompt();
+  $('progress').textContent = 'The model reads the question · the checker verifies the query · the answer is computed from the forecast…';
+  try {
+    const res = await fetch('/v1/viewer/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question }) });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+    ui.answer = body;
+    const ids = body.answer?.highlight_ids ?? [];
+    ui.answerIds = ids.length ? new Set(ids) : null;
+    ui.highlight = null;
+    $('progress').textContent = body.answer ? '' : 'The checker rejected the question — see why on the right.';
+    if (body.answer && ids.length) {
+      if (body.answer.metric === 'change_probability' && DATA.forecast && !ui.scenario) setLens('change');
+      focusOn(ids);
+    }
+  } catch (err) {
+    $('progress').textContent = `Could not answer: ${err.message}`;
+  } finally {
+    ui.busy = false; syncPrompt(); renderAll();
+  }
+}
+function setMode(mode) {
+  ui.mode = mode;
+  document.querySelectorAll('#mode [data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+  syncPrompt();
+}
 function syncPrompt() {
   const q = $('q'), go = $('go');
   const live = !!DATA.api;
+  const ask = ui.mode === 'ask';
+  $('mode').hidden = !live || !DATA.forecast;
   q.disabled = !live || ui.busy;
-  q.placeholder = live ? 'Tell the city what happens… e.g. “Push stalled buildings in Mar Mikhael toward renovation”' : 'Run `dynacity serve --snapshot … --bbed …` to describe scenarios here';
+  q.setAttribute('aria-label', ask ? 'Ask a question about the map' : 'Describe a scenario');
+  go.setAttribute('aria-label', ask ? 'Ask' : 'Run scenario');
+  q.placeholder = !live ? 'Run `dynacity serve --snapshot … --bbed …` to describe scenarios here'
+    : ask ? 'Ask the map… e.g. “Which stalled buildings in Hamra are most likely to change?”'
+    : 'Tell the city what happens… e.g. “Push stalled buildings in Mar Mikhael toward renovation”';
   go.disabled = !live || ui.busy;
   go.innerHTML = ui.busy ? '<span class="spin" aria-hidden="true"></span>' : '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
 }
-function renderAll() { renderStatus(); renderLegend(); renderDock(); renderInspector(); renderScenario(); renderInfo(); render(); }
+function renderAll() { renderStatus(); renderLegend(); renderDock(); renderInspector(); renderAnswer(); renderScenario(); renderInfo(); render(); }
 
 function wire() {
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => setLens(t.dataset.lens)));
@@ -693,6 +892,7 @@ function wire() {
   });
   $('t-reset').onclick = () => { ui.topDown = false; $('t-2d').setAttribute('aria-pressed', 'false'); flyTo({}); };
   $('t-2d').onclick = () => { ui.topDown = !ui.topDown; $('t-2d').setAttribute('aria-pressed', String(ui.topDown)); flyTo(ui.topDown ? { pitch: 0, bearing: 0 } : {}); };
+  $('t-sat').onclick = () => setSatellite(!ui.satellite);
   $('t-legend').onclick = (e) => togglePanel('p-legend', e.currentTarget);
   $('t-kpis').onclick = (e) => togglePanel('p-kpis', e.currentTarget);
   $('t-info').onclick = (e) => togglePanel('p-info', e.currentTarget);
@@ -706,6 +906,7 @@ function wire() {
     if (which === 'inspect') { ui.selected = null; renderInspector(); render(); }
     if (which === 'kpis') togglePanel('p-kpis', $('t-kpis'), false);
     if (which === 'info') togglePanel('p-info', $('t-info'), false);
+    if (which === 'answer') { ui.answer = null; ui.answerIds = null; ui.highlight = null; renderAnswer(); render(); }
     if (which === 'scenario') {
       ui.scenario = null; ui.highlight = null;
       document.querySelector('[data-lens="delta"]').hidden = true;
@@ -720,7 +921,27 @@ function wire() {
     if (next !== ui.highlight) { ui.highlight = next; render(); }
   });
   $('p-scenario').addEventListener('mouseleave', () => { ui.highlight = null; render(); });
-  $('prompt').addEventListener('submit', (e) => { e.preventDefault(); const t = $('q').value.trim(); if (t && !ui.busy) runScenario(t); });
+  $('p-answer').addEventListener('mouseover', (e) => {
+    const row = e.target.closest('[data-obj],[data-sector]');
+    let next = null;
+    if (row?.dataset.obj) next = new Set([row.dataset.obj]);
+    else if (row?.dataset.sector) next = new Set(DATA.buildings.filter((b) => (b.sector || 'no sector') === row.dataset.sector && ui.answerIds?.has(b.id)).map((b) => b.id));
+    const same = next && ui.highlight && next.size === ui.highlight.size && [...next].every((id) => ui.highlight.has(id));
+    if (!same && (next || ui.highlight)) { ui.highlight = next; render(); }
+  });
+  $('p-answer').addEventListener('mouseleave', () => { ui.highlight = null; render(); });
+  $('p-answer').addEventListener('click', (e) => {
+    const row = e.target.closest('[data-obj]');
+    if (!row) return;
+    ui.selected = row.dataset.obj; renderInspector(); render(); focusOn([row.dataset.obj]);
+  });
+  document.querySelectorAll('#mode [data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+  $('prompt').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const t = $('q').value.trim();
+    if (!t || ui.busy) return;
+    if (ui.mode === 'ask') runAsk(t); else runScenario(t);
+  });
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && ui.selected) { ui.selected = null; renderInspector(); render(); } });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
 }
@@ -730,7 +951,8 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
   document.querySelector('.chrome').hidden = true;
   if (DATA && typeof deck === 'undefined') $('empty').querySelector('p').textContent = 'The 3D library could not load. Check your connection and reload.';
 } else {
-  $('attrib').textContent = [DATA.attribution, DATA.basemap?.attribution].filter(Boolean).join(' ');
+  $('attrib').textContent = attribution();
+  if (GOOGLE) document.documentElement.toggleAttribute('data-satellite', true);
   if (!DATA.forecast) document.querySelectorAll('[data-lens="forecast"],[data-lens="change"]').forEach((t) => (t.hidden = true));
   // On phones the legend starts collapsed so the city stays visible.
   if (innerWidth < 760) togglePanel('p-legend', $('t-legend'), false);

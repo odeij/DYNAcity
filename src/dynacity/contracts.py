@@ -54,6 +54,30 @@ class ConfidenceGrade(StrEnum):
 NonNegativeFloat = Annotated[float, Field(ge=0)]
 
 
+class HazardKind(StrEnum):
+    """Physical shocks a scenario can throw at the city (see `hazards.PROFILES`).
+
+    The set follows God's Plan's disasters. Gas leaks map to `explosion`.
+    Road closures and vehicle crashes are absent: the engine has no street
+    network for them to act on.
+    """
+
+    TORNADO = "tornado"
+    STORM = "storm"
+    RAIN = "rain"
+    FLOOD = "flood"
+    FIRE = "fire"
+    HEAT = "heat"
+    EARTHQUAKE = "earthquake"
+    EXPLOSION = "explosion"
+    PLANE_CRASH = "plane_crash"
+    ORBITAL_STRIKE = "orbital_strike"
+    RIOT = "riot"
+
+
+DEFAULT_HAZARD_SOURCE = "illustrative default fragility (dynacity.hazards), uncalibrated"
+
+
 class UrbanObjectState(BaseModel):
     """One building at one point in time — the atom of a snapshot.
 
@@ -77,6 +101,10 @@ class UrbanObjectState(BaseModel):
     sector: str | None = None
     features: dict[str, float | int | str | bool | None] = Field(default_factory=dict)
     provenance: dict[str, str] = Field(default_factory=dict)
+    # Footprint centroid in the snapshot CRS (metres). Optional so older
+    # snapshot files stay valid; hazards cannot reach a building without it.
+    centroid_x_m: float | None = None
+    centroid_y_m: float | None = None
 
 
 class UrbanStateSnapshot(BaseModel):
@@ -137,6 +165,59 @@ class TransitionAdjustment(BaseModel):
     confidence_grade: ConfidenceGrade = ConfidenceGrade.LOW
 
 
+class HazardEvent(BaseModel):
+    """A physical shock that strikes at the start of one rollout step.
+
+    Located in exactly one way: `citywide`, a point (`center_x_m`/`center_y_m`
+    with an optional `radius_m`), or a track (`path_m`, tornadoes). Coordinates
+    are in the snapshot CRS. `magnitude` is in the kind's own unit (EF scale,
+    Mw, TNT tonnes, …; see `hazards.PROFILES`) and defaults to its moderate
+    level; `radius_m` defaults to what that magnitude implies.
+
+    The damage curves are illustrative assumptions, so `effect_source`
+    defaults to saying exactly that, and any result carrying a hazard is
+    `assumption_based_scenario`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    hazard_id: str
+    kind: HazardKind
+    magnitude: float | None = None
+    citywide: bool = False
+    center_x_m: float | None = None
+    center_y_m: float | None = None
+    path_m: list[tuple[float, float]] = Field(default_factory=list)
+    radius_m: float | None = Field(default=None, gt=0, le=100_000)
+    occurs_step: int = Field(default=1, ge=1, le=3)
+    effect_source: str = Field(default=DEFAULT_HAZARD_SOURCE, min_length=3)
+    confidence_grade: ConfidenceGrade = ConfidenceGrade.LOW
+
+    @model_validator(mode="after")
+    def located_and_in_range(self) -> "HazardEvent":
+        # Imported here because hazards.py imports this module.
+        from .hazards import PROFILES
+
+        has_center = self.center_x_m is not None or self.center_y_m is not None
+        if has_center and (self.center_x_m is None or self.center_y_m is None):
+            raise ValueError("give both center_x_m and center_y_m")
+        if len(self.path_m) == 1:
+            raise ValueError("path_m needs at least two points")
+        modes = [name for name, given in
+                 (("citywide", self.citywide), ("point", has_center), ("path", bool(self.path_m))) if given]
+        if len(modes) != 1:
+            raise ValueError("locate the hazard with exactly one of citywide, center_x_m/center_y_m, or path_m")
+        profile = PROFILES[self.kind]
+        if modes[0] not in profile.footprints:
+            raise ValueError(f"{self.kind.value} cannot be {modes[0]}; use one of {sorted(profile.footprints)}")
+        if self.citywide and self.radius_m is not None:
+            raise ValueError("radius_m does not apply to a citywide hazard")
+        lo, hi = profile.magnitude_range
+        if self.magnitude is not None and not lo <= self.magnitude <= hi:
+            raise ValueError(f"{self.kind.value} magnitude must be within {lo}..{hi} {profile.unit}")
+        return self
+
+
 class ScenarioSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -148,6 +229,22 @@ class ScenarioSpec(BaseModel):
     # Id of the frozen `evidence.EvidenceBundle` that `evidence:` effect
     # sources refer to. Optional so existing scenario files stay valid.
     evidence_bundle_id: str | None = None
+    hazards: list[HazardEvent] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def hazards_fit_horizon(self) -> "ScenarioSpec":
+        """A hazard past the horizon would silently never strike, so reject it."""
+
+        ids = [item.hazard_id for item in self.hazards]
+        if len(ids) != len(set(ids)):
+            raise ValueError("hazard_id values must be unique")
+        for item in self.hazards:
+            if item.occurs_step > self.horizon_years // 2:
+                raise ValueError(
+                    f"hazard {item.hazard_id!r} strikes on step {item.occurs_step}, "
+                    f"beyond the {self.horizon_years}-year horizon"
+                )
+        return self
 
 
 class ForecastRequest(BaseModel):
@@ -192,6 +289,35 @@ class KpiEstimate(BaseModel):
     p95: float
 
 
+class CountBand(BaseModel):
+    p05: float
+    p50: float
+    p95: float
+
+
+class HazardImpact(BaseModel):
+    """What one hazard did across the Monte Carlo draws, on the step it struck.
+
+    Counts are buildings this hazard destroyed (→ demolished) or damaged
+    (→ vacant, or stalled for sites). A building hit by two hazards on the same
+    step counts toward both.
+    """
+
+    hazard_id: str
+    kind: HazardKind
+    occurs_step: int
+    year_offset: int
+    magnitude: float
+    magnitude_unit: str
+    radius_m: float | None
+    exposed_buildings: int
+    unlocated_buildings: int
+    destroyed: CountBand
+    damaged: CountBand
+    effect_source: str
+    confidence_grade: ConfidenceGrade
+
+
 class ForecastResult(BaseModel):
     """The full response — predictions plus everything needed to judge them.
 
@@ -215,4 +341,5 @@ class ForecastResult(BaseModel):
     out_of_distribution_score: float = Field(ge=0.0, le=1.0)
     warnings: list[str] = Field(default_factory=list)
     evidence_bundle_id: str | None = None
+    hazard_impacts: list[HazardImpact] = Field(default_factory=list)
 

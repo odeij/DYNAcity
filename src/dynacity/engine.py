@@ -21,6 +21,10 @@ stating explicitly:
   target-state log-odds by an amount the caller supplies; the engine has no way
   to verify that number. Any result carrying interventions is stamped
   `assumption_based_scenario` and warned about.
+- Hazards (`hazards.py`) strike before the model on their step: each building
+  is first sampled as destroyed, damaged, or missed, and only missed buildings
+  take the model's transition. Recovery afterwards is the model's own
+  dynamics. Hazard damage curves are assumptions too, with the same stamp.
 
 The one non-sampled output is `first_step_transitions` — the raw, unsampled
 probabilities from step 1, exposed so callers can audit the model directly
@@ -33,13 +37,16 @@ import numpy as np
 import pandas as pd
 
 from .contracts import (
+    CountBand,
     EvidenceLevel,
     ForecastRequest,
     ForecastResult,
+    HazardImpact,
     KpiEstimate,
     ObjectTransitionForecast,
     UrbanObjectState,
 )
+from .hazards import PROFILES, apply_to_probabilities, hazard_shock, magnitude_of, radius_of, sample_hits
 from .kpis import DEFAULT_KPIS, KPI_UNITS, compute_kpis
 from .models import LABELS, ModelBundle
 from .status import CanonicalState
@@ -177,6 +184,12 @@ class ForecastEngine:
             object_ids=object_ids,
             current_states=np.asarray(initial_states),
         )
+        # Hazards are placed once: exposure depends on location and building,
+        # not on the state a draw has reached.
+        shocks = [hazard_shock(hazard, objects) for hazard in request.scenario.hazards]
+        first_step_shocks = [shock for shock in shocks if shock.hazard.occurs_step == 1]
+        if first_step_shocks:
+            first = apply_to_probabilities(first, first_step_shocks, np.asarray(initial_states), LABELS)
         transitions = [
             ObjectTransitionForecast(
                 object_id=item.object_id,
@@ -202,6 +215,7 @@ class ForecastEngine:
         if unknown_kpis:
             raise ValueError(f"unsupported KPIs: {unknown_kpis}")
         sampled_kpis: dict[tuple[int, str], list[float]] = {}
+        hazard_counts: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         tiled_ids = np.tile(object_ids, draws)
         # horizon_years // 2 steps: the model was fitted on 2-year transitions,
         # so a 6-year horizon is three applications rather than one long jump.
@@ -228,10 +242,20 @@ class ForecastEngine:
             # co-occurrence: a city where 3% of buildings were demolished is a
             # coherent scenario, whereas argmax would demolish either none or
             # implausibly many in lockstep.
-            sampled = sample_categorical(probabilities, rng)
-            state_matrix = np.asarray(LABELS, dtype=object)[sampled].reshape(
-                draws, object_count
-            )
+            sampled = np.asarray(LABELS, dtype=object)[sample_categorical(probabilities, rng)]
+            step_shocks = [shock for shock in shocks if shock.hazard.occurs_step == step]
+            if step_shocks:
+                # Hit buildings end the step where the hazard left them; the
+                # model's sample stands only for the buildings it missed.
+                forced, per_hazard = sample_hits(step_shocks, flat_states, draws, rng)
+                hit = forced != None  # noqa: E711 — elementwise on an object array
+                sampled[hit] = forced[hit]
+                for shock, (destroyed, damaged) in zip(step_shocks, per_hazard, strict=True):
+                    hazard_counts[shock.hazard.hazard_id] = (
+                        destroyed.reshape(draws, object_count).sum(axis=1),
+                        damaged.reshape(draws, object_count).sum(axis=1),
+                    )
+            state_matrix = sampled.reshape(draws, object_count)
             # KPIs are computed per draw, on that draw's fully-realised city, so
             # the spread across draws is the actual KPI distribution. Computing
             # them from mean probabilities instead would collapse the
@@ -257,6 +281,30 @@ class ForecastEngine:
                 )
             )
 
+        def band(values: np.ndarray) -> CountBand:
+            p05, p50, p95 = np.quantile(values, [0.05, 0.50, 0.95])
+            return CountBand(p05=float(p05), p50=float(p50), p95=float(p95))
+
+        impacts = []
+        for shock in shocks:
+            hazard = shock.hazard
+            destroyed, damaged = hazard_counts[hazard.hazard_id]
+            impacts.append(HazardImpact(
+                hazard_id=hazard.hazard_id,
+                kind=hazard.kind,
+                occurs_step=hazard.occurs_step,
+                year_offset=hazard.occurs_step * 2,
+                magnitude=magnitude_of(hazard),
+                magnitude_unit=PROFILES[hazard.kind].unit,
+                radius_m=radius_of(hazard),
+                exposed_buildings=int(shock.exposed.sum()),
+                unlocated_buildings=shock.unlocated,
+                destroyed=band(destroyed),
+                damaged=band(damaged),
+                effect_source=hazard.effect_source,
+                confidence_grade=hazard.confidence_grade,
+            ))
+
         # Warnings travel with the result rather than being logged, so a caller
         # reading only the JSON still sees the caveats that apply to it.
         warnings = []
@@ -264,6 +312,18 @@ class ForecastEngine:
             warnings.append(
                 "Intervention effects are versioned assumptions, not causal estimates."
             )
+        if shocks:
+            warnings.append(
+                "Hazard damage uses illustrative, uncalibrated fragility curves: read it as a "
+                "stress test of recovery, not a loss estimate."
+            )
+            for caveat in dict.fromkeys(PROFILES[shock.hazard.kind].caveat for shock in shocks):
+                warnings.append(caveat)
+            unlocated = max(shock.unlocated for shock in shocks)
+            if unlocated:
+                warnings.append(
+                    f"{unlocated} buildings have no location and were left outside every local hazard footprint."
+                )
         if request.scenario.horizon_years > 2:
             warnings.append("Multi-step uncertainty compounds beyond the observed two-year interval.")
         ood = self._ood_score(objects)
@@ -274,13 +334,13 @@ class ForecastEngine:
             baseline_snapshot_id=request.snapshot.snapshot_id,
             model_version=self.bundle.model_version,
             data_version=request.snapshot.data_version,
-            # The presence of any intervention downgrades the entire result's
+            # The presence of any intervention or hazard downgrades the entire result's
             # evidence level. There is no partial credit: once a
             # caller-supplied effect size is in the rollout, the output is a
             # what-if, not an empirical projection.
             evidence_level=(
                 EvidenceLevel.ASSUMPTION_BASED_SCENARIO
-                if request.scenario.interventions
+                if request.scenario.interventions or request.scenario.hazards
                 else EvidenceLevel.EMPIRICAL_BAU
             ),
             first_step_transitions=transitions,
@@ -288,5 +348,6 @@ class ForecastEngine:
             out_of_distribution_score=ood,
             warnings=warnings,
             evidence_bundle_id=request.scenario.evidence_bundle_id,
+            hazard_impacts=impacts,
         )
 

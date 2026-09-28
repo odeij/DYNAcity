@@ -20,8 +20,15 @@ so write it under `DYNACITY_ARTIFACT_ROOT`, not into the repository.
 
 With a basemap (the default), the page loads CARTO/OpenStreetMap tiles for
 streets, water, parks, and pale 3D context buildings, which tells that tile
-server the area being viewed. `basemap="none"` keeps the page fully offline
+server the area being viewed. The satellite toggle does the same with Esri's
+World Imagery tiles, which are only requested once it is switched on.
+`basemap="none"` keeps the page fully offline
 apart from the deck.gl script.
+
+`basemap="google"` (served pages only) streams Google Photorealistic 3D Tiles
+through the server's `/v1/3dtiles/` proxy, which holds the Maps key, and
+drapes the building colours onto that real 3D mesh. A static export cannot use
+it: the key would have to be written into the file.
 """
 
 from __future__ import annotations
@@ -56,6 +63,16 @@ BASEMAPS: dict[str, dict[str, str] | None] = {
         # OpenStreetMap buildings with heights, drawn as pale 3D context.
         "context_tiles": "https://tiles-a.basemaps.cartocdn.com/vectortiles/carto.streets/v1/{z}/{x}/{y}.mvt",
         "attribution": "Basemap © CARTO, © OpenStreetMap contributors.",
+        # Optional colour imagery the page can swap in for the street basemap.
+        "satellite_tiles": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        "satellite_attribution": "Imagery © Esri, Maxar, Earthstar Geographics.",
+    },
+    # Photorealistic 3D Tiles via the server's proxy (see google_tiles.py).
+    # Terrain and buildings come from Google's mesh, so BBED footprints are
+    # draped onto it instead of extruded, and the page shows Google's credits.
+    "google": {
+        "tiles_3d": "/v1/3dtiles/root.json",
+        "attribution": "Google",
     },
     "none": None,
 }
@@ -137,6 +154,11 @@ def build_viewer_payload(
 
     if basemap not in BASEMAPS:
         raise ValueError(f"unknown basemap {basemap!r}; choose from {sorted(BASEMAPS)}")
+    if basemap == "google" and not api:
+        raise ValueError(
+            "the google basemap needs `dynacity serve`, which keeps the Maps key on the server; "
+            "a static export would have to embed it"
+        )
     zone, north = _utm_zone(snapshot.crs)
 
     if forecast is not None and forecast.baseline_snapshot_id != snapshot.snapshot_id:

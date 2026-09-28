@@ -72,8 +72,13 @@ def snapshot_from_bbed(
     for feature, object_id in zip(bbed_features, object_ids, strict=True):
         props = feature.get("properties", {})
         geometry_area = 0.0
+        centroid: tuple[float, float] | tuple[None, None] = (None, None)
         if feature.get("geometry"):
-            geometry_area = max(float(shape(feature["geometry"]).area), 0.0)
+            geometry = shape(feature["geometry"])
+            geometry_area = max(float(geometry.area), 0.0)
+            # Where hazards find the building. In the BBED CRS (UTM metres).
+            if not geometry.is_empty:
+                centroid = (float(geometry.centroid.x), float(geometry.centroid.y))
         area = _optional_nonnegative(props.get("Shape__Area"))
         if area is None:
             area = geometry_area
@@ -115,6 +120,8 @@ def snapshot_from_bbed(
                 building_use=props.get("Building_Use"),
                 sector=props.get("Sector"),
                 features=features,
+                centroid_x_m=centroid[0],
+                centroid_y_m=centroid[1],
                 provenance={
                     "geometry": "BBED",
                     "status": "BBED 2024 current status",
@@ -129,3 +136,28 @@ def snapshot_from_bbed(
         objects=objects,
         data_version=data_version,
     )
+
+
+def attach_centroids(snapshot: UrbanStateSnapshot, collection: dict) -> UrbanStateSnapshot:
+    """Fill missing centroids from BBED geometry, matched by composite object id.
+
+    For snapshots built before centroids were recorded: without them no local
+    hazard can reach a building. Objects that already have a centroid, or
+    whose id is not in the collection, are left as they are.
+    """
+
+    features = collection.get("features", [])
+    centroids = {}
+    for feature, object_id in zip(features, resolved_object_ids(features), strict=True):
+        if feature.get("geometry"):
+            geometry = shape(feature["geometry"])
+            if not geometry.is_empty:
+                centroids[object_id] = (float(geometry.centroid.x), float(geometry.centroid.y))
+    objects = [
+        item.model_copy(update={"centroid_x_m": centroids[item.object_id][0],
+                                "centroid_y_m": centroids[item.object_id][1]})
+        if item.centroid_x_m is None and item.object_id in centroids
+        else item
+        for item in snapshot.objects
+    ]
+    return snapshot.model_copy(update={"objects": objects})

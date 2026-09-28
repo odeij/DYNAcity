@@ -13,13 +13,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from .contracts import ForecastRequest, ForecastResult, UrbanStateSnapshot
 from .engine import ForecastEngine
 from .evidence import EvidenceBundle, verify_bundle
+from .google_tiles import GoogleTilesProxy, TilesError
+from .limits import RequestBudget
+from .map_query import ask_map
 from .planning import PlanningRequest, PlanningResult, plan
 from .providers import DraftProvider, resolve_provider
 from .scenario_compiler import CompilationResult, compile_scenario
@@ -40,6 +43,12 @@ class ViewerScenarioRequest(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
 
 
+class ViewerAskRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=1000)
+
+
 def create_app(
     engine: ForecastEngine,
     scenario_client: Any | None = None,
@@ -49,7 +58,16 @@ def create_app(
     viewer_snapshot: UrbanStateSnapshot | None = None,
     evidence: EvidenceBundle | None = None,
     viewer_draws: int = 300,
+    viewer_forecast: ForecastResult | None = None,
+    llm_budget: RequestBudget | None = None,
+    tiles_proxy: GoogleTilesProxy | None = None,
 ) -> FastAPI:
+    def spend_llm_call() -> None:
+        # Checked before any model call; a refused request costs nothing.
+        refused = llm_budget.take() if llm_budget is not None else None
+        if refused:
+            raise HTTPException(status_code=429, detail=refused)
+
     def provider() -> DraftProvider | None:
         # Resolved per request when none was injected, so a key added after
         # startup is picked up; a missing SDK or key becomes a clear 503.
@@ -118,6 +136,7 @@ def create_app(
     def compile_endpoint(request: ScenarioCompileRequest) -> dict:
         if request.evidence is not None and not verify_bundle(request.evidence):
             raise HTTPException(status_code=422, detail="evidence bundle does not match its content hash")
+        spend_llm_call()
         try:
             result: CompilationResult = compile_scenario(
                 request.text, request.snapshot, provider=provider(),
@@ -138,6 +157,7 @@ def create_app(
     if viewer_snapshot is not None:
         @app.post("/v1/viewer/scenario")
         def viewer_scenario(request: ViewerScenarioRequest) -> dict:
+            spend_llm_call()
             try:
                 compilation = compile_scenario(
                     request.text, viewer_snapshot, provider=provider(),
@@ -152,6 +172,31 @@ def create_app(
                 ))
                 forecast = forecast_summary(result)
             return {"compilation": compilation.model_dump(mode="json"), "forecast": forecast}
+
+    # Questions about the map are answered by code from the snapshot and the
+    # business-as-usual forecast; the model only turns the question into a
+    # checked query (see map_query). A rejected question is still a 200 with
+    # `answer: null`, because the audit trail is the useful response.
+    if viewer_snapshot is not None and viewer_forecast is not None:
+        @app.post("/v1/viewer/ask")
+        def viewer_ask(request: ViewerAskRequest) -> dict:
+            spend_llm_call()
+            try:
+                result = ask_map(request.question, viewer_snapshot, viewer_forecast, provider=provider())
+            except RuntimeError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            return result.model_dump(mode="json")
+
+    # Photorealistic basemap: Google 3D Tiles fetched through this server so
+    # the Maps key never reaches the browser (see google_tiles).
+    if tiles_proxy is not None:
+        @app.get("/v1/3dtiles/{path:path}", include_in_schema=False)
+        def google_3d_tiles(path: str, request: Request) -> Response:
+            try:
+                tile = tiles_proxy.fetch(f"v1/3dtiles/{path}", dict(request.query_params))
+            except TilesError as exc:
+                raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+            return Response(content=tile.body, media_type=tile.content_type, headers={"Cache-Control": "no-store"})
 
     return app
 

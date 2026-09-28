@@ -34,6 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .contracts import (
     EvidenceLevel,
     ForecastRequest,
+    HazardEvent,
     KpiEstimate,
     ScenarioSpec,
     TransitionAdjustment,
@@ -106,6 +107,9 @@ class PlanningRequest(BaseModel):
     draws: int = Field(default=200, ge=50, le=5000)
     seed: int = Field(default=42, ge=0)
     evidence_bundle_id: str | None = None
+    # Fixed shocks every candidate faces, so the search asks which levers best
+    # absorb a given disaster. Not searched over: a hazard is not a policy.
+    hazards: list[HazardEvent] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def coherent(self) -> "PlanningRequest":
@@ -119,6 +123,9 @@ class PlanningRequest(BaseModel):
         ids = [option.lever.intervention_id for option in self.levers]
         if len(ids) != len(set(ids)):
             raise ValueError("lever intervention_id values must be unique")
+        for hazard in self.hazards:
+            if hazard.occurs_step > self.horizon_years // 2:
+                raise ValueError(f"hazard {hazard.hazard_id!r} strikes beyond the {self.horizon_years}-year horizon")
         return self
 
 
@@ -232,6 +239,11 @@ def plan(engine: ForecastEngine, request: PlanningRequest, *, backcast_size: int
         "Lever effect sizes are assumptions; the search finds combinations that reach targets "
         "in this model, not interventions proven to reach them.",
     ]
+    if request.hazards:
+        warnings.append(
+            "Every candidate, including 'bau', faces the same hazards; 'bau' means no levers, "
+            "not no disaster. Hazard damage curves are illustrative assumptions."
+        )
     if search == "sampled":
         warnings.append(
             f"Search sampled {len(combos)} of {space_size} combinations; the front and backcast "
@@ -259,6 +271,7 @@ def plan(engine: ForecastEngine, request: PlanningRequest, *, backcast_size: int
                 interventions=interventions,
                 requested_kpis=needed_kpis,
                 evidence_bundle_id=request.evidence_bundle_id,
+                hazards=request.hazards,
             ),
             draws=request.draws,
             seed=request.seed,

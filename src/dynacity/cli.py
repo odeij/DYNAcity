@@ -40,12 +40,14 @@ from .contracts import ForecastRequest, ForecastResult, ScenarioSpec, UrbanState
 from .engine import ForecastEngine
 from .evidence import EvidenceBundle, EvidenceRegistry, freeze_bundle, verify_bundle
 from .features import extract_building_features, load_points
+from .google_tiles import KEY_VARIABLE as MAPS_KEY_VARIABLE, GoogleTilesProxy
 from .las import (
     LASHeader,
     classification_sample,
     copc_pipeline,
     run_pdal_pipeline,
 )
+from .limits import RequestBudget
 from .models import ModelBundle, temporal_benchmark
 from .panel import PanelBuilder, assert_no_temporal_leakage
 from .planning import PlanningRequest, plan
@@ -288,7 +290,13 @@ def command_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
     engine = ForecastEngine(ModelBundle.load(args.model))
-    viewer_html = snapshot = None
+    viewer_html = snapshot = baseline = tiles = None
+    if args.basemap == "google":
+        tiles = GoogleTilesProxy(sessions=RequestBudget(
+            total=args.tiles_session_limit, per_minute=10, what="photorealistic map sessions"
+        ))
+        if not tiles.api_key:
+            raise SystemExit(f"--basemap google needs {MAPS_KEY_VARIABLE} (a Google Maps key with the Map Tiles API)")
     if args.snapshot:
         snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
     if args.bbed:
@@ -316,7 +324,14 @@ def command_serve(args: argparse.Namespace) -> None:
         viewer_html=viewer_html,
         viewer_snapshot=snapshot,
         evidence=_load_bundle(args.evidence),
+        viewer_forecast=baseline,
+        llm_budget=RequestBudget(
+            total=args.llm_request_limit, per_minute=args.llm_requests_per_minute, what="language-model requests"
+        ),
+        tiles_proxy=tiles,
     )
+    print(f"language-model requests capped at {args.llm_request_limit} per run, "
+          f"{args.llm_requests_per_minute} a minute")
     uvicorn.run(app, host=args.host, port=args.port)
 
 
@@ -425,9 +440,13 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--bbed")
     serve.add_argument("--forecast")
     serve.add_argument("--evidence")
-    serve.add_argument("--basemap", choices=["carto", "none"], default="carto")
+    serve.add_argument("--basemap", choices=["carto", "google", "none"], default="carto")
     serve.add_argument("--provider", choices=["anthropic", "gemini"])
     serve.add_argument("--llm-model")
+    # Caps on paid calls, so an exposed server has a known worst-case bill.
+    serve.add_argument("--llm-request-limit", type=int, default=300)
+    serve.add_argument("--llm-requests-per-minute", type=int, default=12)
+    serve.add_argument("--tiles-session-limit", type=int, default=100)
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
     serve.set_defaults(func=command_serve)

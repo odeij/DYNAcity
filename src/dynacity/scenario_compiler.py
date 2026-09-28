@@ -23,6 +23,13 @@ authority over anything that must be true:
   marker. A source the model introduced itself is rejected — that is an
   invented citation, the failure this module exists to prevent.
 
+Hazards ("a magnitude 7 earthquake hits Achrafieh") follow the same rule. The
+model names the kind, a place from the sector list and a qualitative severity;
+code turns the place into a footprint from the buildings' own centroids and the
+severity into a magnitude from `hazards.PROFILES`. A numeric magnitude or
+radius is accepted only when the planner wrote it, and the model never writes
+coordinates.
+
 Hard issues reject the draft and are fed back for one repair round; soft issues
 travel with the compiled scenario. The compiled `ScenarioSpec` is then an
 ordinary input to `ForecastEngine`, so anything it produces is still stamped
@@ -40,10 +47,19 @@ import re
 from collections import Counter
 from typing import Any, Literal
 
+import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
-from .contracts import ConfidenceGrade, ScenarioSpec, TransitionAdjustment, UrbanStateSnapshot
+from .contracts import (
+    ConfidenceGrade,
+    HazardEvent,
+    HazardKind,
+    ScenarioSpec,
+    TransitionAdjustment,
+    UrbanStateSnapshot,
+)
 from .evidence import EvidenceBundle, citation_problems
+from .hazards import PROFILES, SEVERITIES
 from .providers import FAILURE_MESSAGES, AnthropicProvider, DraftProvider, resolve_provider
 from .kpis import DEFAULT_KPIS
 from .status import CanonicalState
@@ -106,6 +122,39 @@ class DraftIntervention(BaseModel):
     confidence_grade: ConfidenceGrade = ConfidenceGrade.LOW
 
 
+class HazardLocation(BaseModel):
+    """Where a hazard strikes, as places the snapshot knows — never coordinates."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sectors: list[str] = Field(default_factory=list)
+    object_ids: list[str] = Field(default_factory=list)
+    citywide: bool = False
+
+
+class DraftHazard(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    hazard_id: str
+    kind: HazardKind
+    description: str
+    location: HazardLocation
+    severity: Literal["minor", "moderate", "severe", "extreme"] = "moderate"
+    # Only honoured when the planner wrote the number; see check_draft.
+    explicit_magnitude: float | None = None
+    explicit_radius_m: float | None = None
+    # 1-based 2-year rollout step on which the hazard strikes.
+    occurs_step: int = 1
+
+
+# Hazards that hit a whole region by nature, so a citywide footprint needs no
+# explicit "whole city" wording. Everything else must be placed or asked for.
+REGIONAL_HAZARDS = frozenset({HazardKind.STORM, HazardKind.RAIN, HazardKind.HEAT, HazardKind.EARTHQUAKE})
+# Hazards whose footprint grows to cover the named place, rather than being
+# set by magnitude alone (a flooded district, a riot across a quarter).
+AREA_HAZARDS = frozenset({HazardKind.FLOOD, HazardKind.STORM, HazardKind.RAIN, HazardKind.HEAT, HazardKind.RIOT})
+
+
 class ScenarioDraft(BaseModel):
     """The model's entire output. Nothing here is trusted until checked."""
 
@@ -114,6 +163,7 @@ class ScenarioDraft(BaseModel):
     scenario_id: str
     horizon_years: Literal[2, 4, 6]
     interventions: list[DraftIntervention] = Field(default_factory=list)
+    hazards: list[DraftHazard] = Field(default_factory=list)
     requested_kpis: list[str] = Field(default_factory=list)
     # Parts of the request this schema cannot express (e.g. traffic, rents).
     # Surfaced as soft issues so they are visibly dropped, not silently lost.
@@ -378,12 +428,145 @@ def check_draft(
                 refs=[ref],
             ))
 
+    seen_hazards: set[str] = set()
+    for hazard in draft.hazards:
+        issues.extend(_check_hazard(hazard, snapshot, request_text, known_sectors, known_ids, max_step))
+        if hazard.hazard_id in seen_hazards:
+            issues.append(ValidationIssue(
+                code="hazard.duplicate_id", severity="hard",
+                message=f"hazard_id {hazard.hazard_id!r} is used more than once", refs=[hazard.hazard_id],
+            ))
+        seen_hazards.add(hazard.hazard_id)
+
     for item in draft.unsupported_requests:
         issues.append(ValidationIssue(
             code="request.unsupported", severity="soft",
-            message=f"not expressible as a building-state lever and dropped: {item}",
+            message=f"not expressible as a building-state lever or hazard and dropped: {item}",
         ))
     return ValidationReport(issues=issues)
+
+
+def _located_points(location: HazardLocation, snapshot: UrbanStateSnapshot) -> np.ndarray:
+    sectors = {_norm(value) for value in location.sectors}
+    ids = set(location.object_ids)
+    return np.asarray([
+        (item.centroid_x_m, item.centroid_y_m)
+        for item in snapshot.objects
+        if item.centroid_x_m is not None and item.centroid_y_m is not None
+        and (not sectors or _norm(item.sector) in sectors)
+        and (not ids or item.object_id in ids)
+    ], dtype=np.float64).reshape(-1, 2)
+
+
+def _check_hazard(
+    hazard: DraftHazard,
+    snapshot: UrbanStateSnapshot,
+    request_text: str,
+    known_sectors: dict[str, str],
+    known_ids: set[str],
+    max_step: int,
+) -> list[ValidationIssue]:
+    ref = hazard.hazard_id
+    profile = PROFILES[hazard.kind]
+    location = hazard.location
+    issues: list[ValidationIssue] = []
+
+    def hard(code: str, message: str, *extra: str) -> None:
+        issues.append(ValidationIssue(code=code, severity="hard", message=f"{ref}: {message}", refs=[ref, *extra]))
+
+    if not 1 <= hazard.occurs_step <= max_step:
+        hard("hazard.step_out_of_horizon", f"occurs_step {hazard.occurs_step} is outside 1..{max_step}")
+    placed = bool(location.sectors or location.object_ids)
+    if location.citywide and placed:
+        hard("hazard.location_ambiguous", "give either citywide or sectors/object_ids, not both")
+    elif not location.citywide and not placed:
+        hard("hazard.no_location", "the hazard has no location; name a sector from the snapshot, "
+             "or drop it and list the place under unsupported_requests")
+    elif location.citywide:
+        if "citywide" not in profile.footprints:
+            hard("hazard.not_citywide", f"a {hazard.kind.value} strikes a place, not the whole city; "
+                 f"name a sector from {sorted(known_sectors.values())}")
+        elif hazard.kind not in REGIONAL_HAZARDS and not _asks_citywide(request_text):
+            hard("hazard.citywide_not_requested", f"the {hazard.kind.value} would cover the whole city, but "
+                 "the request does not say so; place it in a named sector")
+        else:
+            issues.append(ValidationIssue(
+                code="hazard.citywide", severity="soft",
+                message=f"{ref}: the {hazard.kind.value} reaches every building in the snapshot", refs=[ref],
+            ))
+    else:
+        for sector in location.sectors:
+            if _norm(sector) not in known_sectors:
+                hard("hazard.unknown_sector", f"sector {sector!r} is not in snapshot {snapshot.snapshot_id}; "
+                     f"known sectors: {sorted(known_sectors.values())}", sector)
+        for object_id in location.object_ids:
+            if object_id not in known_ids:
+                hard("hazard.unknown_object", f"object {object_id!r} is not in snapshot {snapshot.snapshot_id}",
+                     object_id)
+        if not issues and not len(_located_points(location, snapshot)):
+            hard("hazard.unlocatable", "no building in that place has a recorded location, so the "
+                 "footprint cannot be placed; rebuild the snapshot from BBED geometry")
+
+    lo, hi = profile.magnitude_range
+    if hazard.explicit_magnitude is not None:
+        if hazard.explicit_magnitude not in _magnitudes_in(request_text):
+            hard("hazard.magnitude_not_in_request", f"explicit_magnitude {hazard.explicit_magnitude} does not "
+                 "appear in the request; use severity unless the planner stated the number")
+        elif not lo <= hazard.explicit_magnitude <= hi:
+            hard("hazard.magnitude_out_of_range", f"{hazard.kind.value} magnitude {hazard.explicit_magnitude} "
+                 f"is outside {lo}..{hi} {profile.unit}")
+    if hazard.explicit_radius_m is not None:
+        stated = _magnitudes_in(request_text)
+        if hazard.explicit_radius_m not in stated and hazard.explicit_radius_m / 1000 not in stated:
+            hard("hazard.radius_not_in_request", f"explicit_radius_m {hazard.explicit_radius_m} does not "
+                 "appear in the request")
+        elif not 0 < hazard.explicit_radius_m <= 100_000:
+            hard("hazard.radius_out_of_range", "explicit_radius_m must be within 0..100000 m")
+        elif location.citywide:
+            hard("hazard.radius_citywide", "a citywide hazard has no radius")
+    issues.append(ValidationIssue(
+        code="hazard.assumed_damage", severity="soft",
+        message=f"{ref}: damage follows illustrative, uncalibrated curves for a {hazard.kind.value}. "
+        f"{profile.caveat}",
+        refs=[ref],
+    ))
+    return issues
+
+
+def _resolve_hazard(hazard: DraftHazard, snapshot: UrbanStateSnapshot) -> HazardEvent:
+    """Turn a checked hazard's place into a footprint built from the buildings in it."""
+
+    profile = PROFILES[hazard.kind]
+    magnitude = (
+        hazard.explicit_magnitude
+        if hazard.explicit_magnitude is not None
+        else profile.severity_magnitudes[hazard.severity]
+    )
+    common = {
+        "hazard_id": hazard.hazard_id,
+        "kind": hazard.kind,
+        "magnitude": magnitude,
+        "occurs_step": hazard.occurs_step,
+    }
+    if hazard.location.citywide:
+        return HazardEvent(citywide=True, **common)
+
+    points = _located_points(hazard.location, snapshot)
+    center = points.mean(axis=0)
+    offsets = points - center
+    spread = float(np.linalg.norm(offsets, axis=1).max())
+    radius = hazard.explicit_radius_m
+    if radius is None and hazard.kind in AREA_HAZARDS:
+        radius = max(float(profile.radius_m(magnitude)), spread)
+
+    if "path" in profile.footprints and spread > 0:
+        # A track through the place along its longest axis, spanning its
+        # buildings — derived from the data, not chosen by the model.
+        _, _, axes = np.linalg.svd(offsets, full_matrices=False)
+        projection = offsets @ axes[0]
+        path = [tuple(center + axes[0] * projection.min()), tuple(center + axes[0] * projection.max())]
+        return HazardEvent(path_m=[(float(x), float(y)) for x, y in path], radius_m=radius, **common)
+    return HazardEvent(center_x_m=float(center[0]), center_y_m=float(center[1]), radius_m=radius, **common)
 
 
 def _provenance(
@@ -432,6 +615,7 @@ def resolve_draft(
         interventions=interventions,
         requested_kpis=draft.requested_kpis,
         evidence_bundle_id=evidence.bundle_id if evidence is not None else None,
+        hazards=[_resolve_hazard(hazard, snapshot) for hazard in draft.hazards],
     )
 
 
@@ -472,9 +656,16 @@ def snapshot_context(snapshot: UrbanStateSnapshot) -> dict[str, Any]:
     }
 
 
+_HAZARD_UNITS = "\n".join(
+    f"- {kind.value}: {profile.unit}, range {profile.magnitude_range[0]:g}..{profile.magnitude_range[1]:g}"
+    for kind, profile in PROFILES.items()
+)
+
 SYSTEM_PROMPT = f"""You translate an urban planner's scenario for Beirut into a ScenarioDraft for a \
 building-state forecasting engine. The engine moves each building between canonical states in \
-2-year steps; a scenario can only nudge the odds of a target state for a chosen set of buildings.
+2-year steps; a scenario can nudge the odds of a target state for a chosen set of buildings \
+(interventions), and can strike the city with a hazard that destroys or damages buildings in its \
+footprint before the engine forecasts recovery (hazards).
 
 Canonical states:
 {chr(10).join(f"- {state.value}: {text}" for state, text in STATE_DESCRIPTIONS.items())}
@@ -497,8 +688,20 @@ spatial filter is only for requests that explicitly cover the whole city.
 study they named). If they named none, write exactly "{UNSOURCED}". Never supply a source yourself.
 - confidence_grade reflects only what the planner claims about that source; default to low.
 - horizon_years is 2, 4, or 6; default to 6 when unstated. active_step counts 2-year steps from 1.
-- Anything that cannot be expressed as a building-state lever (traffic, rents, population, \
-infrastructure capacity) goes in unsupported_requests rather than being approximated.
+- A disaster or attack is a hazard, not a lever. kind is one of: tornado, storm (wind, \
+lightning), rain, flood, fire, heat, earthquake, explosion (also gas leaks and bombings), \
+plane_crash, orbital_strike, riot. Place it with location.sectors using names exactly as listed; \
+set location.citywide only for storm, rain, heat, or earthquake, or when the planner says the \
+whole city is hit. Never write coordinates. If the place is not in the sector list, leave the \
+hazard out and list the place under unsupported_requests.
+- Choose hazard severity ({" / ".join(SEVERITIES)}) from the wording. Set explicit_magnitude \
+only when the planner wrote the number, in the kind's unit:
+{_HAZARD_UNITS}
+  Set explicit_radius_m only when the planner wrote a distance. occurs_step counts 2-year steps \
+from 1 (default 1).
+- Anything that is neither a building-state lever nor a hazard (traffic, road closures, vehicle \
+crashes, rents, population, infrastructure capacity) goes in unsupported_requests rather than \
+being approximated.
 - scenario_id is a short kebab-case slug."""
 
 
