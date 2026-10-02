@@ -31,6 +31,9 @@ llm = [
 gemini = [
   "google-genai>=2.25,<3",
 ]
+terrain = [
+  "rasterio>=1.4,<2",
+]
 graph = [
   "torch>=2.5,<3",
 ]

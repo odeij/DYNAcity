@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "1c689b01-5cf2-44f7-8f71-1ea47a5b11b6",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/johnkofdarelli/DYNAcity/docs/architecture/dynacity-architecture.archify.json",
+  "output": "/Users/johnkofdarelli/DYNAcity/docs/architecture/dynacity-architecture.html",
+  "specification": {
+    "sha256": "2c62611c2f40cbc2e8b3189826ba8647406a384112303d782e9b29812802dc6a",
+    "bytes": 10515
+  },
+  "artifact": {
+    "sha256": "19b8c09c81b22eb9f5ba17ed3ccbe0b56b478aed12f5fd5a1de342bbf2e6839e",
+    "bytes": 789858
+  }
+}

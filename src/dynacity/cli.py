@@ -10,6 +10,7 @@ files rather than in-process state:
     build-panel     → transition panel CSV
     summarize-transitions → descriptive interval JSON (never modelled)
     build-snapshot  → present-state snapshot JSON
+    fetch-terrain   → approximate ground-elevation grid (.npz) for terrain-following floods
     freeze-evidence → registry JSON → content-hashed EvidenceBundle
     compile-scenario→ planner prose → checked ScenarioSpec + audit trail
     train           → ModelBundle + sibling .metrics.json
@@ -55,6 +56,7 @@ from .providers import resolve_provider
 from .scenario_compiler import compile_scenario
 from .service import create_app
 from .snapshot import snapshot_from_bbed
+from .terrain import GroundModel, attach_ground_elevation, fetch_ground_model
 from .viewer import build_viewer_payload, render_viewer
 from .transitions import summarize_interval
 
@@ -278,6 +280,16 @@ def command_export_viewer(args: argparse.Namespace) -> None:
           f"{coverage['missing_geometry']} without geometry)")
 
 
+def command_fetch_terrain(args: argparse.Namespace) -> None:
+    snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
+    ground = fetch_ground_model(snapshot, cell_m=args.cell_m)
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    ground.save(destination)
+    rows, cols = ground.ground.shape
+    print(f"terrain -> {args.output} ({cols}x{rows} cells of {ground.cell_m:g} m in {ground.crs})")
+
+
 def _business_as_usual(engine: ForecastEngine, snapshot: UrbanStateSnapshot) -> ForecastResult:
     return engine.forecast(ForecastRequest(
         snapshot=snapshot,
@@ -297,8 +309,13 @@ def command_serve(args: argparse.Namespace) -> None:
         ))
         if not tiles.api_key:
             raise SystemExit(f"--basemap google needs {MAPS_KEY_VARIABLE} (a Google Maps key with the Map Tiles API)")
+    ground = GroundModel.load(args.terrain) if args.terrain else None
     if args.snapshot:
         snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
+        if ground is not None:
+            # Ground levels only steer floods; the transition model never sees them.
+            snapshot = attach_ground_elevation(snapshot, ground)
+            print("floods follow terrain from " + args.terrain)
     if args.bbed:
         if snapshot is None:
             raise SystemExit("--bbed needs --snapshot so footprints can be joined to states")
@@ -325,6 +342,7 @@ def command_serve(args: argparse.Namespace) -> None:
         viewer_snapshot=snapshot,
         evidence=_load_bundle(args.evidence),
         viewer_forecast=baseline,
+        viewer_ground=ground,
         llm_budget=RequestBudget(
             total=args.llm_request_limit, per_minute=args.llm_requests_per_minute, what="language-model requests"
         ),
@@ -389,6 +407,12 @@ def build_parser() -> argparse.ArgumentParser:
     snapshot.add_argument("--lidar-features")
     snapshot.set_defaults(func=command_build_snapshot)
 
+    terrain = subparsers.add_parser("fetch-terrain")
+    terrain.add_argument("--snapshot", required=True)
+    terrain.add_argument("--output", required=True)
+    terrain.add_argument("--cell-m", type=float, default=10.0)
+    terrain.set_defaults(func=command_fetch_terrain)
+
     train = subparsers.add_parser("train")
     train.add_argument("--panel", required=True)
     train.add_argument("--output", required=True)
@@ -440,6 +464,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--bbed")
     serve.add_argument("--forecast")
     serve.add_argument("--evidence")
+    serve.add_argument("--terrain", help="ground model from fetch-terrain; floods then follow it")
     serve.add_argument("--basemap", choices=["carto", "google", "none"], default="carto")
     serve.add_argument("--provider", choices=["anthropic", "gemini"])
     serve.add_argument("--llm-model")

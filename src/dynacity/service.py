@@ -11,14 +11,15 @@ engine without touching disk.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .contracts import ForecastRequest, ForecastResult, UrbanStateSnapshot
+from .contracts import ForecastRequest, ForecastResult, HazardEvent, HazardKind, ScenarioSpec, UrbanStateSnapshot
 from .engine import ForecastEngine
+from .hazards import PROFILES
 from .evidence import EvidenceBundle, verify_bundle
 from .google_tiles import GoogleTilesProxy, TilesError
 from .limits import RequestBudget
@@ -26,7 +27,8 @@ from .map_query import ask_map
 from .planning import PlanningRequest, PlanningResult, plan
 from .providers import DraftProvider, resolve_provider
 from .scenario_compiler import CompilationResult, compile_scenario
-from .viewer import forecast_summary
+from .terrain import GroundModel
+from .viewer import drop_to_metres, forecast_summary, hazard_focus
 
 
 class ScenarioCompileRequest(BaseModel):
@@ -41,6 +43,24 @@ class ViewerScenarioRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str = Field(min_length=1, max_length=4000)
+
+
+class DroppedHazard(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: HazardKind
+    # [longitude, latitude]: one point drops the hazard there; two or more
+    # are a tornado's track, in the order it was drawn.
+    points: list[tuple[float, float]] = Field(min_length=1, max_length=64)
+    severity: Literal["minor", "moderate", "severe", "extreme"] = "moderate"
+    # Footprint radius (half-width for a track); omitted, the severity implies it.
+    radius_m: float | None = Field(default=None, gt=0, le=5000)
+
+
+class ViewerHazardRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    hazards: list[DroppedHazard] = Field(min_length=1, max_length=8)
 
 
 class ViewerAskRequest(BaseModel):
@@ -59,6 +79,7 @@ def create_app(
     evidence: EvidenceBundle | None = None,
     viewer_draws: int = 300,
     viewer_forecast: ForecastResult | None = None,
+    viewer_ground: GroundModel | None = None,
     llm_budget: RequestBudget | None = None,
     tiles_proxy: GoogleTilesProxy | None = None,
 ) -> FastAPI:
@@ -166,12 +187,55 @@ def create_app(
             except RuntimeError as exc:
                 raise HTTPException(status_code=503, detail=str(exc)) from exc
             forecast = None
+            hazards: list[dict] = []
             if compilation.scenario is not None:
                 result = engine.forecast(ForecastRequest(
                     snapshot=viewer_snapshot, scenario=compilation.scenario, draws=viewer_draws
                 ))
                 forecast = forecast_summary(result)
-            return {"compilation": compilation.model_dump(mode="json"), "forecast": forecast}
+                # Lets the page fly to where each disaster strikes.
+                hazards = hazard_focus(compilation.scenario.hazards, viewer_snapshot, ground=viewer_ground)
+            return {"compilation": compilation.model_dump(mode="json"), "forecast": forecast, "hazards": hazards}
+
+    # Disasters dragged onto the map: placed by the page, so no language model
+    # is involved and the drop runs straight through the engine. They all
+    # strike on the first step, and each drop re-runs the whole set.
+    if viewer_snapshot is not None:
+        horizon = max((k.year_offset for k in viewer_forecast.kpis), default=6) if viewer_forecast else 6
+        located = any(o.centroid_x_m is not None for o in viewer_snapshot.objects)
+
+        @app.post("/v1/viewer/hazard")
+        def viewer_hazard(request: ViewerHazardRequest) -> dict:
+            if not located:
+                raise HTTPException(
+                    status_code=422,
+                    detail="the served snapshot has no building centroids, so a dropped hazard cannot reach any "
+                    "building; serve a snapshot built with centroids",
+                )
+            hazards = []
+            try:
+                for index, drop in enumerate(request.hazards, start=1):
+                    points = drop_to_metres(drop.points, viewer_snapshot.crs)
+                    where = {"path_m": points} if len(points) > 1 else {
+                        "center_x_m": points[0][0], "center_y_m": points[0][1]
+                    }
+                    hazards.append(HazardEvent(
+                        hazard_id=f"{drop.kind.value}-{index}", kind=drop.kind,
+                        magnitude=PROFILES[drop.kind].severity_magnitudes[drop.severity],
+                        radius_m=drop.radius_m, **where,
+                    ))
+                scenario = ScenarioSpec(
+                    scenario_id="dropped-disasters", baseline_snapshot_id=viewer_snapshot.snapshot_id,
+                    horizon_years=horizon, hazards=hazards,
+                )
+            except ValidationError as exc:
+                raise HTTPException(status_code=422, detail=exc.errors()[0]["msg"]) from exc
+            result = engine.forecast(ForecastRequest(snapshot=viewer_snapshot, scenario=scenario, draws=viewer_draws))
+            return {
+                "scenario": scenario.model_dump(mode="json"),
+                "forecast": forecast_summary(result),
+                "hazards": hazard_focus(hazards, viewer_snapshot, ground=viewer_ground),
+            }
 
     # Questions about the map are answered by code from the snapshot and the
     # business-as-usual forecast; the model only turns the question into a

@@ -14,6 +14,13 @@ Squaring I concentrates destruction near the core while damage reaches the
 edge of the footprint. Exposure is 1 inside `core_fraction × radius`, eases to
 0 at the radius (smoothstep), and is 1 everywhere for a citywide hazard.
 
+A flood follows terrain when buildings carry `ground_elevation_m` (see
+`terrain.py`): the water fills to `magnitude` metres above the low ground in
+reach (the 5th percentile of the reached buildings' ground), so each building's
+own depth is the water level minus its ground, and buildings above the water
+stay dry. `strength` is then read at that local depth. Without elevations the
+depth is uniform inside the footprint, as before.
+
 Outcomes map onto the existing states rather than inventing new ones, so the
 trained model, the KPIs and every stored artifact stay valid:
 
@@ -169,7 +176,8 @@ PROFILES: dict[HazardKind, HazardProfile] = {
         damage_ceiling=0.9,
         # A flooded ground floor matters less the more floors stay dry above it.
         vulnerability=_by_floors(1.0, 0.6, 0.35, low_max=2, mid_max=6),
-        caveat="Flood footprint is flat: no terrain, drainage or sea-level data, so depth is uniform inside it.",
+        caveat="Flood depth follows approximate ground level (Copernicus 30 m surface model with roofs filtered out) "
+        "when buildings carry it, and is uniform otherwise; flow, drainage, defences and sea level are not modelled.",
     ),
     HazardKind.FIRE: HazardProfile(
         unit="fire intensity class 1-5",
@@ -265,6 +273,12 @@ PROFILES: dict[HazardKind, HazardProfile] = {
 }
 
 
+# Low-ground reference for a terrain-following flood: this percentile of the
+# ground under the buildings the footprint reaches (a percentile, not the
+# minimum, so one mis-sampled building cannot sink the whole water level).
+FLOOD_LOW_GROUND_PERCENTILE = 5
+
+
 def magnitude_of(hazard: HazardEvent) -> float:
     return hazard.magnitude if hazard.magnitude is not None else PROFILES[hazard.kind].default_magnitude
 
@@ -309,6 +323,52 @@ class HazardShock:
     unlocated: int
 
 
+def _footprint(hazard: HazardEvent, objects: Sequence[UrbanObjectState]) -> tuple[np.ndarray, int]:
+    """Exposure in [0, 1] per building, and how many buildings have no centroid."""
+
+    count = len(objects)
+    if hazard.citywide:
+        return np.ones(count), 0
+    located = np.asarray(
+        [item.centroid_x_m is not None and item.centroid_y_m is not None for item in objects], dtype=bool
+    )
+    xy = np.asarray(
+        [(item.centroid_x_m or 0.0, item.centroid_y_m or 0.0) for item in objects], dtype=np.float64
+    ).reshape(count, 2)
+    if hazard.path_m:
+        distance = _distance_to_path(xy, hazard.path_m)
+    else:
+        distance = np.linalg.norm(xy - np.asarray([hazard.center_x_m, hazard.center_y_m]), axis=1)
+    exposure = _exposure(distance, radius_of(hazard), PROFILES[hazard.kind].core_fraction)
+    return np.where(located, exposure, 0.0), int((~located).sum())
+
+
+def _ground(objects: Sequence[UrbanObjectState]) -> np.ndarray:
+    return np.asarray(
+        [np.nan if item.ground_elevation_m is None else item.ground_elevation_m for item in objects], dtype=np.float64
+    )
+
+
+def flood_level(
+    hazard: HazardEvent, objects: Sequence[UrbanObjectState], exposure: np.ndarray | None = None
+) -> float | None:
+    """Water surface in metres above sea level for a terrain-following flood; None when it is flat.
+
+    It is flat when the hazard is not a flood or no building it reaches has a
+    ground elevation.
+    """
+
+    if hazard.kind is not HazardKind.FLOOD:
+        return None
+    if exposure is None:
+        exposure = _footprint(hazard, objects)[0]
+    ground = _ground(objects)
+    reached = (exposure > 0) & ~np.isnan(ground)
+    if not reached.any():
+        return None
+    return float(np.percentile(ground[reached], FLOOD_LOW_GROUND_PERCENTILE)) + magnitude_of(hazard)
+
+
 def hazard_shock(hazard: HazardEvent, objects: Sequence[UrbanObjectState]) -> HazardShock:
     """Destroy/damage probabilities per building, before state eligibility is applied.
 
@@ -317,25 +377,18 @@ def hazard_shock(hazard: HazardEvent, objects: Sequence[UrbanObjectState]) -> Ha
     """
 
     profile = PROFILES[hazard.kind]
-    count = len(objects)
-    located = np.asarray(
-        [item.centroid_x_m is not None and item.centroid_y_m is not None for item in objects], dtype=bool
-    )
-    if hazard.citywide:
-        exposure = np.ones(count)
-        unlocated = 0
-    else:
-        xy = np.asarray(
-            [(item.centroid_x_m or 0.0, item.centroid_y_m or 0.0) for item in objects], dtype=np.float64
-        ).reshape(count, 2)
-        if hazard.path_m:
-            distance = _distance_to_path(xy, hazard.path_m)
-        else:
-            distance = np.linalg.norm(xy - np.asarray([hazard.center_x_m, hazard.center_y_m]), axis=1)
-        exposure = np.where(located, _exposure(distance, radius_of(hazard), profile.core_fraction), 0.0)
-        unlocated = int((~located).sum())
+    exposure, unlocated = _footprint(hazard, objects)
+    magnitude = magnitude_of(hazard)
+    strength: float | np.ndarray = profile.strength(magnitude)
+    level = flood_level(hazard, objects, exposure)
+    if level is not None:
+        # Each building's own water depth; one without a ground elevation
+        # keeps the flat depth rather than being silently left dry.
+        ground = _ground(objects)
+        depth = np.where(np.isnan(ground), magnitude, np.clip(level - ground, 0.0, None))
+        strength = np.asarray([profile.strength(float(d)) for d in depth])
     vulnerability = np.asarray([profile.vulnerability(item) for item in objects], dtype=np.float64)
-    intensity = np.clip(profile.strength(magnitude_of(hazard)) * exposure * vulnerability, 0.0, 1.0)
+    intensity = np.clip(strength * exposure * vulnerability, 0.0, 1.0)
     destroy = profile.destroy_ceiling * intensity**2
     damage = np.clip(profile.damage_ceiling * intensity - destroy, 0.0, 1.0 - destroy)
     return HazardShock(hazard=hazard, destroy=destroy, damage=damage, exposed=intensity > 0, unlocated=unlocated)

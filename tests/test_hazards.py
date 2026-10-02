@@ -2,6 +2,7 @@ from datetime import date
 
 import numpy as np
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from dynacity.contracts import (
@@ -21,10 +22,13 @@ from dynacity.scenario_compiler import (
     check_draft,
     resolve_draft,
 )
+from dynacity.service import create_app
 from dynacity.snapshot import attach_centroids, snapshot_from_bbed
 from dynacity.status import CanonicalState
+from dynacity.viewer import hazard_focus, lonlat_to_utm, utm_to_lonlat
 
 from test_models_engine_api import engine_fixture
+from test_scenario_compiler import FakeClient
 from test_planning import lever
 
 DEMOLISHED = CanonicalState.DEMOLISHED
@@ -286,3 +290,58 @@ def test_planning_faces_every_candidate_with_the_same_hazard():
         PlanningRequest(**(request.model_dump() | {"horizon_years": 2, "objectives": [
             KpiObjective(kpi="completed_count", year_offset=2, direction="maximize")],
             "hazards": [point(HazardKind.FLOOD, occurs_step=2)]}))
+
+
+def test_viewer_flies_to_the_buildings_a_hazard_hits_hardest():
+    fire = point(HazardKind.FIRE, radius_m=200)
+    [focus] = hazard_focus([fire], city())
+    assert focus["hazard_id"] == fire.hazard_id and focus["kind"] == "fire"
+    assert focus["ids"] and not {"far", "far-2"} & set(focus["ids"])
+    [quake] = hazard_focus([HazardEvent(hazard_id="q", kind=HazardKind.EARTHQUAKE, citywide=True)], city())
+    assert {"far", "far-2"} <= set(quake["ids"])
+
+
+def test_viewer_scenario_endpoint_returns_where_the_hazard_struck():
+    client = TestClient(create_app(
+        engine_fixture(), scenario_client=FakeClient(hazard_draft()), viewer_snapshot=city()
+    ))
+    body = client.post("/v1/viewer/scenario", json={"text": "A severe earthquake hits Mar Mikhael."}).json()
+    assert body["forecast"] is not None
+    [focus] = body["hazards"]
+    assert focus["hazard_id"] == "quake" and focus["ids"]
+
+
+def lonlat(x, y):
+    return list(utm_to_lonlat(x, y, 36))
+
+
+def test_forward_utm_inverts_the_viewer_projection():
+    for x, y in [(732346.89, 3752967.64), (820000.0, 3800000.0), (0.0, 0.0), (5100.0, 40.0)]:
+        assert lonlat_to_utm(*utm_to_lonlat(x, y, 36), 36) == pytest.approx((x, y), abs=0.01)
+
+
+def test_dropped_disasters_run_without_a_language_model():
+    client = TestClient(create_app(engine_fixture(), viewer_snapshot=city()))
+    blast = {"kind": "explosion", "points": [lonlat(0, 0)], "severity": "severe"}
+    tornado = {"kind": "tornado", "points": [lonlat(4900, 0), lonlat(5200, 40)]}
+    body = client.post("/v1/viewer/hazard", json={"hazards": [blast, tornado]}).json()
+    assert [h["kind"] for h in body["scenario"]["hazards"]] == ["explosion", "tornado"]
+    assert body["forecast"]["evidence_level"] == "assumption_based_scenario"
+    assert {i["hazard_id"] for i in body["forecast"]["hazard_impacts"]} == {"explosion-1", "tornado-2"}
+    boom, twister = body["hazards"]
+    assert "zero" in boom["ids"] and not {"far", "far-2"} & set(boom["ids"])
+    assert boom["center"] == pytest.approx(lonlat(0, 0)) and boom["radius_m"] > 0
+    assert len(twister["path"]) == 2 and {"far", "far-2"} <= set(twister["ids"])
+
+
+def test_dropped_disasters_are_checked():
+    client = TestClient(create_app(engine_fixture(), viewer_snapshot=city()))
+    fire_track = {"kind": "fire", "points": [lonlat(0, 0), lonlat(100, 0)]}
+    assert client.post("/v1/viewer/hazard", json={"hazards": [fire_track]}).status_code == 422
+    unlocated = city().model_copy(update={"objects": [
+        o.model_copy(update={"centroid_x_m": None, "centroid_y_m": None}) for o in city().objects
+    ]})
+    client = TestClient(create_app(engine_fixture(), viewer_snapshot=unlocated))
+    drop = {"kind": "explosion", "points": [lonlat(0, 0)]}
+    response = client.post("/v1/viewer/hazard", json={"hazards": [drop]})
+    assert response.status_code == 422 and "centroids" in response.json()["detail"]

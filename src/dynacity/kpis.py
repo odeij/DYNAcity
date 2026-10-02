@@ -51,6 +51,35 @@ KPI_UNITS = {
 }
 
 
+_STABLE = CanonicalState.STABLE_BUILT.value
+_ACTIVE = CanonicalState.ACTIVE_CONSTRUCTION.value
+_STALLED = CanonicalState.STALLED_OR_CANCELLED.value
+_VACANT = CanonicalState.VACANT_OR_EVICTED.value
+_DEMOLISHED = CanonicalState.DEMOLISHED.value
+_EMPTY = CanonicalState.EMPTY_OR_PARKING.value
+
+# One-entry cache keyed on the object list's identity: a rollout calls
+# compute_kpis hundreds of times with the same list, and geometry is static.
+_geometry_cache: tuple[object, tuple[np.ndarray, np.ndarray, np.ndarray]] | None = None
+
+
+def _geometry(objects: Sequence[UrbanObjectState]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    global _geometry_cache
+    if _geometry_cache is not None and _geometry_cache[0] is objects and len(_geometry_cache[1][0]) == len(objects):
+        return _geometry_cache[1]
+    areas = np.asarray([item.footprint_area_m2 for item in objects], dtype=np.float64)
+    floors = np.asarray(
+        [item.floors if item.floors is not None else 0.0 for item in objects],
+        dtype=np.float64,
+    )
+    heights = np.asarray(
+        [item.height_m if item.height_m is not None else np.nan for item in objects],
+        dtype=np.float64,
+    )
+    _geometry_cache = (objects, (areas, floors, heights))
+    return areas, floors, heights
+
+
 def compute_kpis(
     objects: Sequence[UrbanObjectState],
     states: Sequence[str | CanonicalState],
@@ -63,27 +92,21 @@ def compute_kpis(
     dtype juggling.
     """
 
-    state_values = [str(state) for state in states]
-    areas = np.asarray([item.footprint_area_m2 for item in objects], dtype=np.float64)
-    floors = np.asarray(
-        [item.floors if item.floors is not None else 0.0 for item in objects],
-        dtype=np.float64,
-    )
-    heights = np.asarray(
-        [item.height_m if item.height_m is not None else np.nan for item in objects],
-        dtype=np.float64,
-    )
-    stable = np.asarray([value == CanonicalState.STABLE_BUILT.value for value in state_values])
-    active = np.asarray([value == CanonicalState.ACTIVE_CONSTRUCTION.value for value in state_values])
-    stalled = np.asarray([value == CanonicalState.STALLED_OR_CANCELLED.value for value in state_values])
-    vacant = np.asarray([value == CanonicalState.VACANT_OR_EVICTED.value for value in state_values])
-    demolished = np.asarray([value == CanonicalState.DEMOLISHED.value for value in state_values])
-    empty = np.asarray([value == CanonicalState.EMPTY_OR_PARKING.value for value in state_values])
+    # Called once per draw per step, so the comparisons are vectorised and the
+    # static geometry arrays are built once per object list.
+    state_values = np.asarray([str(state) for state in states] if not isinstance(states, np.ndarray) else states.astype(str))
+    areas, floors, heights = _geometry(objects)
+    stable = state_values == _STABLE
+    active = state_values == _ACTIVE
+    stalled = state_values == _STALLED
+    vacant = state_values == _VACANT
+    demolished = state_values == _DEMOLISHED
+    empty = state_values == _EMPTY
     # "Built" is defined by exclusion — anything not empty, demolished, or
     # unknown counts as standing. Excluding unknown is the conservative choice:
     # a building whose state could not be determined is left out of built-area
     # totals rather than assumed to be standing.
-    built = ~(empty | demolished | np.asarray([value == "unknown" for value in state_values]))
+    built = ~(empty | demolished | (state_values == "unknown"))
     known_heights = heights[built & ~np.isnan(heights)]
     total_area = float(areas.sum())
     return {

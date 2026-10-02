@@ -17,6 +17,12 @@ The core contribution is a versioned urban-state forecasting boundary that combi
 
 BBED polygons remain the canonical building boundaries. Point-cloud-derived watershed instances are useful for detection QA, but attached Beirut buildings cannot be reliably split at party walls from geometry alone.
 
+## Architecture
+
+![DynaCITY forecasting engine architecture](docs/architecture/dynacity-architecture.png)
+
+The top two rows are the offline pipeline that trains the model. The boxed region is what `dynacity serve` runs. For an interactive version, download [the diagram](docs/architecture/dynacity-architecture.html) and open it in a browser: every component links to the source lines it was drawn from, pinned to commit `85a52b9`. It was generated with [Archify](https://github.com/tt-a1i/archify) from [this spec](docs/architecture/dynacity-architecture.archify.json), which also validated each citation against the code.
+
 ## Screenshots
 
 These come from running the whole pipeline on the public BBED layer (3,349 buildings, snapshot as of 2024-04-30). The benchmark selected the Markov model, and this is the business-as-usual forecast rendered with `dynacity export-viewer`.

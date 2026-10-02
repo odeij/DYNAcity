@@ -105,6 +105,9 @@ class UrbanObjectState(BaseModel):
     # snapshot files stay valid; hazards cannot reach a building without it.
     centroid_x_m: float | None = None
     centroid_y_m: float | None = None
+    # Approximate ground level at the centroid, metres above the EGM2008 geoid
+    # (`terrain.attach_ground_elevation`). Optional; without it a flood is flat.
+    ground_elevation_m: float | None = None
 
 
 class UrbanStateSnapshot(BaseModel):

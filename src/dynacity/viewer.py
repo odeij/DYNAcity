@@ -36,13 +36,24 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections.abc import Sequence
 from importlib.resources import files
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
 
 from .bbed import resolved_object_ids
-from .contracts import ForecastResult, UrbanStateSnapshot
+from .contracts import ForecastResult, HazardEvent, UrbanStateSnapshot
+from .hazards import PROFILES, _exposure, flood_level, hazard_shock, magnitude_of, radius_of
 from .kpis import KPI_UNITS
 from .status import CanonicalState
+
+if TYPE_CHECKING:
+    from .terrain import GroundModel
+
+# Water drawn for a terrain-following flood is capped at this many cells;
+# beyond it the grid is thinned (coarser cells), never truncated.
+MAX_WATER_CELLS = 40_000
 
 # Used only when a building has neither a recorded height nor a floor count;
 # such buildings are flagged `estimated` in the payload and the viewer says so.
@@ -125,6 +136,47 @@ def utm_to_lonlat(x: float, y: float, zone: int, north: bool = True) -> tuple[fl
         + (5 - 2 * c1 + 28 * t1 - 3 * c1**2 + 8 * ep2 + 24 * t1**2) * d**5 / 120
     ) / cos1
     return math.degrees(lon) + (zone * 6 - 183), math.degrees(lat)
+
+
+def lonlat_to_utm(lon: float, lat: float, zone: int, north: bool = True) -> tuple[float, float]:
+    """Forward transverse Mercator on WGS84 (Snyder 1987, eqs. 8-9 to 8-10).
+
+    The inverse of `utm_to_lonlat`, for turning a point dropped on the map
+    back into snapshot metres.
+    """
+
+    a, f, k0 = 6378137.0, 1 / 298.257223563, 0.9996
+    e2 = f * (2 - f)
+    ep2 = e2 / (1 - e2)
+    phi = math.radians(lat)
+    sin_phi, cos_phi, tan_phi = math.sin(phi), math.cos(phi), math.tan(phi)
+    n = a / math.sqrt(1 - e2 * sin_phi**2)
+    t, c = tan_phi**2, ep2 * cos_phi**2
+    big_a = cos_phi * math.radians(lon - (zone * 6 - 183))
+    m = a * (
+        (1 - e2 / 4 - 3 * e2**2 / 64 - 5 * e2**3 / 256) * phi
+        - (3 * e2 / 8 + 3 * e2**2 / 32 + 45 * e2**3 / 1024) * math.sin(2 * phi)
+        + (15 * e2**2 / 256 + 45 * e2**3 / 1024) * math.sin(4 * phi)
+        - (35 * e2**3 / 3072) * math.sin(6 * phi)
+    )
+    x = k0 * n * (
+        big_a
+        + (1 - t + c) * big_a**3 / 6
+        + (5 - 18 * t + t**2 + 72 * c - 58 * ep2) * big_a**5 / 120
+    ) + 500000.0
+    y = k0 * (m + n * tan_phi * (
+        big_a**2 / 2
+        + (5 - t + 9 * c + 4 * c**2) * big_a**4 / 24
+        + (61 - 58 * t + t**2 + 600 * c - 330 * ep2) * big_a**6 / 720
+    ))
+    return x, y if north else y + 10000000.0
+
+
+def drop_to_metres(points: Sequence[tuple[float, float]], crs: str) -> list[tuple[float, float]]:
+    """[longitude, latitude] points from the page → snapshot CRS metres."""
+
+    zone, north = _utm_zone(crs)
+    return [lonlat_to_utm(lon, lat, zone, north) for lon, lat in points]
 
 
 def _outer_rings(geometry: dict | None) -> list[list[list[float]]]:
@@ -247,7 +299,86 @@ def forecast_summary(forecast: ForecastResult) -> dict[str, Any]:
             }
             for item in forecast.first_step_transitions
         },
+        # Aggregate counts per hazard (no per-object data).
+        "hazard_impacts": [impact.model_dump(mode="json") for impact in forecast.hazard_impacts],
     }
+
+
+def hazard_focus(
+    hazards: Sequence[HazardEvent],
+    snapshot: UrbanStateSnapshot,
+    *,
+    ground: GroundModel | None = None,
+    limit: int = 1000,
+) -> list[dict[str, Any]]:
+    """Where the camera flies for each hazard, and where to draw it.
+
+    `ids` are the buildings it hits, ranked by the hazard's own destroy +
+    damage probability, so a local shock frames its footprint and a citywide
+    one frames its most vulnerable buildings; the page also animates the top
+    of that ranking falling. Ids only — nothing else about the objects reaches
+    the page. `center`/`path` are in longitude and latitude for the page's
+    effects; both are None for a citywide hazard. A flood that follows terrain
+    also carries `water`: the flooded ground cells and their depth.
+    """
+
+    zone, north = _utm_zone(snapshot.crs)
+    focus = []
+    for hazard in hazards:
+        shock = hazard_shock(hazard, snapshot.objects)
+        hit = shock.destroy + shock.damage
+        order = [int(i) for i in np.argsort(-hit, kind="stable")[:limit] if hit[i] > 0]
+        focus.append({
+            "hazard_id": hazard.hazard_id,
+            "kind": hazard.kind.value,
+            "occurs_step": hazard.occurs_step,
+            "citywide": hazard.citywide,
+            "center": None if hazard.center_x_m is None
+            else list(utm_to_lonlat(hazard.center_x_m, hazard.center_y_m, zone, north)),
+            "path": [list(utm_to_lonlat(x, y, zone, north)) for x, y in hazard.path_m] or None,
+            "radius_m": radius_of(hazard),
+            "ids": [snapshot.objects[i].object_id for i in order],
+            "water": None if ground is None else flood_water(hazard, snapshot, ground),
+        })
+    return focus
+
+
+def flood_water(hazard: HazardEvent, snapshot: UrbanStateSnapshot, ground: GroundModel) -> dict[str, Any] | None:
+    """Flooded ground cells for a terrain-following flood: [longitude, latitude, depth m] each.
+
+    The same water level the engine uses (`hazards.flood_level`), applied to
+    the ground grid instead of to buildings, and thinned towards the
+    footprint's edge by the same exposure falloff. None when the flood is flat.
+    """
+
+    level = flood_level(hazard, snapshot.objects)
+    if level is None:
+        return None
+    if hazard.citywide:
+        xs = [o.centroid_x_m for o in snapshot.objects if o.centroid_x_m is not None]
+        ys = [o.centroid_y_m for o in snapshot.objects if o.centroid_y_m is not None]
+        box = (min(xs) - 300, min(ys) - 300, max(xs) + 300, max(ys) + 300)
+    else:
+        radius = radius_of(hazard)
+        cx, cy = hazard.center_x_m, hazard.center_y_m
+        box = (cx - radius, cy - radius, cx + radius, cy + radius)
+    x, y, g = ground.centres(*box)
+    step = max(1, math.ceil(math.sqrt(x.size / MAX_WATER_CELLS)))
+    x, y, g = x[::step, ::step].ravel(), y[::step, ::step].ravel(), g[::step, ::step].ravel()
+    if hazard.citywide:
+        exposure = np.ones(x.size)
+    else:
+        distance = np.hypot(x - hazard.center_x_m, y - hazard.center_y_m)
+        exposure = _exposure(distance, radius, PROFILES[hazard.kind].core_fraction)
+    with np.errstate(invalid="ignore"):
+        depth = np.clip(level - g, 0.0, 1.5 * magnitude_of(hazard)) * exposure
+        wet = np.flatnonzero(depth > 0.05)
+    zone, north = _utm_zone(snapshot.crs)
+    cells = []
+    for i in wet:
+        lon, lat = utm_to_lonlat(float(x[i]), float(y[i]), zone, north)
+        cells.append([round(lon, 6), round(lat, 6), round(float(depth[i]), 2)])
+    return {"level_m": round(level, 2), "cell_m": ground.cell_m * step, "cells": cells, "source": ground.source}
 
 
 def render_viewer(payload: dict[str, Any], *, title: str = "DynaCITY · Beirut") -> str:
