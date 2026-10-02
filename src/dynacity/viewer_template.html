@@ -1,0 +1,1963 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>__DYNACITY_TITLE__</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/deck.gl@9.4.0/dist.min.js"></script>
+<style>
+:root {
+  --font: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  --sky-top: #9fbbd3;
+  --sky-mid: #c7d8e5;
+  --sky-horizon: #e6eef3;
+  --ink: #f7fbff;
+  --ink-2: rgba(234, 245, 255, 0.82);
+  --ink-3: rgba(219, 236, 250, 0.64);
+  --accent: #8dd0ff;
+  --accent-strong: #53b8fb;
+  --rim: rgba(226, 243, 255, 0.4);
+  --line: rgba(230, 244, 255, 0.2);
+  --glass: linear-gradient(145deg, rgba(127, 157, 182, 0.5) 0%, rgba(65, 98, 128, 0.62) 38%, rgba(34, 62, 83, 0.76) 100%);
+  --glass-solid: linear-gradient(145deg, rgba(92, 124, 150, 0.9), rgba(34, 62, 83, 0.94));
+  --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 0 0 1px rgba(224, 241, 255, 0.09), 0 14px 42px rgba(13, 38, 61, 0.19), 0 3px 10px rgba(10, 31, 49, 0.1);
+  --control: rgba(29, 58, 82, 0.24);
+  --control-hover: rgba(228, 244, 255, 0.16);
+  --tab-on-bg: #fbfdff;
+  --tab-on-ink: #1d2b44;
+  --ok: #78ef8f;
+  --warn: #ffd58b;
+  --bad: #ff8a92;
+  --edge: clamp(10px, 1.2vw, 16px);
+  --r-sm: 10px;
+  --r-md: 15px;
+  --r-lg: 22px;
+  --blur: blur(24px) saturate(145%);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --sky-top: #16212c;
+    --sky-mid: #22313f;
+    --sky-horizon: #2f4152;
+  }
+}
+:root[data-theme="dark"] {
+  --sky-top: #16212c;
+  --sky-mid: #22313f;
+  --sky-horizon: #2f4152;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body {
+  font: 13px/1.4 var(--font);
+  letter-spacing: -0.012em;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-mid) 42%, var(--sky-horizon) 62%, var(--sky-horizon) 100%);
+  -webkit-font-smoothing: antialiased;
+}
+#scene { position: absolute; inset: 0; z-index: 0; will-change: transform; }
+/* screen-wide disaster light: a lightning or blast flash, and heat's warm cast */
+.flash, .heat { position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: 0; }
+.flash { background: #f4f8ff; }
+.heat { background: radial-gradient(ellipse at 50% 30%, rgba(255, 196, 120, 0.55), rgba(255, 128, 48, 0.4) 55%, rgba(170, 64, 24, 0.5)); mix-blend-mode: multiply; }
+button, input { font: inherit; color: inherit; letter-spacing: inherit; }
+button { cursor: pointer; touch-action: manipulation; }
+:focus-visible { outline: 2px solid #d8f0ff; outline-offset: 2px; }
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--rim);
+  border-radius: var(--r-lg);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+}
+.chrome { position: absolute; inset: 0; z-index: 10; pointer-events: none; }
+.chrome > * { pointer-events: auto; }
+
+/* brand */
+.brand { position: absolute; top: var(--edge); left: var(--edge); display: flex; align-items: center; gap: 10px; min-height: 38px; text-shadow: 0 1px 10px rgba(20, 50, 80, 0.55), 0 0 2px rgba(20, 50, 80, 0.35); pointer-events: none; }
+.brand svg { width: 28px; height: 28px; flex: none; }
+.brand .word { font-size: 21px; font-weight: 600; letter-spacing: -0.5px; }
+.brand .div { width: 1px; height: 20px; background: #f6fcff66; }
+.brand .city { font-size: 13px; font-weight: 500; color: #f4f9fd; }
+
+/* lens tabs */
+.tabs { position: absolute; top: var(--edge); left: 50%; transform: translateX(-50%); display: flex; gap: 2px; height: 38px; padding: 3px; border: 1px solid #e5f5ff55; border-radius: 20px; background: linear-gradient(120deg, #508cc566, #2d67a255); box-shadow: inset 0 1px 0 #ffffff14; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
+.tab { border: 0; border-radius: 16px; padding: 4px 14px; background: transparent; color: #f5faff; font-size: 12px; white-space: nowrap; }
+.tab:hover { background: var(--control-hover); }
+.tab[aria-selected="true"] { background: var(--tab-on-bg); color: var(--tab-on-ink); font-weight: 600; box-shadow: 0 0 0 1px #dff0ff55; }
+.tab[hidden] { display: none; }
+
+/* status pill */
+.status { position: absolute; top: var(--edge); right: var(--edge); display: flex; align-items: center; gap: 9px; min-height: 38px; padding: 8px 12px; border: 1px solid #e8f6ff29; border-radius: 13px; background: #40699270; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); font-size: 12px; white-space: nowrap; }
+.status .sep { width: 1px; height: 14px; background: #f6fcff44; }
+.status b { font-weight: 600; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgba(255, 255, 255, 0.14); }
+.badge i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.badge.assumed i { background: var(--warn); }
+
+/* left column: tool rail + disaster tray */
+.leftcol { position: absolute; top: calc(var(--edge) + 54px); left: var(--edge); bottom: 190px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; pointer-events: none; }
+.leftcol > * { pointer-events: auto; }
+.rail { display: grid; gap: 2px; width: 48px; padding: 4px; border-radius: var(--r-md); flex: none; }
+.rail button { width: 38px; height: 38px; display: grid; place-items: center; border: 0; border-radius: 11px; background: transparent; color: #f2f9ff; }
+.rail button:hover { background: var(--control-hover); }
+.rail button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.9); color: var(--tab-on-ink); }
+.rail svg { width: 19px; height: 19px; }
+.rail button[hidden] { display: none; }
+
+/* disaster tray: drag a tile onto the city */
+.tray { width: 196px; min-height: 0; padding: 12px 10px 10px; border-radius: var(--r-md); overflow: auto; scrollbar-width: thin; }
+.tray[hidden] { display: none; }
+.tray h2 { margin: 0 4px; font-size: 13px; font-weight: 600; }
+.tray .sub { margin: 1px 4px 10px; color: var(--ink-3); font-size: 11.5px; }
+.sev { margin: 0 4px 10px; font-size: 11.5px; color: var(--ink-2); }
+.sev .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.sev b { color: var(--ink); font-weight: 600; }
+.sev input { width: 100%; margin: 0; accent-color: #eaf5ff; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.tile { display: grid; justify-items: center; align-content: center; gap: 4px; height: 58px; padding: 6px 2px; border: 1px solid transparent; border-radius: 12px; background: rgba(255, 255, 255, 0.07); color: #f2f9ff; font-size: 10.5px; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+.tile:hover { background: var(--control-hover); border-color: var(--line); }
+.tile:active { cursor: grabbing; }
+.tile svg { width: 22px; height: 22px; pointer-events: none; }
+.tile span { pointer-events: none; white-space: nowrap; }
+.tile:disabled { opacity: 0.45; cursor: not-allowed; }
+.ghost { position: fixed; z-index: 40; width: 60px; height: 62px; pointer-events: none; transform: translate(-50%, -60%) scale(1.12) rotate(-4deg); background: var(--glass-solid); box-shadow: var(--glass-shadow), 0 18px 40px rgba(10, 31, 49, 0.35); transition: opacity 0.12s; }
+.ghost.off { opacity: 0.5; }
+.draw { position: absolute; inset: 0; z-index: 5; cursor: crosshair; touch-action: none; }
+.draw[hidden] { display: none; }
+.hz { width: 14px; height: 14px; flex: none; }
+.ghost[hidden] { display: none; }
+
+/* right column */
+.side { position: absolute; top: calc(var(--edge) + 54px); right: var(--edge); bottom: 190px; width: min(320px, calc(100vw - 2 * var(--edge))); display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+.side > .panel { pointer-events: auto; }
+.panel { padding: 14px 16px; max-height: 100%; overflow: auto; scrollbar-width: thin; }
+.panel[hidden] { display: none; }
+.panel h2 { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
+.panel .sub { color: var(--ink-3); font-size: 11.5px; margin-bottom: 10px; }
+.panel .close { float: right; border: 0; background: transparent; color: var(--ink-2); width: 24px; height: 24px; border-radius: 8px; margin: -4px -6px 0 0; }
+.panel .close:hover { background: var(--control-hover); }
+.legend-row { display: grid; grid-template-columns: 12px 1fr auto; align-items: center; gap: 9px; padding: 4px 0; font-size: 12px; }
+.legend-row .sw { width: 12px; height: 12px; border-radius: 4px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35); }
+.legend-row .n { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.legend-row.muted { opacity: 0.55; }
+.ramp { height: 10px; border-radius: 999px; margin: 6px 0 4px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3); }
+.ramp-labels { display: flex; justify-content: space-between; color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.note { margin-top: 10px; color: var(--ink-3); font-size: 11.5px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; margin: 8px 0 10px; }
+.kv dt { color: var(--ink-3); }
+.kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.pbar { display: grid; grid-template-columns: 12px 1fr 44px; align-items: center; gap: 8px; margin: 5px 0; font-size: 12px; }
+.pbar .sw { width: 10px; height: 10px; border-radius: 3px; }
+.pbar .track { position: relative; height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
+.pbar .fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: #eaf5ff; }
+.pbar .ghost { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #ffd58b; border-radius: 1px; }
+.pbar .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.pbar .lbl { grid-column: 2 / 4; color: var(--ink-2); font-size: 11.5px; margin-bottom: -3px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 600; background: rgba(255, 255, 255, 0.14); margin: 2px 4px 2px 0; }
+.chip.hard { background: rgba(255, 115, 125, 0.28); }
+.chip.soft { background: rgba(255, 213, 139, 0.22); }
+.chip.ok { background: rgba(120, 239, 143, 0.22); }
+.issue { font-size: 12px; color: var(--ink-2); margin: 6px 0; padding-left: 10px; border-left: 2px solid rgba(255, 255, 255, 0.25); }
+.issue.hard { border-color: var(--bad); }
+.issue.soft { border-color: var(--warn); }
+.issue code { font: 600 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); }
+.lever { padding: 9px 10px; margin: 8px 0; border-radius: var(--r-sm); background: rgba(255, 255, 255, 0.08); border: 1px solid var(--line); font-size: 12px; }
+.lever:hover { background: rgba(255, 255, 255, 0.14); }
+.lever .t { font-weight: 600; margin-bottom: 3px; display: flex; gap: 6px; align-items: center; }
+.lever .m { color: var(--ink-3); font-size: 11.5px; overflow-wrap: anywhere; }
+.warn-list { margin: 8px 0 0; padding-left: 16px; color: var(--ink-2); font-size: 11.5px; }
+.answer-text { margin: 8px 0; font-size: 13px; line-height: 1.45; }
+.lever[data-obj], .lever[data-sector] { cursor: pointer; }
+
+/* bottom: prompt + dock */
+.bottom { position: absolute; left: 50%; bottom: var(--edge); transform: translateX(-50%); width: min(1000px, calc(100vw - 2 * var(--edge))); display: grid; gap: 10px; }
+.prompt { display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 6px 0 16px; border-radius: 16px; }
+.prompt svg { width: 18px; height: 18px; flex: none; color: #e9f6ff; }
+.prompt input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; outline: none; font-size: 14px; }
+.prompt input::placeholder { color: rgba(230, 242, 252, 0.72); }
+.prompt input:disabled { cursor: not-allowed; }
+.prompt .go { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.5); background: rgba(255, 255, 255, 0.22); color: #fff; }
+.prompt .go:hover:not(:disabled) { background: rgba(255, 255, 255, 0.34); }
+.prompt .go:disabled { opacity: 0.45; cursor: not-allowed; }
+.prompt .seg { background: rgba(255, 255, 255, 0.12); }
+.prompt .seg button { padding: 4px 10px; }
+.prompt .seg[hidden] { display: none; }
+.prompt .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.35); border-top-color: #fff; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.progress { justify-self: start; font-size: 12px; color: var(--ink); padding: 5px 12px; border-radius: 999px; background: rgba(34, 62, 83, 0.72); border: 1px solid var(--rim); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+.progress:empty { display: none; }
+.dock { display: flex; align-items: stretch; gap: 12px; padding: 10px 14px; border-radius: 18px; overflow-x: auto; scrollbar-width: none; }
+.seg { display: flex; align-self: center; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); flex: none; }
+.seg button { border: 0; border-radius: 999px; padding: 5px 11px; background: transparent; font-size: 12px; font-variant-numeric: tabular-nums; }
+.seg button[aria-pressed="true"] { background: #fff; color: var(--tab-on-ink); font-weight: 600; }
+.kpi { flex: 1 0 92px; min-width: 92px; padding-left: 10px; border-left: 2px solid var(--kpi-rule, rgba(255, 255, 255, 0.35)); }
+.kpi .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.kpi .v small { font-size: 12px; font-weight: 500; color: var(--ink-2); margin-left: 4px; }
+.kpi .l { font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); }
+.kpi .r { font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.dock .more { flex: none; align-self: center; border: 1px solid var(--line); background: var(--control); border-radius: 999px; padding: 6px 12px; font-size: 12px; }
+.dock .more:hover { background: var(--control-hover); }
+.dock .empty { align-self: center; color: var(--ink-2); font-size: 12px; }
+table.kpis { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.kpis th { text-align: right; font-weight: 500; color: var(--ink-3); padding: 4px 0 6px 10px; }
+table.kpis th:first-child, table.kpis td:first-child { text-align: left; padding-left: 0; }
+table.kpis td { text-align: right; padding: 5px 0 5px 10px; border-top: 1px solid var(--line); }
+.attrib { margin-top: -4px; font-size: 10px; color: rgba(30, 50, 70, 0.72); text-align: center; pointer-events: none; }
+:root[data-theme="dark"] .attrib { color: rgba(220, 235, 248, 0.6); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .attrib { color: rgba(220, 235, 248, 0.6); } }
+:root[data-satellite] .attrib { color: rgba(240, 247, 252, 0.85); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
+
+/* hover card */
+.tip { position: absolute; z-index: 30; pointer-events: none; min-width: 200px; max-width: 260px; padding: 10px 12px; border-radius: 14px; background: var(--glass-solid); border: 1px solid var(--rim); box-shadow: var(--glass-shadow); font-size: 12px; }
+.tip[hidden] { display: none; }
+.tip .h { font-weight: 600; margin-bottom: 2px; overflow-wrap: anywhere; }
+.tip .s { color: var(--ink-3); margin-bottom: 6px; }
+.empty-state { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: #1e3346; }
+.empty-state[hidden] { display: none; }
+
+@media (max-width: 760px) {
+  .brand .city, .brand .div, .status .opt { display: none; }
+  .status { padding: 6px 8px; min-height: 34px; }
+  .tabs { top: calc(var(--edge) + 46px); max-width: calc(100vw - 2 * var(--edge)); overflow-x: auto; scrollbar-width: none; }
+  .tab { padding: 4px 10px; }
+  .leftcol { top: calc(var(--edge) + 96px); }
+  .side { top: calc(var(--edge) + 96px); left: calc(var(--edge) + 58px); right: var(--edge); width: auto; bottom: 200px; }
+}
+@media (prefers-reduced-motion: reduce) { .prompt .spin { animation-duration: 2s; } .ghost { transform: translate(-50%, -60%); } }
+</style>
+</head>
+<body>
+<div id="scene" aria-label="3D view of Beirut buildings"></div>
+<div class="heat" id="heat" aria-hidden="true"></div>
+<div class="flash" id="flash" aria-hidden="true"></div>
+<div class="empty-state" id="empty" hidden>
+  <div><h1 style="font-size:18px;margin:0 0 6px">No data embedded</h1><p style="margin:0">Generate this page with <code>dynacity export-viewer</code>.</p></div>
+</div>
+
+<div class="draw" id="draw" hidden aria-label="Drag to steer the disaster"></div>
+
+<div class="chrome">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5c2.6 2.7 3.9 5.9 3.9 9.5s-1.3 6.8-3.9 9.5c-2.6-2.7-3.9-5.9-3.9-9.5s1.3-6.8 3.9-9.5z"/></svg>
+    <span class="word">DynaCITY</span><span class="div"></span><span class="city">Beirut</span>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Map lens">
+    <button class="tab" role="tab" data-lens="observed" aria-selected="true">Observed</button>
+    <button class="tab" role="tab" data-lens="forecast" aria-selected="false">Forecast +2y</button>
+    <button class="tab" role="tab" data-lens="change" aria-selected="false">Change risk</button>
+    <button class="tab" role="tab" data-lens="delta" aria-selected="false" hidden>Δ vs baseline</button>
+  </div>
+
+  <div class="status" id="status"></div>
+
+  <div class="leftcol">
+  <nav class="rail glass" aria-label="View tools">
+    <button id="t-reset" title="Reset view" aria-label="Reset view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
+    <button id="t-2d" title="Top-down view" aria-label="Top-down view" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg></button>
+    <button id="t-sat" title="Satellite view" aria-label="Satellite view" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/><circle cx="15.5" cy="9" r="1.5"/></svg></button>
+    <button id="t-legend" title="Legend" aria-label="Legend" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg></button>
+    <button id="t-kpis" title="All KPIs table" aria-label="All KPIs table" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
+    <button id="t-info" title="About this forecast" aria-label="About this forecast" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg></button>
+    <button id="t-fx" title="Disasters" aria-label="Disasters" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 5h18M5 9h13M8 13h9M10 17h5M11 21h2"/></svg></button>
+  </nav>
+  <section class="tray glass" id="tray" aria-label="Disasters" hidden>
+    <h2>Disasters</h2>
+    <div class="sub">Drag one onto the city</div>
+    <div class="sev"><div class="row"><label for="sev">Severity</label><b id="sev-label">Moderate</b></div>
+      <input id="sev" type="range" min="0" max="3" step="1" value="1" aria-valuetext="Moderate"></div>
+    <div class="sev"><div class="row"><label for="reach">Flood reach</label><b id="reach-label">600 m</b></div>
+      <input id="reach" type="range" min="200" max="2000" step="100" value="600" aria-valuetext="600 m"></div>
+    <div class="tiles" id="tiles"></div>
+  </section>
+  </div>
+
+  <aside class="side" aria-live="polite">
+    <section class="panel glass" id="p-answer" hidden></section>
+    <section class="panel glass" id="p-scenario" hidden></section>
+    <section class="panel glass" id="p-inspect" hidden></section>
+    <section class="panel glass" id="p-kpis" hidden></section>
+    <section class="panel glass" id="p-info" hidden></section>
+    <section class="panel glass" id="p-legend"></section>
+  </aside>
+
+  <div class="bottom">
+    <div class="progress" id="progress"></div>
+    <form class="prompt glass" id="prompt" autocomplete="off">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11 2.5 12.6 8a3 3 0 0 0 2 2l5.4 1.5-5.4 1.6a3 3 0 0 0-2 2L11 20.5l-1.6-5.4a3 3 0 0 0-2-2L2 11.5 7.4 10a3 3 0 0 0 2-2zM19 2l.7 2.3L22 5l-2.3.7L19 8l-.7-2.3L16 5l2.3-.7z"/></svg>
+      <div class="seg" id="mode" role="group" aria-label="Prompt mode" hidden>
+        <button type="button" data-mode="scenario" aria-pressed="true">Scenario</button>
+        <button type="button" data-mode="ask" aria-pressed="false">Ask</button>
+      </div>
+      <input id="q" name="q" aria-label="Describe a scenario" maxlength="4000">
+      <button class="go" id="go" type="submit" aria-label="Run scenario"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    </form>
+    <div class="dock glass" id="dock"></div>
+    <div class="attrib" id="attrib"></div>
+  </div>
+</div>
+<div class="tip" id="tip" hidden></div>
+<div class="ghost tile glass" id="ghost" hidden></div>
+
+<script>
+const DATA = /*__DYNACITY_DATA__*/null;
+
+// Canonical states in legend order. Stable/built is the neutral city massing;
+// the six change states use a categorical set validated for colour-vision
+// deficiency in this adjacency order (worst CVD ΔE 9.1, normal-vision ΔE 16.3).
+const STATES = {
+  stable_built: { label: 'Stable / built', color: '#9fb3c8' },
+  active_construction: { label: 'Active construction', color: '#eda100' },
+  renovated: { label: 'Renovated', color: '#1baf7a' },
+  stalled_or_cancelled: { label: 'Stalled or cancelled', color: '#eb6834' },
+  vacant_or_evicted: { label: 'Vacant or evicted', color: '#4a3aa7' },
+  empty_or_parking: { label: 'Empty lot or parking', color: '#2a78d6' },
+  demolished: { label: 'Demolished', color: '#e34948' },
+  unknown: { label: 'Unknown / not surveyed', color: '#d3d8dd' },
+};
+const ORDER = Object.keys(STATES);
+const RAMP = ['#e3eefc', '#b7d3f6', '#86b6ef', '#5598e7', '#2a78d6', '#1c5cab', '#104281'];
+const DIVERGE = { low: '#256abf', mid: '#c9ced3', high: '#eb6834' };
+const NO_DATA = '#d8dde2';
+const KPI_TILES = ['completed_count', 'active_construction_count', 'stalled_count', 'vacant_count', 'demolished_count', 'built_land_fraction'];
+const KPI_LABELS = {
+  completed_count: 'Completed', active_construction_count: 'Construction', stalled_count: 'Stalled',
+  vacant_count: 'Vacant', demolished_count: 'Demolished', empty_or_parking_area_m2: 'Empty / parking area',
+  estimated_gross_floor_area_m2: 'Gross floor area', height_p50_m: 'Median height', height_p90_m: 'Height p90',
+  built_land_fraction: 'Built land',
+};
+const KPI_RULE = {
+  completed_count: STATES.stable_built.color, active_construction_count: STATES.active_construction.color,
+  stalled_count: STATES.stalled_or_cancelled.color, vacant_count: STATES.vacant_or_evicted.color,
+  demolished_count: STATES.demolished.color, built_land_fraction: '#ffffff',
+};
+// Disasters in the tray (God's Plan's set). `path`: steered along a drawn
+// track; `aim`: dragged to set the direction it comes in from.
+const HAZARDS = [
+  { kind: 'tornado', label: 'Tornado', path: true, icon: '<path d="M3 5h18M5 9h13M8 13h9M10 17h5M11 21h2"/>' },
+  { kind: 'storm', label: 'Storm', icon: '<path d="M3 8h10a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h7"/>' },
+  { kind: 'rain', label: 'Rain', icon: '<path d="M7 14a4 4 0 1 1 .9-7.9A5.5 5.5 0 0 1 18 8a3 3 0 0 1-1 6z"/><path d="m8 17.5-1 3M12 17.5l-1 3M16 17.5l-1 3"/>' },
+  { kind: 'flood', label: 'Flood', icon: '<path d="M2 9c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2M2 14c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2M2 19c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2"/>' },
+  { kind: 'fire', label: 'Fire', icon: '<path d="M12 3c.8 3.2 5 5.2 5 10a5 5 0 0 1-10 0c0-2.2 1.1-3.8 2.3-4.8 0 2 .9 3.3 2.2 3.3 0-3-1.3-5.3.5-8.5z"/>' },
+  { kind: 'heat', label: 'Heat', icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/>' },
+  { kind: 'earthquake', label: 'Quake', icon: '<path d="M2 12h4l2-6 3 12 3-9 2 5 1.5-2H22"/>' },
+  { kind: 'explosion', label: 'Blast', icon: '<path d="m12 2 1.8 5.2L19 5l-2.2 5.2L22 12l-5.2 1.8L19 19l-5.2-2.2L12 22l-1.8-5.2L5 19l2.2-5.2L2 12l5.2-1.8L5 5l5.2 2.2z"/>' },
+  { kind: 'plane_crash', label: 'Plane', aim: true, icon: '<path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/>' },
+  { kind: 'orbital_strike', label: 'Orbital', icon: '<path d="M10 2h4l-1 12h-2z"/><ellipse cx="12" cy="18" rx="7" ry="3"/>' },
+  { kind: 'riot', label: 'Riot', icon: '<path d="M3 10v4h3l7 4V6l-7 4zM16.5 9a3.5 3.5 0 0 1 0 6M19 6a7.5 7.5 0 0 1 0 12"/>' },
+];
+const SEVERITIES = ['minor', 'moderate', 'severe', 'extreme'];
+// Tornado track half-width per severity (EF1/2/3/5, as in hazards.PROFILES), for the funnel drawn while steering.
+const TORNADO_R = [85, 130, 175, 265];
+const hazardIcon = (kind, cls = '') => `<svg ${cls ? `class="${cls}" ` : ''}viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${HAZARDS.find((h) => h.kind === kind)?.icon ?? ''}</svg>`;
+const hazardLabel = (kind) => HAZARDS.find((h) => h.kind === kind)?.label ?? kind.replace(/_/g, ' ');
+// Pale warm white for OpenStreetMap context buildings: present, not modelled.
+const CONTEXT_RGB = [238, 235, 229];
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const hex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+const mix = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+const pct = (v) => `${(v * 100).toFixed(v < 0.1 && v > 0 ? 1 : 0)}%`;
+const fmt = (v, unit) => unit === 'ratio' ? pct(v) : unit === 'm2' ? `${Math.round(v).toLocaleString()} m²` : unit === 'm' ? `${v.toFixed(1)} m` : Math.round(v).toLocaleString();
+const stateLabel = (s) => STATES[s]?.label ?? s;
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
+const metres = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+
+const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, mode: 'scenario', answer: null, answerIds: null, tilesFailed: false, drops: [] };
+// Photorealistic mode: Google 3D Tiles through the server's key-holding proxy,
+// with BBED footprints draped onto the mesh instead of extruded beside it.
+const GOOGLE = !!DATA?.basemap?.tiles_3d;
+const photoreal = () => GOOGLE && !ui.tilesFailed;
+const credits = new Set();
+
+function rampColor(t, stops = RAMP) {
+  const x = Math.max(0, Math.min(1, t)) * (stops.length - 1);
+  const i = Math.min(stops.length - 2, Math.floor(x));
+  return mix(hex(stops[i]), hex(stops[i + 1]), x - i);
+}
+// Δ for a building = change in the chance of reaching the target state of the
+// first lever that covers it. That is what a lever claims to move; "chance of
+// leaving the current state" understates it when a building was already likely
+// to change, just to something else. The symmetric scale is fitted to the
+// largest |Δ| in the scenario (floor 2 points); the legend prints the range.
+let deltaScale = 0.3, leverTarget = new Map();
+function updateDeltaScale() {
+  leverTarget = new Map();
+  for (const lever of ui.scenario?.compilation?.scenario?.interventions ?? []) {
+    const ids = lever.object_ids.length ? lever.object_ids : DATA.buildings.map((b) => b.id);
+    for (const id of ids) if (!leverTarget.has(id)) leverTarget.set(id, lever.target_state);
+  }
+  let m = 0;
+  for (const b of DATA.buildings) { const d = deltaFor(b); if (d !== null) m = Math.max(m, Math.abs(d)); }
+  deltaScale = Math.max(m, 0.02);
+}
+function deltaFor(b) {
+  const a = scenP(b), z = baseP(b);
+  if (!a || !z) return null;
+  const target = leverTarget.get(b.id);
+  if (target) return (a[target] ?? 0) - (z[target] ?? 0);
+  // Outside every lever, a disaster shows as the rise in the chance of losing
+  // the current state (destroyed, damaged, or knocked into another state).
+  return hasHazards() ? (z[b.state] ?? 0) - (a[b.state] ?? 0) : 0;
+}
+const hasHazards = () => !!ui.scenario?.forecast?.hazard_impacts?.length;
+function divergeColor(d) {
+  const t = Math.max(-1, Math.min(1, d / deltaScale));
+  return t < 0 ? mix(hex(DIVERGE.mid), hex(DIVERGE.low), -t) : mix(hex(DIVERGE.mid), hex(DIVERGE.high), t);
+}
+const baseP = (b) => DATA.forecast?.p?.[b.id];
+const scenP = (b) => ui.scenario?.forecast?.p?.[b.id];
+const activeP = (b) => scenP(b) ?? baseP(b);
+const argmax = (p) => Object.entries(p).reduce((a, e) => (e[1] > a[1] ? e : a), ['unknown', -1])[0];
+const leaveProb = (p, s) => 1 - (p?.[s] ?? 0);
+
+function fill(b) {
+  let rgb;
+  if (ui.lens === 'observed') rgb = hex(STATES[b.state].color);
+  else if (ui.lens === 'forecast') { const p = activeP(b); rgb = p ? hex(STATES[argmax(p)].color) : hex(NO_DATA); }
+  else if (ui.lens === 'change') { const p = activeP(b); rgb = p ? rampColor(leaveProb(p, b.state)) : hex(NO_DATA); }
+  else { const d = deltaFor(b); rgb = d === null ? hex(NO_DATA) : divergeColor(d); }
+  if (ui.selected === b.id) rgb = mix(rgb, [255, 255, 255], 0.45);
+  const focus = ui.highlight ?? ui.answerIds;
+  const dim = focus && !focus.has(b.id);
+  if (photoreal()) {
+    // Draped over real imagery: unchanged buildings only tint, so the photo stays readable.
+    const quiet = ui.lens === 'observed' && b.state === 'stable_built' && ui.selected !== b.id;
+    return [...rgb, dim ? 30 : quiet ? 60 : 205];
+  }
+  return [...rgb, dim ? 70 : 255];
+}
+function elevation(b) {
+  const flat = ui.lens === 'observed' && (b.state === 'empty_or_parking' || b.state === 'demolished');
+  return flat ? 0.8 : Math.max(b.h, 1.5);
+}
+
+let deckgl = null, map = null, home = null;
+// One stable array, so re-rendering (every frame while an effect plays) never
+// makes deck.gl re-tessellate the footprints.
+let ringData = null;
+const rings = () => (ringData ??= DATA.buildings.flatMap((b) => b.rings.map((ring) => ({ b, ring }))));
+const isDark = () => document.documentElement.dataset.theme === 'dark' || (document.documentElement.dataset.theme !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
+
+// Spatial index of BBED footprints (≈110 m cells) so OpenStreetMap context
+// buildings overlapping a BBED footprint can be skipped instead of doubled.
+const CELL = 0.001;
+const footprintIndex = new Map();
+const centroid = (ring) => ring.reduce((a, p) => [a[0] + p[0] / ring.length, a[1] + p[1] / ring.length], [0, 0]);
+function ringBox(ring) {
+  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+  for (const [x, y] of ring) { w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y); }
+  return [w, s, e, n];
+}
+function cellKeys([w, s, e, n]) {
+  const keys = [];
+  for (let i = Math.floor(w / CELL); i <= Math.floor(e / CELL); i++) for (let j = Math.floor(s / CELL); j <= Math.floor(n / CELL); j++) keys.push(`${i}:${j}`);
+  return keys;
+}
+function indexFootprints() {
+  for (const b of DATA.buildings) for (const ring of b.rings) {
+    const entry = { ring, c: centroid(ring) };
+    for (const key of cellKeys(ringBox(ring))) {
+      if (!footprintIndex.has(key)) footprintIndex.set(key, []);
+      footprintIndex.get(key).push(entry);
+    }
+  }
+}
+function inRing([x, y], ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+// deck.gl hands MVT features to sub-layers in tile-local [0, 1] coordinates
+// (y down, Web Mercator) whatever `loadOptions` ask for, so map them back to
+// lon/lat through the tile's bounds before comparing with BBED footprints.
+function tileToLngLat({ west, north, east, south }) {
+  const merc = (lat) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+  const yN = merc(north), yS = merc(south);
+  return ([x, y]) => [west + x * (east - west), (360 / Math.PI) * Math.atan(Math.exp(yN + y * (yS - yN))) - 90];
+}
+// Overlap, not just a shared centre: probe the OSM outline's centre and each
+// corner pulled a third of the way inwards (so a shared party wall doesn't
+// count), and also catch an OSM outline that swallows a whole BBED footprint.
+function coveredByBbed(ring) {
+  const c = centroid(ring);
+  const probes = [c, ...ring.map(([x, y]) => [x + (c[0] - x) / 3, y + (c[1] - y) / 3])];
+  const cands = new Set(cellKeys(ringBox(ring)).flatMap((key) => footprintIndex.get(key) || []));
+  for (const f of cands) if (inRing(f.c, ring) || probes.some((p) => inRing(p, f.ring))) return true;
+  return false;
+}
+// CARTO packs a tile's buildings into a few MultiPolygons (thousands of parts
+// each), so split them and keep each building only if it clears BBED.
+function contextBuildings(features, tile) {
+  const toLngLat = tileToLngLat(tile.bbox);
+  return features.filter((f) => f.properties?.hide_3d !== true).flatMap((f) => {
+    const g = f.geometry;
+    const polys = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+    return polys.filter((poly) => !coveredByBbed(poly[0].map(toLngLat)))
+      .map((poly) => ({ type: 'Feature', properties: f.properties, geometry: { type: 'Polygon', coordinates: poly } }));
+  });
+}
+
+// Open on the densest ~600 m of surveyed buildings, the way God's Plan opens
+// on downtown, rather than on the whole (sparse) survey extent.
+function homeBounds() {
+  const bins = new Map();
+  for (const b of DATA.buildings) {
+    const [x, y] = b.rings[0][0];
+    const key = `${Math.floor(x / 0.006)}:${Math.floor(y / 0.006)}`;
+    bins.set(key, (bins.get(key) || 0) + 1);
+  }
+  const [best] = [...bins.entries()].sort((a, b) => b[1] - a[1])[0];
+  const [i, j] = best.split(':').map(Number);
+  const cx = (i + 0.5) * 0.006, cy = (j + 0.5) * 0.006;
+  return [[cx - 0.0065, cy - 0.0055], [cx + 0.0065, cy + 0.0055]];
+}
+
+function lighting() {
+  const ambient = new deck.AmbientLight({ color: [255, 255, 255], intensity: 1.05 });
+  const sun = new deck.DirectionalLight({ color: [255, 248, 236], intensity: 1.3, direction: [-3, -8, -3] });
+  const sky = new deck.DirectionalLight({ color: [196, 220, 245], intensity: 0.5, direction: [4, 6, -1] });
+  return new deck.LightingEffect({ ambient, sun, sky });
+}
+const MATERIAL = { ambient: 0.42, diffuse: 0.62, shininess: 24, specularColor: [70, 76, 84] };
+
+function googleLayers() {
+  return [
+    new deck.Tile3DLayer({
+      id: 'google-3d', data: DATA.basemap.tiles_3d, operation: 'terrain+draw',
+      // A failed root request (no key, quota, network) switches the page to
+      // plain extruded buildings instead of leaving an empty scene.
+      loadOptions: { fetch: async (url, init) => {
+        const res = await fetch(url, init);
+        if (!res.ok && String(url).includes('root.json')) {
+          let msg = `HTTP ${res.status}`;
+          try { msg = (await res.clone().json()).detail || msg; } catch (err) { /* not JSON */ }
+          tilesUnavailable(msg);
+        }
+        return res;
+      } },
+      // Google's terms: show the data providers of the tiles on screen.
+      onTilesetLoad: (tileset) => {
+        tileset.options.onTraversalComplete = (selected) => {
+          const next = new Set();
+          for (const t of selected) for (const c of (t.content?.gltf?.asset?.copyright || '').split(';')) if (c.trim()) next.add(c.trim());
+          if ([...next].join() !== [...credits].join()) { credits.clear(); next.forEach((c) => credits.add(c)); $('attrib').textContent = attribution(); }
+          return selected;
+        };
+      },
+    }),
+    new deck.SolidPolygonLayer({
+      id: 'buildings-draped',
+      data: rings(),
+      getPolygon: (d) => d.ring, extruded: false, getFillColor: (d) => fill(d.b),
+      pickable: true, autoHighlight: true, highlightColor: [255, 255, 255, 110],
+      extensions: [new deck._TerrainExtension()],
+      updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario] },
+    }),
+  ];
+}
+function tilesUnavailable(msg) {
+  if (ui.tilesFailed) return;
+  ui.tilesFailed = true;
+  document.documentElement.toggleAttribute('data-satellite', false);
+  $('progress').textContent = `Photorealistic tiles unavailable (${msg}) — showing plain 3D buildings.`;
+  $('attrib').textContent = attribution();
+  render();
+}
+
+function layers() {
+  if (photoreal()) return googleLayers();
+  const out = [];
+  if (!map) {
+    // No basemap: a plain ground slab under the survey extent.
+    const [[w, s], [e, n]] = DATA.bounds, pad = Math.max(e - w, n - s) * 0.1 + 0.0005;
+    out.push(new deck.SolidPolygonLayer({
+      id: 'ground', data: [[[w - pad, s - pad], [e + pad, s - pad], [e + pad, n + pad], [w - pad, n + pad]]],
+      getPolygon: (d) => d, getFillColor: isDark() ? [58, 70, 80] : [221, 228, 224], material: false,
+    }));
+  } else if (DATA.basemap?.context_tiles && !ui.satellite) {
+    out.push(new deck.MVTLayer({
+      id: 'context', data: DATA.basemap.context_tiles, minZoom: 13, maxZoom: 14, binary: false,
+      loadOptions: { mvt: { layers: ['building'] } },
+      renderSubLayers: (props) => new deck.GeoJsonLayer({
+        ...props,
+        data: contextBuildings(props.data || [], props.tile),
+        extruded: true, stroked: false, filled: true, pickable: false,
+        getElevation: (f) => Math.max(Number(f.properties?.render_height) || 6, 3),
+        getFillColor: isDark() ? [92, 104, 116, 235] : [...CONTEXT_RGB, 235], material: MATERIAL,
+      }),
+    }));
+  }
+  out.push(new deck.SolidPolygonLayer({
+    id: 'buildings',
+    data: mainRings(),
+    getPolygon: (d) => d.ring, extruded: true, getElevation: (d) => elevation(d.b), getFillColor: (d) => fill(d.b),
+    pickable: true, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL,
+    // No colour transition: an interrupted fade can leave a lens showing the
+    // previous lens's colours, and a data view must never show stale values.
+    updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario], getElevation: [ui.lens] },
+  }));
+  return out;
+}
+function attribution() {
+  if (GOOGLE) return [DATA.attribution, photoreal() && ['Google', ...credits].join(' · ')].filter(Boolean).join(' ');
+  const terrain = fx.find((f) => f.water)?.water.source;
+  return [DATA.attribution, DATA.basemap?.attribution, ui.satellite && DATA.basemap?.satellite_attribution, terrain].filter(Boolean).join(' ');
+}
+// Colour imagery goes over every road, water, and flat building fill of the
+// basemap but under its trailing label layers, so place names stay readable.
+function applySatellite() {
+  if (!map || !DATA.basemap?.satellite_tiles || !map.isStyleLoaded()) return;
+  if (ui.satellite && !map.getLayer('satellite')) {
+    if (!map.getSource('satellite')) {
+      map.addSource('satellite', { type: 'raster', tiles: [DATA.basemap.satellite_tiles], tileSize: 256, maxzoom: 19 });
+    }
+    const styleLayers = map.getStyle().layers;
+    const before = styleLayers[styleLayers.findLastIndex((l) => l.type !== 'symbol') + 1]?.id;
+    map.addLayer({ id: 'satellite', type: 'raster', source: 'satellite' }, before);
+  } else if (!ui.satellite && map.getLayer('satellite')) {
+    map.removeLayer('satellite');
+  }
+}
+function setSatellite(on) {
+  ui.satellite = on;
+  $('t-sat').setAttribute('aria-pressed', String(on));
+  document.documentElement.toggleAttribute('data-satellite', on);
+  $('attrib').textContent = attribution();
+  applySatellite(); render();
+}
+// Disaster effects sit on top of the city layers. A strike plays out in
+// real time — the plane dives in, the funnel crosses its track, water rises,
+// and the buildings the result says fall come down in a shudder of chunks and
+// dust — then the rubble, flood water and a faint footprint stay while the
+// result is shown. Animation frames rebuild only these layers; buildings the
+// effects animate are moved out of the city layer once per strike, so its
+// footprints are never re-tessellated mid-animation.
+let baseLayers = [], fx = [], fxRaf = 0, pending = null, fxEnd = 0;
+const FX_MS = 3600;
+const calm = matchMedia('(prefers-reduced-motion: reduce)');
+// Tones read on both basemaps: deeper on the light map, paler on the dark one.
+const WATER = 'water', WARM = 'warm';
+const TONES = {
+  light: { strike: [34, 132, 222], water: [28, 108, 204], warm: [226, 96, 40], smoke: [70, 86, 104] },
+  dark: { strike: [141, 208, 255], water: [110, 186, 255], warm: [255, 190, 120], smoke: [226, 233, 240] },
+};
+const TONE = { flood: WATER, rain: WATER, fire: WARM, heat: WARM, riot: WARM };
+const tone = (name) => TONES[isDark() ? 'dark' : 'light'][name];
+// Cinematic palette: real-world colours, the same on both basemaps.
+const CONCRETE = [154, 160, 166], RUBBLE = [118, 110, 101], SOOT = [70, 64, 58], DUST = [200, 183, 154], SMOKE = [43, 47, 51];
+const WATER_SHALLOW = [104, 152, 172], WATER_DEEP = [30, 78, 118];
+const WATER_MAT = { ambient: 0.55, diffuse: 0.5, shininess: 96, specularColor: [210, 225, 230] };
+// Outlines draw over the buildings so a footprint is never hidden; fills stay
+// behind them so the damage colouring on the buildings still reads.
+const ON_TOP = { depthCompare: 'always', depthWriteEnabled: false };
+// Translucent puffs and shells test depth (buildings in front hide them) but
+// do not write it, so they blend with each other instead of punching holes.
+const SOFT = { depthWriteEnabled: false };
+const SHOCK = new Set(['explosion', 'plane_crash', 'orbital_strike', 'earthquake']);
+// How long each kind's own effect plays, beyond the buildings it brings down.
+const PLAY_MS = { storm: 9000, rain: 8000, fire: 12000, heat: 8000, earthquake: 6000, riot: 10000, flood: 5000 };
+const AFFECTABLE = new Set(['stable_built', 'renovated', 'vacant_or_evicted', 'active_construction', 'stalled_or_cancelled']);
+const PLANE_MS = 2600, SHUDDER = 280, GRAVITY = 26;
+function render() { if (!deckgl) return; baseLayers = layers(); drawFx(); }
+function drawFx() {
+  if (!deckgl) return;
+  fxScreen = { flash: 0, shake: 0, warm: 0 };
+  deckgl.setProps({ layers: [...baseLayers, ...fxLayers(performance.now())] });
+  applyScreen();
+}
+// What the effects of this frame ask of the whole screen; applied once per frame.
+let fxScreen = { flash: 0, shake: 0, warm: 0 };
+function applyScreen() {
+  const still = calm.matches;
+  $('flash').style.opacity = still ? 0 : Math.min(0.75, fxScreen.flash).toFixed(3);
+  $('heat').style.opacity = Math.min(1, fxScreen.warm).toFixed(3);
+  const a = still ? 0 : fxScreen.shake, t = performance.now();
+  $('scene').style.transform = a > 0.2 ? `translate(${(Math.sin(t / 23) * a).toFixed(1)}px, ${(Math.cos(t / 31) * a * 0.7).toFixed(1)}px)` : '';
+}
+// 0 → 1 over `rise` ms, held until `hold`, then back to 0 over `fall` ms.
+function envelope(ms, rise, hold, fall) {
+  if (!(ms >= 0) || ms > hold + fall) return 0;
+  return ms < rise ? ms / rise : ms < hold ? 1 : 1 - (ms - hold) / fall;
+}
+function animate() {
+  cancelAnimationFrame(fxRaf);
+  const frame = () => {
+    drawFx();
+    if (!calm.matches && (pending || performance.now() < fxEnd)) fxRaf = requestAnimationFrame(frame);
+    else { fxScreen = { flash: 0, shake: 0, warm: 0 }; applyScreen(); }
+  };
+  frame();
+}
+
+// Seeded per-building randomness, so a strike replays the same way.
+function hash01(s, salt = 0) {
+  let h = 2166136261 ^ salt;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return ((h >>> 0) % 100003) / 100003;
+}
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+const easeOut = (t) => 1 - (1 - t) ** 3;
+const mPerLon = (lat) => 111320 * Math.cos((lat * Math.PI) / 180);
+const metresBetween = (a, b) => Math.hypot((b[0] - a[0]) * mPerLon(a[1]), (b[1] - a[1]) * 111320);
+const offset = ([lon, lat], dx, dy) => [lon + dx / mPerLon(lat), lat + dy / 111320];
+let byId = null;
+const buildingById = (id) => (byId ??= new Map(DATA.buildings.map((b) => [b.id, b]))).get(id);
+const centreOf = (b) => (b.c ??= centroid(b.rings[0]));
+function halfSize(b) {
+  const [w, s, e, n] = ringBox(b.rings[0]);
+  return Math.max(4, Math.min(30, ((e - w) * mPerLon(s) + (n - s) * 111320) / 4));
+}
+function along(path, t) {
+  const k = Math.cos((path[0][1] * Math.PI) / 180);
+  const seg = path.slice(1).map((p, i) => Math.hypot((p[0] - path[i][0]) * k, p[1] - path[i][1]));
+  let want = t * seg.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < seg.length; i++) {
+    if (want <= seg[i] || i === seg.length - 1) {
+      const f = seg[i] ? Math.min(1, want / seg[i]) : 0;
+      return [path[i][0] + (path[i + 1][0] - path[i][0]) * f, path[i][1] + (path[i + 1][1] - path[i][1]) * f];
+    }
+    want -= seg[i];
+  }
+  return path[0];
+}
+const pathLength = (path) => path.slice(1).reduce((a, p, i) => a + metresBetween(path[i], p), 0);
+// Fraction of the way along a track at which it passes closest to a point.
+function nearestAlong(path, c) {
+  const total = pathLength(path) || 1;
+  let best = Infinity, at = 0, run = 0;
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i], b = path[i + 1], len = metresBetween(a, b);
+    const kx = mPerLon(a[1]);
+    const ax = (b[0] - a[0]) * kx, ay = (b[1] - a[1]) * 111320, px = (c[0] - a[0]) * kx, py = (c[1] - a[1]) * 111320;
+    const f = len ? clamp01((px * ax + py * ay) / (len * len)) : 0;
+    const d = Math.hypot(px - ax * f, py - ay * f);
+    if (d < best) { best = d; at = (run + f * len) / total; }
+    run += len;
+  }
+  return at;
+}
+
+// ---- meshes (metres; x east, y north, z up), flat-shaded triangle lists ----
+function meshOf(verts) {
+  const n = verts.length, pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  verts.forEach((v, i) => { pos.set(v.p, i * 3); nor.set(v.n, i * 3); col.set(v.c, i * 3); });
+  return { positions: { value: pos, size: 3 }, normals: { value: nor, size: 3 }, colors: { value: col, size: 3 }, texCoords: { value: new Float32Array(n * 2), size: 2 } };
+}
+function quad(out, a, b, c, d, n, col) { for (const p of [a, b, c, a, c, d]) out.push({ p, n, c: col }); }
+function tri(out, a, b, c, col, inside) {
+  const u = b.map((v, i) => v - a[i]), w = c.map((v, i) => v - a[i]);
+  let n = [u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]];
+  const mid = [0, 1, 2].map((i) => (a[i] + b[i] + c[i]) / 3);
+  if (n.reduce((s, v, i) => s + v * (mid[i] - inside[i]), 0) < 0) n = n.map((v) => -v);
+  const len = Math.hypot(...n) || 1;
+  for (const p of [a, b, c]) out.push({ p, n: n.map((v) => v / len), c: col });
+}
+function box(out, [x0, y0, z0], [x1, y1, z1], col) {
+  quad(out, [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1], [0, 0, 1], col);
+  quad(out, [x0, y1, z0], [x1, y1, z0], [x1, y0, z0], [x0, y0, z0], [0, 0, -1], col);
+  quad(out, [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1], [1, 0, 0], col);
+  quad(out, [x0, y1, z0], [x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [-1, 0, 0], col);
+  quad(out, [x1, y1, z0], [x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [0, 1, 0], col);
+  quad(out, [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1], [0, -1, 0], col);
+}
+// A square-section taper from a face at x = bx (half-size h, centred on cz) to an apex.
+function taper(out, bx, h, cz, apex, col) {
+  const q = [[bx, -h, cz - h], [bx, h, cz - h], [bx, h, cz + h], [bx, -h, cz + h]];
+  for (let i = 0; i < 4; i++) tri(out, q[i], q[(i + 1) % 4], apex, col, [bx, 0, cz]);
+}
+const meshes = {};
+// A generic airliner, nose along +x, ~55 m long.
+function planeMesh() {
+  const v = [], W = [0.95, 0.95, 0.96], G = [0.66, 0.69, 0.73], D = [0.22, 0.25, 0.29], R = [0.62, 0.66, 0.72];
+  box(v, [-20, -2.3, -2.3], [20, 2.3, 2.3], W);
+  taper(v, 20, 2.3, 0, [28, 0, -0.6], W);
+  taper(v, -20, 2.3, 0, [-28, 0, 1.4], W);
+  box(v, [18, -1.7, 1.2], [21.5, 1.7, 2.4], D);
+  box(v, [-5, -22, -0.7], [5, 22, 0.1], G);
+  box(v, [-1, -9.8, -3.4], [7, -6.6, -0.7], D);
+  box(v, [-1, 6.6, -3.4], [7, 9.8, -0.7], D);
+  box(v, [-27, -8.5, 1.0], [-21, 8.5, 1.6], G);
+  box(v, [-28, -0.5, 1.6], [-20.5, 0.5, 11], R);
+  return meshOf(v);
+}
+function cubeMesh() { const v = []; box(v, [-0.5, -0.5, -0.5], [0.5, 0.5, 0.5], [1, 1, 1]); return meshOf(v); }
+// Unit funnel: radius 1 at the top, height 1, a slight twist and spiral
+// streaks in the vertex shade so the spin reads.
+function funnelMesh() {
+  const v = [], K = 22, S = 30;
+  const at = (u, j) => {
+    const a = (j / S) * Math.PI * 2 + u * 2.4, r = 0.07 + 0.93 * u ** 1.7;
+    return { p: [Math.cos(a) * r, Math.sin(a) * r, u], n: [Math.cos(a), Math.sin(a), -0.35] };
+  };
+  for (let k = 0; k < K; k++) for (let j = 0; j < S; j++) {
+    const u0 = k / K, u1 = (k + 1) / K;
+    const g = 0.58 + 0.16 * Math.sin(j * 1.9 + k * 0.8) + 0.08 * Math.sin(j * 5.3 - k * 1.7);
+    const c = [g, g * 0.98, g * 0.95];
+    const a = at(u0, j), b = at(u0, j + 1), cc = at(u1, j + 1), d = at(u1, j);
+    for (const q of [a, b, cc, a, cc, d]) v.push({ p: q.p, n: q.n, c });
+  }
+  return meshOf(v);
+}
+const mesh = (name, make) => (meshes[name] ??= make());
+
+// ---- which buildings fall, and when ----
+// The engine reports a count band per hazard, not which buildings. The page
+// shows the median count, taken from the top of the hazard's own ranking —
+// one plausible picture of the result, not a forecast for any building.
+let fxBuild = { events: new Map(), rings: [], chunks: [], falls: [] }, mainRingsCache = null;
+const mainRings = () => (mainRingsCache ??= fxBuild.events.size ? rings().filter((d) => !fxBuild.events.has(d.b.id)) : rings());
+const fallMs = (e) => Math.min(2200, Math.max(900, 700 + e.h * 14));
+function strikeDelay(f, b) {
+  const c = centreOf(b), r = f.radius_m || 600, j = hash01(b.id, 7);
+  const d = f.center ? metresBetween(f.center, c) : null;
+  if (f.kind === 'tornado') return f.path ? 150 + nearestAlong(f.path, c) * f.travelMs : 300 + j * 1500;
+  if (d === null) return 250 + j * 2400;
+  if (f.kind === 'plane_crash') return f.impactMs + d / 0.25 + j * 200;
+  if (f.kind === 'explosion') return 120 + d / 0.5 + j * 150;
+  if (f.kind === 'orbital_strike') return f.impactMs + d / 0.4 + j * 200;
+  if (f.kind === 'fire') return 600 + (d / r) * 4500 + j * 900;
+  if (f.kind === 'flood') return 900 + (d / r) * 1800 + j * 500;
+  if (f.kind === 'earthquake' || f.kind === 'storm') return 250 + j * 1800;
+  return 300 + j * 2200;
+}
+const viewCentre = () => (map ? [map.getCenter().lng, map.getCenter().lat]
+  : [(DATA.bounds[0][0] + DATA.bounds[1][0]) / 2, (DATA.bounds[0][1] + DATA.bounds[1][1]) / 2]);
+function prepareFx(h, t0, impact, drop) {
+  const f = { ...h, t0, impact, impactMs: h.kind === 'orbital_strike' ? 350 : 0 };
+  if (f.kind === 'plane_crash') {
+    // Compass heading of travel: aimed by the drag, else away from the camera.
+    f.dir = headingDir(drop?.heading ?? crossingHeading());
+    // Already part-way down if it flew while the engine worked.
+    f.s0 = drop?.s0 ?? 0;
+    f.impactMs = Math.max(400, PLANE_MS * (1 - f.s0));
+  }
+  if (f.kind === 'tornado') f.travelMs = f.path ? Math.min(7000, Math.max(2500, pathLength(f.path) * 6)) : 2600;
+  f.dur = f.kind === 'plane_crash' ? f.impactMs + 9000 : f.kind === 'tornado' ? f.travelMs + 1800 : PLAY_MS[f.kind] ?? FX_MS + 1500;
+  // Weather and quakes without a drop point play over what is on screen.
+  f.where = f.center ?? f.path?.[0] ?? viewCentre();
+  f.area = Math.min(f.radius_m || 1400, 1400);
+  return f;
+}
+function scheduleBuildings() {
+  const events = new Map();
+  for (const f of fx) {
+    const nFall = Math.round(f.impact?.destroyed?.p50 ?? 0), nHit = Math.round(f.impact?.damaged?.p50 ?? 0);
+    const ranked = (f.ids ?? []).map(buildingById).filter((b) => b && AFFECTABLE.has(b.state));
+    ranked.slice(0, nFall + nHit).forEach((b, rank) => {
+      const fall = rank < nFall, s = f.t0 + strikeDelay(f, b), prev = events.get(b.id);
+      // A fall wins over a shake; between equals, the earlier strike.
+      if (prev && (prev.fall > fall || (prev.fall === fall && prev.s <= s))) return;
+      const h = Math.max(b.h, 1.5), r = (k) => hash01(b.id, 40 + k);
+      // Taller buildings either topple as one block or pancake floor by
+      // floor; low ones just crumble. Damage takes a slice off the top.
+      events.set(b.id, { b, fall, s, h, rubble: Math.max(1.2, Math.min(4, h * 0.12)), broken: h * (0.82 + 0.12 * r(0)),
+        topple: h > 9 && r(1) < 0.45, tilt: (16 + 24 * r(2)) * (r(3) < 0.5 ? -1 : 1), aboutLength: r(4) < 0.5,
+        slabs: Math.max(2, Math.min(6, Math.round(h / 6))), drift: r(5) * Math.PI * 2, jitter: (r(6) - 0.5) * 9 });
+    });
+  }
+  const falls = [...events.values()].filter((e) => e.fall);
+  const chunks = [];
+  for (const e of falls.slice(0, 260)) {
+    const c = centreOf(e.b), hs = halfSize(e.b);
+    for (let j = 0; j < 7; j++) {
+      const r = (k) => hash01(e.b.id, j * 16 + k), ang = r(1) * Math.PI * 2, speed = 4 + 9 * r(4), size = 1.4 + 2.4 * r(6);
+      chunks.push({ e, c, size, x0: Math.cos(ang) * hs * r(2), y0: Math.sin(ang) * hs * r(2), z0: Math.max(e.h * (0.35 + 0.6 * r(3)), size),
+        vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed, vz: 2 + 4 * r(5), spin: [r(7), r(8), r(9)].map((x) => (x - 0.5) * 720), tone: 0.82 + 0.3 * r(0) });
+    }
+  }
+  fxBuild = { events, rings: [...events.values()].flatMap((e) => e.b.rings.map((ring) => ({ b: e.b, ring, e }))), chunks, falls };
+  mainRingsCache = null;
+  const ends = [...events.values()].map((e) => e.s + SHUDDER + fallMs(e) + 4200);
+  fxEnd = Math.max(0, ...fx.map((f) => f.t0 + f.dur), ...ends.filter(Number.isFinite));
+}
+// `fresh`: indexes of hazards that just struck; the rest show their aftermath.
+function playFx(hazards, fresh, drops = []) {
+  const now = performance.now();
+  const impacts = new Map((ui.scenario?.forecast?.hazard_impacts ?? []).map((h) => [h.hazard_id, h]));
+  fx = hazards.map((h, i) => prepareFx(h, fresh.includes(i) ? now : -Infinity, impacts.get(h.hazard_id), drops[i]));
+  scheduleBuildings();
+  $('attrib').textContent = attribution();
+  render(); animate();
+}
+function clearFx() {
+  fx = []; pending = null; fxEnd = 0;
+  fxBuild = { events: new Map(), rings: [], chunks: [], falls: [] }; mainRingsCache = null;
+  $('attrib').textContent = attribution();
+}
+// The footprint layer holds a building before and after its fall; while it
+// falls, the block or slabs in `fallingPieces` stand in for it.
+function fxElevation(e, now) {
+  const t = now - e.s;
+  if (!(t > 0)) return e.h;
+  if (!e.fall) return t < 700 ? e.h * (1 - 0.03 * Math.abs(Math.sin(t / 22))) : e.broken + (e.h - e.broken) * clamp01(1 - (t - 700) / 500);
+  if (t < SHUDDER) return e.h * (1 - 0.02 * Math.abs(Math.sin(t / 18)));
+  return t < SHUDDER + fallMs(e) ? 0.4 : e.rubble;
+}
+function fxFill(d, now) {
+  const e = d.e, t = now - e.s, base = fill(d.b);
+  if (e.fall && t > SHUDDER) return [...RUBBLE, base[3]];
+  if (!e.fall && t > 0) return [...mix(base.slice(0, 3), SOOT, Math.min(0.35, t / 1500)), base[3]];
+  return base;
+}
+// Oriented box of a footprint (principal axes), for the falling stand-ins.
+function footprintBox(b) {
+  if (b.box) return b.box;
+  const c = centreOf(b), k = mPerLon(c[1]), pts = b.rings[0].map(([x, y]) => [(x - c[0]) * k, (y - c[1]) * 111320]);
+  let sxx = 0, syy = 0, sxy = 0;
+  for (const [x, y] of pts) { sxx += x * x; syy += y * y; sxy += x * y; }
+  const ang = 0.5 * Math.atan2(2 * sxy, sxx - syy), ux = Math.cos(ang), uy = Math.sin(ang);
+  let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
+  for (const [x, y] of pts) {
+    const a = x * ux + y * uy, w = -x * uy + y * ux;
+    a0 = Math.min(a0, a); a1 = Math.max(a1, a); b0 = Math.min(b0, w); b1 = Math.max(b1, w);
+  }
+  const ma = (a0 + a1) / 2, mb = (b0 + b1) / 2;
+  return (b.box = { at: offset(c, ma * ux - mb * uy, ma * uy + mb * ux), len: Math.max(2, a1 - a0), wid: Math.max(2, b1 - b0), yaw: (ang * 180) / Math.PI });
+}
+function fallingPieces(t) {
+  const out = [];
+  for (const e of fxBuild.falls.slice(0, 700)) {
+    const tt = t - e.s - SHUDDER, F = fallMs(e);
+    if (!(tt >= 0 && tt < F)) continue;
+    const p = tt / F, o = footprintBox(e.b), colour = [...mix(fill(e.b).slice(0, 3), RUBBLE, clamp01(p * 1.4)), 255];
+    if (e.topple) {
+      // Tips over about its base while crumbling into itself.
+      const tilt = e.tilt * p * p, z = e.h * (1 - 0.7 * p ** 1.6);
+      out.push({ p: [...o.at, 0], s: [o.len, o.wid, z], o: e.aboutLength ? [tilt, o.yaw, 0] : [0, o.yaw, tilt], c: colour });
+    } else {
+      // Pancake: the stack compresses from the top down, slabs drifting apart.
+      const n = e.slabs, slab = e.h / n;
+      for (let k = 0; k < n; k++) {
+        const q = clamp01(p * 1.35 - ((n - 1 - k) / n) * 0.35), z = k * slab + (k * (e.rubble / n) - k * slab) * q * q;
+        const drift = k * 0.6 * p, shrink = 1 - 0.05 * k * p;
+        out.push({ p: [...offset(o.at, Math.cos(e.drift) * drift, Math.sin(e.drift) * drift), z],
+          s: [o.len * shrink, o.wid * shrink, Math.max(0.4, slab * 0.9 * (1 - 0.7 * q))], o: [e.jitter * q, o.yaw, -e.jitter * q * 0.6], c: colour });
+      }
+    }
+  }
+  return out;
+}
+function blockMesh() { const v = []; box(v, [-0.5, -0.5, 0], [0.5, 0.5, 1], [1, 1, 1]); return meshOf(v); }
+function chunkPose(k, now) {
+  const tau = (now - k.e.s - SHUDDER - fallMs(k.e) * 0.15) / 1000;
+  if (!(tau > 0)) return null;
+  const rest = k.size / 2, land = (k.vz + Math.sqrt(k.vz ** 2 + 2 * GRAVITY * (k.z0 - rest))) / GRAVITY;
+  const t = Math.min(tau, land);
+  return { p: [...offset(k.c, k.x0 + k.vx * t, k.y0 + k.vy * t), k.z0 + k.vz * t - (GRAVITY * t * t) / 2], o: k.spin.map((w) => w * t), s: k.size, g: k.tone };
+}
+
+// ---- effect pieces ----
+// Smoke, dust and flame are one soft radial sprite, tinted per puff.
+let puffSprite = null;
+function puffAtlas() {
+  if (puffSprite) return puffSprite;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d'), grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,255,255,1)'); grad.addColorStop(0.5, 'rgba(255,255,255,0.7)'); grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+  return (puffSprite = c.toDataURL());
+}
+// A billboard that reaches the camera's near plane smears across the whole
+// screen, so puffs and meshes too close to the eye are dropped for that frame.
+function nearCamera() {
+  const vp = deckgl?._deck?.getViewports?.()[0] ?? deckgl?.getViewports?.()[0];
+  if (!vp?.cameraPosition) return () => false;
+  const cam = vp.cameraPosition, perMetre = vp.distanceScales.unitsPerMeter[2];
+  return (p, r) => {
+    const q = vp.projectPosition(p);
+    return Math.hypot(q[0] - cam[0], q[1] - cam[1], q[2] - cam[2]) / perMetre < 2 * r + 120;
+  };
+}
+// Flames and flashes add light rather than cover what is behind them.
+const GLOW = { ...SOFT, blend: true, blendColorOperation: 'add', blendColorSrcFactor: 'src-alpha', blendColorDstFactor: 'one',
+  blendAlphaOperation: 'add', blendAlphaSrcFactor: 'one', blendAlphaDstFactor: 'one-minus-src-alpha' };
+function puffLayer(id, data, glow = false, minPixels = 0) {
+  const near = nearCamera();
+  data = data.filter((d) => !near(d.p, d.r));
+  return new deck.IconLayer({ id, data, iconAtlas: puffAtlas(), iconMapping: { puff: { x: 0, y: 0, width: 64, height: 64, mask: true } },
+    getIcon: () => 'puff', sizeUnits: 'meters', getSize: (d) => d.r * 2, getPosition: (d) => d.p, getColor: (d) => d.c,
+    billboard: true, alphaCutoff: 0, sizeMinPixels: minPixels, parameters: glow ? GLOW : SOFT });
+}
+// Seeded point in a disc of radius `r` around `at`.
+function scatter(at, r, seed, i) {
+  const ang = hash01(seed, i * 3 + 1) * Math.PI * 2, d = r * Math.sqrt(hash01(seed, i * 3 + 2));
+  return offset(at, Math.cos(ang) * d, Math.sin(ang) * d);
+}
+// A flickering flame: a few glowing puffs rising off a base point.
+function flames(out, base, z, size, now, seed, alpha = 1) {
+  for (let k = 0; k < 3; k++) {
+    const flick = 0.65 + 0.35 * Math.sin(now / (55 + k * 17) + seed * 13 + k * 2.1);
+    out.push({ p: [...base, z + size * (0.2 + k * 0.45) * flick], r: size * (0.75 - k * 0.18) * flick,
+      c: [255, 120 + 60 * k + 30 * flick, 30 + 20 * k, 210 * alpha * (1 - k * 0.2)] });
+  }
+}
+
+// ---- weather, fire, quake, riot ----
+function cloudDeck(id, f, ms, heavy) {
+  const e = envelope(ms, 900, f.dur - 1800, 1800);
+  if (!e) return [];
+  const puffs = [], n = heavy ? 80 : 55;
+  for (let i = 0; i < n; i++) {
+    const at = scatter(f.where, f.area * 1.1, f.hazard_id + 'cloud', i), drift = ms * 0.006;
+    const g = heavy ? 64 + 26 * hash01(f.hazard_id, i) : 120 + 30 * hash01(f.hazard_id, i);
+    puffs.push({ p: [...offset(at, drift, 0), 380 + 80 * hash01(f.hazard_id, i + 500)], r: 130 + 110 * hash01(f.hazard_id, i + 900), c: [g, g + 4, g + 10, (heavy ? 165 : 85) * e] });
+  }
+  return [puffLayer(`${id}-clouds`, puffs)];
+}
+function rainLayers(id, f, ms, heavy) {
+  const e = envelope(ms, 700, f.dur - 1500, 1500);
+  if (!e) return [];
+  const n = heavy ? 1700 : 1400, top = 280, speed = heavy ? 0.15 : 0.12, len = heavy ? 26 : 24, wind = heavy ? 0.5 : 0.1;
+  const near = nearCamera(), drops = [];
+  for (let i = 0; i < n; i++) {
+    const base = scatter(f.where, f.area, f.hazard_id + 'rain', i), fallen = (ms * speed + hash01(f.hazard_id, i + 7000) * top) % top;
+    const z = top - fallen, src = [...offset(base, wind * fallen, 0), z];
+    if (near(src, 5)) continue;
+    drops.push({ s: src, t: [...offset(base, wind * (fallen - len), 0), z + len] });
+  }
+  const out = [new deck.LineLayer({ id: `${id}-rain`, data: drops, getSourcePosition: (d) => d.s, getTargetPosition: (d) => d.t,
+    getColor: [...(isDark() ? [214, 226, 240] : [72, 96, 128]), (heavy ? 175 : 175) * e], getWidth: heavy ? 1.7 : 1.5, widthUnits: 'pixels', parameters: SOFT })];
+  // Splashes ring out on the ground where the rain lands.
+  const splash = [];
+  for (let i = 0; i < 90; i++) {
+    const k = (ms / 420 + hash01(f.hazard_id, i + 9000)) % 1;
+    splash.push({ p: [...scatter(f.where, f.area * 0.8, f.hazard_id + 'splash', i + Math.floor(ms / 420) * 97), 0.5], r: 1 + 5 * k, c: [...(isDark() ? [225, 235, 245] : [110, 132, 160]), 140 * (1 - k) * e] });
+  }
+  out.push(new deck.ScatterplotLayer({ id: `${id}-splash`, data: splash, getPosition: (d) => d.p, getRadius: (d) => d.r, radiusUnits: 'meters',
+    filled: false, stroked: true, lineWidthUnits: 'pixels', getLineWidth: 1, getLineColor: (d) => d.c, parameters: SOFT }));
+  return out;
+}
+// Forked bolts from the cloud base, each a 150 ms flicker, with a screen flash.
+function lightning(id, f, ms) {
+  const out = [];
+  for (let i = 0; i < 12; i++) {
+    const at = 700 + i * 650 + hash01(f.hazard_id, i + 300) * 400, age = ms - at;
+    if (age < 0 || age > 170 || at > f.dur - 1500) continue;
+    const on = age < 60 || (age > 95 && age < 150);
+    fxScreen.flash = Math.max(fxScreen.flash, on ? 0.38 : 0.08);
+    if (!on) continue;
+    const ground = scatter(f.where, f.area * 0.8, f.hazard_id + 'bolt', i), path = [];
+    for (let k = 0; k <= 10; k++) {
+      const q = k / 10, jag = k && k < 10 ? (hash01(f.hazard_id, i * 40 + k) - 0.5) * 70 : 0;
+      path.push([...offset(ground, jag + (1 - q) * 40, (hash01(f.hazard_id, i * 40 + k + 20) - 0.5) * 50 * (k && k < 10)), 330 * (1 - q)]);
+    }
+    out.push(new deck.PathLayer({ id: `${id}-bolt-glow-${i}`, data: [path], getPath: (d) => d, widthUnits: 'pixels', getWidth: 12, getColor: [170, 200, 255, 110], parameters: GLOW }),
+      new deck.PathLayer({ id: `${id}-bolt-${i}`, data: [path], getPath: (d) => d, widthUnits: 'pixels', getWidth: 3, getColor: [245, 248, 255, 255], parameters: GLOW }));
+  }
+  return out;
+}
+// A front spreads out from the drop point and sets roofs alight as it passes;
+// the burning then dies down to smoke.
+function fireLayers(id, f, ms, now) {
+  const r = f.radius_m || 200, spread = 4500, burnOut = PLAY_MS.fire - 2500;
+  if (!(ms >= 0) || ms > PLAY_MS.fire) return [];
+  const front = r * clamp01(ms / spread), fire = [], smoke = [];
+  const lit = (ignite) => envelope(ms - ignite, 400, burnOut - ignite, 2500);
+  for (const b of (f.ids ?? []).slice(0, 160).map(buildingById)) {
+    if (!b) continue;
+    const c = centreOf(b), d = metresBetween(f.where, c);
+    if (d > front) continue;
+    const a = lit((d / r) * spread);
+    if (!a) continue;
+    flames(fire, c, Math.max(b.h, 2) * 0.92, Math.min(16, 5 + b.h * 0.18), now, hash01(b.id), a);
+    for (let k = 0; k < 4; k++) {
+      const q = ((now / 2600 + k / 4 + hash01(b.id, k)) % 1);
+      smoke.push({ p: [...offset(c, q * 40, q * 12), b.h + 6 + q * 90], r: 6 + q * 26, c: [...SMOKE, 150 * (1 - q) * Math.max(a, 0.4)] });
+    }
+  }
+  for (let i = 0; i < 70; i++) {
+    const at = scatter(f.where, r, f.hazard_id + 'ground', i), d = metresBetween(f.where, at);
+    if (d > front) continue;
+    const a = lit((d / r) * spread);
+    if (a) flames(fire, at, 0, 4 + 4 * hash01(f.hazard_id, i), now, hash01(f.hazard_id, i + 70), a);
+  }
+  return [disc(`${id}-scorch`, f.where, front, [44, 34, 28], 80), puffLayer(`${id}-smoke`, smoke), puffLayer(`${id}-flames`, fire, true)];
+}
+function heatLayers(id, f, ms, now) {
+  const e = envelope(ms, 1200, f.dur - 2000, 2000);
+  if (!e) return [];
+  fxScreen.warm = Math.max(fxScreen.warm, 0.42 * e);
+  const haze = [];
+  for (let i = 0; i < 70; i++) {
+    const at = scatter(f.where, f.area, f.hazard_id + 'haze', i), wob = Math.sin(now / 700 + i);
+    haze.push({ p: [...offset(at, wob * 8, 0), 8 + 30 * hash01(f.hazard_id, i) + wob * 4], r: 70 + 60 * hash01(f.hazard_id, i + 70), c: [255, 196, 130, 34 * e] });
+  }
+  return [puffLayer(`${id}-haze`, haze, true)];
+}
+function quakeLayers(id, f, ms) {
+  const e = envelope(ms, 120, 2400, 1600);
+  fxScreen.shake = Math.max(fxScreen.shake, 4 + 8 * clamp01(((f.impact?.magnitude ?? 6) - 4.5) / 3.5)) * e;
+  const dust = [];
+  for (let i = 0; i < 160; i++) {
+    const age = ms - 200 - hash01(f.hazard_id, i) * 1800, life = 3200;
+    if (!(age >= 0) || age > life) continue;
+    const q = age / life, at = scatter(f.where, f.area, f.hazard_id + 'dust', i);
+    dust.push({ p: [...at, 3 + q * 26], r: 10 + q * 34, c: [...DUST, 130 * (1 - q) * Math.min(1, age / 250)] });
+  }
+  return [puffLayer(`${id}-ground-dust`, dust)];
+}
+// Crowds milling in a few knots, burning cars, tear gas, and police lights.
+function riotLayers(id, f, ms, now) {
+  const e = envelope(ms, 800, f.dur - 2200, 2200);
+  if (!e) return [];
+  const r = (f.radius_m || 350) * 0.7, people = [], fire = [], gas = [], lights = [];
+  for (let c = 0; c < 7; c++) {
+    const knot = scatter(f.where, r, f.hazard_id + 'knot', c), sway = now / 900 + c;
+    for (let i = 0; i < 110; i++) {
+      const ang = hash01(f.hazard_id, c * 1000 + i) * Math.PI * 2, d = 45 * Math.sqrt(hash01(f.hazard_id, c * 1000 + i + 50));
+      people.push(offset(knot, Math.cos(ang) * d + Math.sin(sway + i) * 2.5, Math.sin(ang) * d + Math.cos(sway * 1.3 + i) * 2.5));
+    }
+  }
+  for (let i = 0; i < 9; i++) {
+    const at = scatter(f.where, r, f.hazard_id + 'car', i);
+    flames(fire, at, 0.5, 11, now, i, e);
+    for (let k = 0; k < 4; k++) {
+      const q = (now / 2600 + k / 4 + hash01(f.hazard_id, i + k)) % 1;
+      gas.push({ p: [...offset(at, q * 45, q * 10), 8 + q * 95], r: 9 + q * 36, c: [...SMOKE, 160 * (1 - q) * e] });
+    }
+  }
+  for (let i = 0; i < 5; i++) {
+    const at = scatter(f.where, r, f.hazard_id + 'gas', i);
+    for (let k = 0; k < 5; k++) {
+      const q = (now / 3000 + k / 5 + hash01(f.hazard_id, i * 9 + k)) % 1;
+      gas.push({ p: [...offset(at, q * 60 + k * 6, q * 14), 3 + q * 16], r: 14 + q * 40, c: [238, 238, 230, 150 * (1 - q) * e] });
+    }
+  }
+  for (let i = 0; i < 6; i++) {
+    const at = scatter(f.where, r, f.hazard_id + 'police', i), red = Math.floor(now / 170 + i) % 2;
+    lights.push({ p: [...at, 3], r: 12, c: red ? [255, 40, 40, 240 * e] : [40, 90, 255, 240 * e] });
+  }
+  return [
+    new deck.ScatterplotLayer({ id: `${id}-crowd`, data: people, getPosition: (d) => d, getRadius: 1.6, radiusUnits: 'meters', radiusMinPixels: 2.2,
+      getFillColor: [34, 34, 42, 230 * e] }),
+    puffLayer(`${id}-gas`, gas), puffLayer(`${id}-fires`, fire, true, 5), puffLayer(`${id}-lights`, lights, true, 9),
+  ];
+}
+// Fireball blooming from yellow-white to orange to smoke, then a smoke column
+// that drifts downwind while the site burns. `ms` counts from the impact.
+function fireball(id, at, ms, size, burnMs = 7000) {
+  if (!(ms >= 0)) return [];
+  // Flame-hot puffs add light; cooling smoke covers. Kept apart, so stacked
+  // smoke never sums to a glowing white column.
+  const puffs = [], smoke = [];
+  for (let j = 0; j < 18; j++) {
+    const life = 1300 + (j % 5) * 170, p = ms / life;
+    if (p >= 1) continue;
+    const ang = j * 2.39, d = size * 0.4 * (0.3 + 0.07 * ((j * 7) % 10)) * Math.min(1, p * 3);
+    const col = p < 0.2 ? mix([255, 246, 214], [255, 168, 58], p / 0.2) : p < 0.55 ? mix([255, 168, 58], [206, 72, 22], (p - 0.2) / 0.35) : mix([206, 72, 22], [70, 60, 54], (p - 0.55) / 0.45);
+    (p < 0.5 ? puffs : smoke).push({ p: [...offset(at, Math.cos(ang) * d, Math.sin(ang) * d), size * (0.1 + 0.9 * p * (0.4 + (j % 4) * 0.2))], r: size * (0.16 + 0.34 * Math.sqrt(p)), c: [...col, 235 * (1 - p * p)] });
+  }
+  for (let j = 0; j < 30; j++) {
+    const age = ms - 300 - j * (burnMs / 30), life = 5200;
+    if (age < 0 || age > life) continue;
+    const q = age / life;
+    smoke.push({ p: [...offset(at, q * size * 1.4 + Math.sin(j) * size * 0.1, q * size * 0.4), Math.min(420, size * (0.3 + q * 2.2))], r: Math.min(160, size * (0.22 + q * 0.6)), c: [...SMOKE, 175 * (1 - q) * Math.min(1, age / 250)] });
+  }
+  for (let j = 0; j < 10 && ms < burnMs; j++) {
+    const flick = 0.6 + 0.4 * Math.sin(ms / 70 + j * 1.7), ang = j * 0.63;
+    puffs.push({ p: [...offset(at, Math.cos(ang) * size * 0.3, Math.sin(ang) * size * 0.3), size * 0.08 * flick], r: size * 0.12 * flick, c: [255, 150 + 50 * flick, 50, 200 * (1 - ms / burnMs)] });
+  }
+  if (ms < 260) fxScreen.flash = Math.max(fxScreen.flash, 0.55 * (1 - ms / 260) * Math.min(1, size / 120));
+  if (ms < 1100) fxScreen.shake = Math.max(fxScreen.shake, 9 * (1 - ms / 1100) * Math.min(1, size / 100));
+  return [puffLayer(`${id}-smoke`, smoke), puffLayer(`${id}-fireball`, puffs, true)];
+}
+// The dive, by progress s from 0 (1.3 km out, 360 m up) to 1 (impact). The
+// plane leaves as soon as it is released and eases towards the city while the
+// engine works, then finishes the dive at constant speed once the result is in.
+const PLANE_RUN = 1200, PLANE_ALT = 300;
+const planeAt = (center, dir, s) => {
+  const back = -PLANE_RUN * (1 - s);
+  return [...offset(center, dir[0] * back, dir[1] * back), Math.max(PLANE_ALT * (1 - s) ** 1.25, 4)];
+};
+const planePitch = (s) => (Math.atan((PLANE_ALT * 1.25 * (1 - s) ** 0.25) / PLANE_RUN) * 180) / Math.PI;
+const waitingProgress = (ms) => 0.75 * (1 - Math.exp(-ms / 1600));
+// Left to right across the current view.
+const crossingHeading = () => (map ? map.getBearing() : -20) + 90;
+const headingDir = (deg) => [Math.sin((deg * Math.PI) / 180), Math.cos((deg * Math.PI) / 180)];
+function planeLayers(id, center, dir, s, now) {
+  const yaw = (Math.atan2(dir[1], dir[0]) * 180) / Math.PI, trail = [];
+  for (let k = 1; k <= 40; k++) {
+    const sk = s - k * 0.01;
+    if (sk < 0) break;
+    const q = k / 40;
+    trail.push({ p: planeAt(center, dir, sk), r: 7 + k * 1.6, c: k < 4 ? [255, 150, 50, 230] : [...SMOKE, 190 * (1 - q)] });
+  }
+  const at = planeAt(center, dir, s);
+  return [
+    puffLayer(`${id}-trail`, trail),
+    new deck.SimpleMeshLayer({ id: `${id}-plane`, data: nearCamera()(at, 90) ? [] : [at], mesh: mesh('plane', planeMesh), sizeScale: 3,
+      getPosition: (d) => d, getOrientation: [planePitch(s), yaw, 6 * Math.sin(now / 260)],
+      getColor: [255, 255, 255, 255], material: { ambient: 0.62, diffuse: 0.6, shininess: 64, specularColor: [220, 220, 230] } }),
+  ];
+}
+// Dark translucent shells spinning at different rates over a debris swirl.
+function funnel3d(id, at, now, r, fade) {
+  const spin = now / 1000, R = Math.max(r * 0.55, 50), H = 260 + r * 0.45;
+  const sway = [5 * Math.cos(spin * 1.1), 0, 6 * Math.sin(spin * 1.3)];
+  const shells = [{ s: 1, a: 95, y: spin * 150, c: [215, 212, 208] }, { s: 0.66, a: 140, y: spin * 320, c: [160, 156, 150] }];
+  const out = shells.map((sh, i) => new deck.SimpleMeshLayer({ id: `${id}-shell${i}`, data: [sh], mesh: mesh('funnel', funnelMesh),
+    getPosition: () => [...at, 0], getScale: (d) => [R * d.s, R * d.s, H * (0.92 + 0.08 * d.s)],
+    getOrientation: (d) => [sway[0], d.y, sway[2]], getColor: (d) => [...d.c, d.a * fade], material: { ambient: 0.75, diffuse: 0.4, shininess: 8, specularColor: [30, 30, 30] }, parameters: SOFT }));
+  const debris = Array.from({ length: 46 }, (_, j) => {
+    const ang = j * 2.4 + spin * (3 + (j % 4)), d = R * (0.12 + 0.35 * ((j * 7) % 10) / 10) + 10;
+    return { p: [...offset(at, Math.cos(ang) * d, Math.sin(ang) * d), 4 + ((j * 37) % 130) * (0.4 + 0.6 * ((j % 3) / 2))], o: [now * 0.3 + j * 40, now * 0.2 + j * 17, j * 29], s: 1.2 + (j % 5) * 0.7 };
+  });
+  out.push(new deck.SimpleMeshLayer({ id: `${id}-debris`, data: debris, mesh: mesh('cube', cubeMesh), getPosition: (d) => d.p,
+    getOrientation: (d) => d.o, getScale: (d) => [d.s, d.s, d.s * 0.6], getColor: [92, 84, 76, 255 * fade], material: MATERIAL }));
+  const base = Array.from({ length: 18 }, (_, j) => {
+    const ang = j * 0.35 + spin * 1.6, d = R * 0.22 + 18 + (j % 3) * 9;
+    return { p: [...offset(at, Math.cos(ang) * d, Math.sin(ang) * d), 6 + (j % 4) * 5], r: 16 + (j % 5) * 5, c: [...DUST, 130 * fade] };
+  });
+  out.push(puffLayer(`${id}-dust`, base));
+  return out;
+}
+function waterLayers(id, f, ms) {
+  const rise = calm.matches ? 1 : easeOut(clamp01(ms / 2600));
+  const colour = (depth) => [...mix(WATER_SHALLOW, WATER_DEEP, clamp01(depth / 3)), 205];
+  if (f.water?.cells?.length) {
+    // Flat cells floated at their depth: a continuous surface with no lit
+    // walls between neighbours. Depth reads through the colour.
+    return [new deck.GridCellLayer({ id: `${id}-water`, data: f.water.cells, getPosition: (d) => [d[0], d[1], 0.3 + d[2] * rise], cellSize: f.water.cell_m * 1.1,
+      offset: [0, 0], coverage: 1, extruded: false, getFillColor: (d) => colour(d[2] * rise), material: false,
+      updateTriggers: { getPosition: rise, getFillColor: rise } })];
+  }
+  if (!f.center) return [];
+  // No terrain: a flat sheet at the hazard's depth inside its reach.
+  const depth = f.impact?.magnitude ?? 1, r = (f.radius_m || 600) * Math.min(1, 0.3 + rise);
+  const ring = Array.from({ length: 64 }, (_, i) => offset(f.center, Math.cos((i / 64) * Math.PI * 2) * r, Math.sin((i / 64) * Math.PI * 2) * r));
+  return [new deck.SolidPolygonLayer({ id: `${id}-water`, data: [ring], getPolygon: (d) => d, extruded: true, getElevation: depth,
+    elevationScale: Math.max(rise, 0.02), getFillColor: colour(depth), material: WATER_MAT })];
+}
+function buildingFxLayers(now) {
+  if (!fxBuild.events.size || photoreal()) return [];
+  const t = calm.matches ? Infinity : now, tick = Math.min(t, fxEnd);
+  const chunks = fxBuild.chunks.map((k) => chunkPose(k, t)).filter(Boolean);
+  const dust = [];
+  for (const e of fxBuild.falls.slice(0, 600)) {
+    const c = centreOf(e.b), hs = halfSize(e.b);
+    for (let j = 0; j < 5; j++) {
+      const age = t - e.s - SHUDDER - j * 120, life = 3800;
+      if (!(age >= 0) || age > life) continue;
+      const q = age / life, ang = hash01(e.b.id, j) * Math.PI * 2, d = hs * (0.3 + 0.5 * hash01(e.b.id, j + 9)) + q * 14;
+      dust.push({ p: [...offset(c, Math.cos(ang) * d, Math.sin(ang) * d), e.h * 0.12 + q * (8 + e.h * 0.3) + j * 2],
+        r: 6 + e.h * 0.2 + q * (10 + e.h * 0.55), c: [...DUST, 175 * (1 - q) ** 1.5 * Math.min(1, age / 200)] });
+    }
+  }
+  return [
+    new deck.SolidPolygonLayer({ id: 'buildings-fx', data: fxBuild.rings, getPolygon: (d) => d.ring, extruded: true,
+      getElevation: (d) => fxElevation(d.e, t), getFillColor: (d) => fxFill(d, t), pickable: true, autoHighlight: true,
+      highlightColor: [255, 255, 255, 80], material: MATERIAL,
+      updateTriggers: { getElevation: tick, getFillColor: [tick, ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario] } }),
+    new deck.SimpleMeshLayer({ id: 'rubble-chunks', data: chunks, mesh: mesh('cube', cubeMesh), getPosition: (d) => d.p,
+      getOrientation: (d) => d.o, getScale: (d) => [d.s, d.s * 0.8, d.s * 0.6], getColor: (d) => [...CONCRETE.map((v) => Math.min(255, v * d.g)), 255], material: MATERIAL }),
+    new deck.SimpleMeshLayer({ id: 'falling', data: fallingPieces(t), mesh: mesh('block', blockMesh), getPosition: (d) => d.p,
+      getOrientation: (d) => d.o, getScale: (d) => d.s, getColor: (d) => d.c, material: MATERIAL }),
+    puffLayer('collapse-dust', dust),
+  ];
+}
+// A cased line: a pale casing under the coloured stroke keeps a track legible
+// over the blue-grey roofs as well as the pale streets.
+function track(id, path, color) {
+  const base = { data: [path.slice()], getPath: (d) => d, widthUnits: 'pixels', capRounded: true, jointRounded: true, parameters: ON_TOP };
+  return [
+    new deck.PathLayer({ ...base, id: `${id}-casing`, getWidth: 6, getColor: isDark() ? [20, 30, 40, 200] : [255, 255, 255, 230] }),
+    new deck.PathLayer({ ...base, id, getWidth: 3, getColor: [...color, 255] }),
+  ];
+}
+function ring(id, at, radius, color, alpha, width = 2) {
+  return new deck.ScatterplotLayer({ id, data: [at], getPosition: (d) => d, getRadius: Math.max(radius, 1), radiusUnits: 'meters',
+    filled: false, stroked: true, lineWidthUnits: 'pixels', getLineWidth: width, getLineColor: [...color, alpha], parameters: ON_TOP });
+}
+function disc(id, at, radius, color, alpha, onTop = false) {
+  return new deck.ScatterplotLayer({ id, data: [at], getPosition: (d) => d, getRadius: Math.max(radius, 1), radiusUnits: 'meters',
+    getFillColor: [...color, alpha], ...(onTop && { parameters: ON_TOP }) });
+}
+function fxLayers(now) {
+  const out = buildingFxLayers(now);
+  fx.forEach((f, i) => {
+    const id = `fx-${i}`, r = f.radius_m ?? 0, hue = tone(TONE[f.kind] ?? 'strike');
+    const ms = calm.matches ? Infinity : now - f.t0, sinceImpact = ms - f.impactMs;
+    const t = clamp01(sinceImpact / FX_MS);
+    if (f.kind === 'flood') out.push(...waterLayers(id, f, ms));
+    if (f.kind === 'storm') out.push(...cloudDeck(id, f, ms, true), ...rainLayers(id, f, ms, true), ...lightning(id, f, ms));
+    if (f.kind === 'rain') out.push(...cloudDeck(id, f, ms, false), ...rainLayers(id, f, ms, false));
+    if (f.kind === 'heat') out.push(...heatLayers(id, f, ms, now));
+    if (f.kind === 'earthquake') out.push(...quakeLayers(id, f, ms));
+    if (f.kind === 'riot') out.push(...riotLayers(id, f, ms, now));
+    if (f.kind === 'fire') out.push(...fireLayers(id, f, ms, now));
+    if (!f.center && !f.path) return;
+    const at = f.center ?? f.path[0];
+    if (f.path) {
+      const grow = f.path.slice(0, Math.max(2, Math.ceil(f.path.length * clamp01(ms / f.travelMs))));
+      out.push(new deck.PathLayer({ id: `${id}-swath`, data: [grow], getPath: (d) => d, widthUnits: 'meters', getWidth: 2 * r,
+        capRounded: true, jointRounded: true, getColor: [...hue, 50] }));
+      out.push(...track(`${id}-track`, grow, hue));
+    } else if (f.kind === 'flood') {
+      out.push(ring(`${id}-edge`, at, r * clamp01(0.3 + ms / 2600), hue, 200));
+    } else if (sinceImpact >= 0) {
+      const grow = Math.min(1, t / 0.3);
+      if (!WIDE.has(f.kind)) out.push(disc(`${id}-zone`, at, r * grow, hue, TONE[f.kind] ? 60 : 30));
+      out.push(ring(`${id}-edge`, at, r * grow, hue, 230));
+    }
+    if (f.kind === 'plane_crash') {
+      if (ms < f.impactMs) out.push(...planeLayers(id, at, f.dir, f.s0 + (1 - f.s0) * clamp01(ms / f.impactMs), now));
+      out.push(...fireball(id, at, sinceImpact, 45 + r * 0.06, 8000));
+    }
+    if (f.kind === 'explosion') out.push(...fireball(id, at, sinceImpact, Math.min(260, Math.max(30, r * 0.25)), 5000));
+    if (f.kind === 'orbital_strike') out.push(...fireball(id, at, sinceImpact, Math.min(250, Math.max(30, r * 0.5)), 4000));
+    if (f.kind === 'tornado' && ms < f.travelMs + 600) {
+      const u = clamp01(ms / f.travelMs);
+      out.push(...funnel3d(id, f.path ? along(f.path, u) : at, now, r, ms > f.travelMs ? 1 - (ms - f.travelMs) / 600 : Math.min(1, ms / 300)));
+    }
+    if (t >= 1 || sinceImpact < 0) return;
+    if (SHOCK.has(f.kind)) {
+      const waves = f.kind === 'earthquake' ? 3 : 1;
+      for (let w = 0; w < waves; w++) {
+        const p = (t - w * 0.15) / 0.45;
+        if (p > 0 && p < 1) out.push(ring(`${id}-wave${w}`, at, r * 1.15 * (1 - (1 - p) ** 3), hue, 255 * (1 - p), 3.5));
+      }
+      if (f.kind !== 'earthquake' && t < 0.25) out.push(disc(`${id}-flash`, at, r * 0.45, [255, 244, 214], 210 * (1 - t / 0.25), true));
+      if (f.kind === 'orbital_strike' && t < 0.4) {
+        out.push(new deck.ColumnLayer({ id: `${id}-beam`, data: [at], getPosition: (d) => d, radius: Math.max(r * 0.3, 8), elevationScale: 1,
+          getElevation: 1600, extruded: true, material: false, getFillColor: [...hue, 190 * (1 - t / 0.4)] }));
+      }
+    }
+  });
+  if (fx.some((f) => f.kind === 'orbital_strike' && now - f.t0 < f.impactMs)) {
+    for (const f of fx.filter((g) => g.kind === 'orbital_strike' && now - g.t0 < g.impactMs && g.center)) {
+      out.push(new deck.ColumnLayer({ id: `charge-${f.hazard_id}`, data: [f.center], getPosition: (d) => d, radius: 4 + 10 * ((now - f.t0) / f.impactMs),
+        elevationScale: 1, getElevation: 1600, extruded: true, material: false, getFillColor: [...tone('strike'), 200] }));
+    }
+  }
+  if (pending) {
+    const r = TORNADO_R[$('sev').value] ?? 130;
+    if (pending.kind === 'tornado') {
+      if (pending.path?.length > 1) out.push(...track('pending-track', pending.path, tone('strike')));
+      out.push(...funnel3d('pending', pending.path?.at(-1) ?? pending.at, now, r, 1));
+    } else if (pending.kind === 'plane_crash' && pending.flyT0) {
+      out.push(ring('pending-mark', pending.at, 40 + 25 * Math.sin(now / 150), tone('strike'), 240, 3));
+      out.push(...planeLayers('pending', pending.at, headingDir(pending.heading), waitingProgress(now - pending.flyT0), now));
+    } else if (pending.kind === 'plane_crash' && pending.aim) {
+      out.push(...track('pending-approach', [pending.aim, pending.at], tone('strike')), ring('pending-mark', pending.at, 40 + 25 * Math.sin(now / 150), tone('strike'), 240, 3));
+      const dx = (pending.at[0] - pending.aim[0]) * mPerLon(pending.at[1]), dy = (pending.at[1] - pending.aim[1]) * 111320;
+      out.push(new deck.SimpleMeshLayer({ id: 'pending-plane', data: [pending.aim], mesh: mesh('plane', planeMesh), sizeScale: 3,
+        getPosition: (d) => [...d, 200], getOrientation: [12, (Math.atan2(dy, dx) * 180) / Math.PI, 0], getColor: [255, 255, 255, 235], material: MATERIAL }));
+    } else {
+      out.push(ring('pending-mark', pending.at, 40 + 25 * Math.sin(now / 150), tone('strike'), 240, 3));
+    }
+  }
+  return out;
+}
+const deckProps = () => ({
+  layers: layers(),
+  effects: [lighting()],
+  getCursor: ({ isHovering, isDragging }) => (isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'),
+  onHover: showTip,
+  onClick: ({ object }) => { ui.selected = object ? object.b.id : null; renderInspector(); render(); },
+});
+
+function initScene() {
+  indexFootprints();
+  const bounds = homeBounds();
+  const style = DATA.basemap && (isDark() ? DATA.basemap.style_dark : DATA.basemap.style_light);
+  if (style && window.maplibregl) {
+    // Beirut's labels are largely Arabic; without this plugin MapLibre draws
+    // them as isolated, left-to-right letters instead of joined script.
+    maplibregl.setRTLTextPlugin('https://cdn.jsdelivr.net/npm/@mapbox/mapbox-gl-rtl-text@0.3.0/dist/mapbox-gl-rtl-text.js', false)
+      .catch(() => { /* offline: labels stay unshaped, the map still works */ });
+    map = new maplibregl.Map({
+      container: 'scene', style, bounds, fitBoundsOptions: { padding: 40 },
+      pitch: 74, bearing: -20, maxPitch: 85, attributionControl: false, canvasContextAttributes: { antialias: true },
+    });
+    map.on('style.load', () => {
+      const dark = isDark();
+      try {
+        map.setSky({
+          'sky-color': dark ? '#16212c' : '#8fb2cf', 'horizon-color': dark ? '#2f4152' : '#e3edf3',
+          'fog-color': dark ? '#22313f' : '#dfe9ef', 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.55,
+        });
+      } catch (err) { /* older style spec: plain background is fine */ }
+      // The basemap's own flat building fills sit under our 3D buildings.
+      for (const id of ['building', 'building-top']) if (map.getLayer(id)) map.setPaintProperty(id, 'fill-opacity', 0.35);
+      applySatellite();
+    });
+    map.once('load', () => { home = { center: map.getCenter(), zoom: map.getZoom(), pitch: 74, bearing: -20 }; });
+    deckgl = new deck.MapboxOverlay({ interleaved: false, ...deckProps() });
+    map.addControl(deckgl);
+    $('t-sat').hidden = !DATA.basemap.satellite_tiles;
+  } else {
+    const [[w, s], [e, n]] = bounds;
+    home = { longitude: (w + e) / 2, latitude: (s + n) / 2, zoom: 15.6, pitch: 62, bearing: -20 };
+    deckgl = new deck.Deck({
+      parent: $('scene'), views: new deck.MapView({ repeat: false }),
+      initialViewState: { ...home, maxPitch: 75 }, controller: { dragRotate: true, touchRotate: true, inertia: 250 },
+      parameters: { clearColor: [0, 0, 0, 0] }, ...deckProps(),
+    });
+  }
+}
+// Weather and quakes reach kilometres: framing every building they touch would
+// pull the camera out until rain, dust and shaking are invisible, so the
+// camera goes to street level where the disaster was dropped instead.
+// A riot is street-scale, so its camera comes in closer still.
+const WIDE = new Set(['storm', 'rain', 'heat', 'earthquake']);
+const STREET_ZOOM = { riot: 16.4 };
+function focusStrike(hit) {
+  const zoom = STREET_ZOOM[hit.kind] ?? 15.4;
+  if (!STREET_ZOOM[hit.kind] && !WIDE.has(hit.kind) && !hit.citywide && (hit.radius_m ?? 0) <= 1500) { focusOn(hit.ids); return; }
+  const [lng, lat] = hit.center ?? viewCentre();
+  if (map) map.easeTo({ center: [lng, lat], zoom, pitch: 70, bearing: map.getBearing(), duration: 1400 });
+  else flyTo({ longitude: lng, latitude: lat, zoom, pitch: 62 });
+}
+// Fly to the buildings a scenario touches, so the result is on screen.
+function focusOn(ids) {
+  const wanted = new Set(ids);
+  let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
+  for (const b of DATA.buildings) if (wanted.has(b.id)) for (const [x, y] of b.rings[0]) {
+    w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y);
+  }
+  if (!Number.isFinite(w)) return;
+  if (!map) {
+    const vp = new deck.WebMercatorViewport({ width: innerWidth, height: innerHeight });
+    const { longitude, latitude, zoom } = vp.fitBounds([[w, s], [e, n]], { padding: Math.min(120, innerWidth / 5) });
+    deckgl.setProps({ initialViewState: { ...home, maxPitch: 75, longitude, latitude, zoom: Math.min(zoom, 17.5), pitch: 60, bearing: -20, transitionDuration: 1200, transitionInterpolator: new deck.FlyToInterpolator() } });
+    return;
+  }
+  const padX = Math.max((e - w) * 0.25, 0.002), padY = Math.max((n - s) * 0.25, 0.002);
+  const cam = map.cameraForBounds([[w - padX, s - padY], [e + padX, n + padY]], { padding: 60, bearing: map.getBearing() });
+  if (cam) map.easeTo({ ...cam, pitch: 68, bearing: map.getBearing(), duration: 1400 });
+}
+function flyTo(update) {
+  if (map) {
+    if (home) map.easeTo({ ...home, ...update, duration: 700 });
+    return;
+  }
+  deckgl.setProps({ initialViewState: { ...home, maxPitch: 75, ...update, transitionDuration: 650, transitionInterpolator: new deck.LinearInterpolator(['pitch', 'bearing', 'zoom', 'longitude', 'latitude']) } });
+}
+
+function probRows(p, compare, current) {
+  const entries = ORDER.map((s) => [s, p?.[s] ?? 0]).filter(([s, v]) => v >= 0.005 || (compare?.[s] ?? 0) >= 0.005).sort((a, b) => b[1] - a[1]);
+  return entries.map(([s, v]) => `
+    <div class="pbar"><span class="sw" style="background:${STATES[s].color}"></span>
+      <div><div class="lbl">${esc(stateLabel(s))}${s === current ? ' · stays' : ''}</div>
+      <div class="track"><div class="fill" style="width:${(v * 100).toFixed(1)}%"></div>${compare ? `<div class="ghost" style="left:calc(${((compare[s] ?? 0) * 100).toFixed(1)}% - 1px)" title="baseline ${pct(compare[s] ?? 0)}"></div>` : ''}</div></div>
+      <span class="v">${pct(v)}</span></div>`).join('');
+}
+function showTip({ object, x, y }) {
+  const tip = $('tip');
+  if (!object) { tip.hidden = true; return; }
+  const b = object.b, p = activeP(b);
+  tip.innerHTML = `<div class="h">${esc(b.sector || 'Building')} · ${esc(b.use || 'use n/a')}</div>
+    <div class="s">${esc(stateLabel(b.state))} · ${b.h.toFixed(1)} m${b.est ? ' (est.)' : ''}</div>
+    ${p ? `<div class="s" style="margin:6px 0 0">In 2 years${ui.scenario ? ' (scenario)' : ''}</div>${probRows(Object.fromEntries(Object.entries(p).sort((a, c) => c[1] - a[1]).slice(0, 3)), null, b.state)}` : ''}`;
+  tip.hidden = false;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = `${Math.min(x + 16, innerWidth - w - 10)}px`;
+  tip.style.top = `${Math.min(y + 16, innerHeight - h - 10)}px`;
+}
+
+function renderStatus() {
+  const f = ui.scenario?.forecast ?? DATA.forecast;
+  const assumed = f?.evidence_level === 'assumption_based_scenario';
+  $('status').innerHTML = `<span class="opt"><b>${esc(DATA.snapshot.data_version)}</b></span><span class="sep opt"></span>
+    <span class="opt">${DATA.coverage.drawn.toLocaleString()} buildings</span>
+    ${f ? `<span class="sep opt"></span><span class="badge ${assumed ? 'assumed' : ''}"><i></i>${assumed ? 'Assumption-based scenario' : 'Business as usual'}</span>` : ''}`;
+}
+
+function counts(fn) {
+  const c = Object.fromEntries(ORDER.map((s) => [s, 0]));
+  for (const b of DATA.buildings) { const s = fn(b); if (s) c[s] += 1; }
+  return c;
+}
+function renderLegend() {
+  const el = $('p-legend');
+  if (el.hidden) return;
+  let body = '';
+  if (ui.lens === 'observed' || ui.lens === 'forecast') {
+    const c = ui.lens === 'observed' ? counts((b) => b.state) : counts((b) => { const p = activeP(b); return p ? argmax(p) : null; });
+    const title = ui.lens === 'observed' ? `Observed state · ${esc(DATA.snapshot.as_of.slice(0, 4))}` : `Most likely state in 2 years${ui.scenario ? ' · scenario' : ''}`;
+    body = `<h2>${title}</h2><div class="sub">Building count per canonical BBED state</div>` +
+      ORDER.map((s) => `<div class="legend-row ${c[s] ? '' : 'muted'}"><span class="sw" style="background:${STATES[s].color}"></span><span>${esc(STATES[s].label)}</span><span class="n">${c[s].toLocaleString()}</span></div>`).join('');
+    if (ui.lens === 'forecast') body += `<div class="note">Colour is the single most likely state; hover a building for the full distribution.</div>`;
+  } else if (ui.lens === 'change') {
+    body = `<h2>Chance of leaving current state</h2><div class="sub">Next 2-year step${ui.scenario ? ', under the scenario' : ''}</div>
+      <div class="ramp" style="background:linear-gradient(90deg,${RAMP.join(',')})"></div><div class="ramp-labels"><span>0%</span><span>50%</span><span>100%</span></div>
+      <div class="note">Model probability, not a certainty. Grey = no forecast for this building.</div>`;
+  } else {
+    const disaster = hasHazards() && !leverTarget.size;
+    body = disaster ? `<h2>Disaster vs baseline</h2><div class="sub">Rise in the chance of losing the current state, next 2 years</div>
+      <div class="ramp" style="background:linear-gradient(90deg,${DIVERGE.low},${DIVERGE.mid},${DIVERGE.high})"></div><div class="ramp-labels"><span>−${(deltaScale * 100).toFixed(0)} pts</span><span>no change</span><span>+${(deltaScale * 100).toFixed(0)} pts</span></div>
+      <div class="note">Orange = the disaster makes destruction, damage or another change more likely. Grey = out of reach.</div>`
+    : `<h2>Scenario vs baseline</h2><div class="sub">Change in chance of reaching each lever's target state, next 2 years</div>
+      <div class="ramp" style="background:linear-gradient(90deg,${DIVERGE.low},${DIVERGE.mid},${DIVERGE.high})"></div><div class="ramp-labels"><span>−${(deltaScale * 100).toFixed(0)} pts</span><span>no change</span><span>+${(deltaScale * 100).toFixed(0)} pts</span></div>
+      <div class="note">Orange = more likely to reach the lever's target; blue = less likely. Grey buildings are outside every lever.${hasHazards() ? ' Outside the levers, orange marks disaster damage.' : ''}</div>`;
+  }
+  el.innerHTML = body;
+}
+
+function renderInspector() {
+  const el = $('p-inspect');
+  const b = DATA.buildings.find((x) => x.id === ui.selected);
+  if (!b) { el.hidden = true; return; }
+  const p = activeP(b), base = ui.scenario ? baseP(b) : null;
+  el.hidden = false;
+  el.innerHTML = `<button class="close" aria-label="Close" data-close="inspect">✕</button>
+    <h2>${esc(b.sector || 'Building')}</h2><div class="sub" style="overflow-wrap:anywhere">${esc(b.id)}</div>
+    <dl class="kv"><dt>Observed</dt><dd>${esc(stateLabel(b.state))}</dd><dt>Use</dt><dd>${esc(b.use || '—')}</dd>
+    <dt>Height</dt><dd>${b.h.toFixed(1)} m${b.est ? ' (estimated)' : ''}</dd><dt>Floors</dt><dd>${b.floors ?? '—'}</dd></dl>
+    ${p ? `<div class="sub" style="margin:0 0 4px">Next 2 years${ui.scenario ? ' — scenario; yellow tick = baseline' : ''}</div>${probRows(p, base, b.state)}` : '<div class="note">No forecast for this building.</div>'}`;
+}
+
+function kpiRows(horizon) {
+  const find = (f, k) => f?.kpis.find((x) => x.kpi === k && x.year_offset === horizon);
+  const keys = [...new Set((DATA.forecast?.kpis ?? []).map((k) => k.kpi))];
+  return keys.map((k) => ({ k, base: find(DATA.forecast, k), scen: find(ui.scenario?.forecast, k) })).filter((r) => r.base);
+}
+function renderDock() {
+  const dock = $('dock');
+  if (!DATA.forecast) { dock.innerHTML = '<span class="empty">No forecast embedded — export with <code>--forecast</code> to see KPI bands.</span>'; return; }
+  const horizons = [...new Set(DATA.forecast.kpis.map((k) => k.year_offset))].sort((a, b) => a - b);
+  if (!horizons.includes(ui.horizon)) ui.horizon = horizons[0];
+  const rows = kpiRows(ui.horizon);
+  const tiles = KPI_TILES.map((k) => rows.find((r) => r.k === k)).filter(Boolean).map(({ k, base, scen }) => {
+    const shown = scen ?? base;
+    const delta = scen ? scen.p50 - base.p50 : null;
+    const dabs = base.unit === 'ratio' ? `${(Math.abs(delta) * 100).toFixed(1)} pts` : fmt(Math.abs(delta ?? 0), base.unit);
+    const dtxt = delta === null ? '' : `<small>${Math.abs(delta) < 1e-9 ? '±0' : (delta > 0 ? '+' : '−') + dabs}</small>`;
+    return `<div class="kpi" style="--kpi-rule:${KPI_RULE[k] || '#fff'}"><div class="l">${esc(KPI_LABELS[k] || k)}</div>
+      <div class="v">${fmt(shown.p50, base.unit)}${dtxt}</div><div class="r">${fmt(shown.p05, base.unit)} – ${fmt(shown.p95, base.unit)}</div></div>`;
+  }).join('');
+  dock.innerHTML = `<div class="seg" role="group" aria-label="Horizon">${horizons.map((h) => `<button data-h="${h}" aria-pressed="${h === ui.horizon}">+${h}y</button>`).join('')}</div>${tiles}
+    <button class="more" id="more">All KPIs</button>`;
+  renderKpiTable();
+}
+function renderKpiTable() {
+  const el = $('p-kpis');
+  if (el.hidden || !DATA.forecast) return;
+  const rows = kpiRows(ui.horizon);
+  const scen = !!ui.scenario;
+  el.innerHTML = `<button class="close" aria-label="Close" data-close="kpis">✕</button><h2>KPIs at +${ui.horizon} years</h2>
+    <div class="sub">Median with 90% band across Monte Carlo draws</div>
+    <table class="kpis"><thead><tr><th>KPI</th><th>Baseline</th>${scen ? '<th>Scenario</th>' : ''}</tr></thead><tbody>
+    ${rows.map(({ k, base, scen: s }) => `<tr><td>${esc(KPI_LABELS[k] || k)}</td>
+      <td>${fmt(base.p50, base.unit)}<br><span style="color:var(--ink-3)">${fmt(base.p05, base.unit)}–${fmt(base.p95, base.unit)}</span></td>
+      ${scen ? `<td>${s ? `${fmt(s.p50, base.unit)}<br><span style="color:var(--ink-3)">${fmt(s.p05, base.unit)}–${fmt(s.p95, base.unit)}</span>` : '—'}</td>` : ''}</tr>`).join('')}
+    </tbody></table>`;
+}
+function renderInfo() {
+  const el = $('p-info');
+  if (el.hidden) return;
+  const f = ui.scenario?.forecast ?? DATA.forecast;
+  el.innerHTML = `<button class="close" aria-label="Close" data-close="info">✕</button><h2>About this view</h2>
+    <div class="sub">What is drawn and how far to trust it</div>
+    <dl class="kv"><dt>Snapshot</dt><dd>${esc(DATA.snapshot.id)}</dd><dt>As of</dt><dd>${esc(DATA.snapshot.as_of)}</dd>
+    <dt>Data version</dt><dd>${esc(DATA.snapshot.data_version)}</dd><dt>Drawn</dt><dd>${DATA.coverage.drawn.toLocaleString()}</dd>
+    <dt>No geometry</dt><dd>${DATA.coverage.missing_geometry.toLocaleString()}</dd><dt>Estimated height</dt><dd>${DATA.coverage.estimated_height.toLocaleString()}</dd>
+    ${f ? `<dt>Model</dt><dd>${esc(f.model_version)}</dd><dt>Out-of-distribution</dt><dd>${f.ood}</dd>${f.evidence_bundle_id ? `<dt>Evidence bundle</dt><dd>${esc(f.evidence_bundle_id)}</dd>` : ''}` : ''}</dl>
+    ${f?.warnings?.length ? `<ul class="warn-list">${f.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+    <div class="note">Forecasts are observational transition probabilities, not causal predictions. Scenario levers carry assumed effect sizes and are labelled assumption-based. ${esc(DATA.attribution)}</div>`;
+}
+function waterNote(s, h) {
+  if (h.kind !== 'flood') return '';
+  const w = s.hazards?.find((f) => f.hazard_id === h.hazard_id)?.water;
+  return w ? `<div class="m">Water fills low ground to ${w.level_m.toFixed(1)} m above sea level (approximate terrain)</div>`
+    : '<div class="m">Flat water: no terrain loaded, so the depth is the same everywhere in reach</div>';
+}
+function hazardCards(s) {
+  return (s.forecast?.hazard_impacts ?? []).map((h) => `<div class="lever" data-hazard="${esc(h.hazard_id)}">
+    <div class="t">${hazardIcon(h.kind, 'hz')}${esc(hazardLabel(h.kind))} · ${h.magnitude.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${esc(h.magnitude_unit)}</div>
+    <div class="m">${Math.round(h.destroyed.p50).toLocaleString()} destroyed (${Math.round(h.destroyed.p05)}–${Math.round(h.destroyed.p95)}) · ${Math.round(h.damaged.p50).toLocaleString()} damaged (${Math.round(h.damaged.p05)}–${Math.round(h.damaged.p95)})</div>
+    <div class="m">${h.exposed_buildings.toLocaleString()} buildings in reach · ${h.radius_m ? `${metres(h.radius_m)} radius` : 'citywide'} · strikes in years ${h.year_offset - 2}–${h.year_offset}</div>
+    ${waterNote(s, h)}
+    <div class="m">Source: ${esc(h.effect_source)} · confidence ${esc(h.confidence_grade)}</div></div>`).join('');
+}
+function renderScenario() {
+  const el = $('p-scenario');
+  const s = ui.scenario;
+  if (!s) { el.hidden = true; return; }
+  el.hidden = false;
+  const c = s.compilation;
+  if (!c) {
+    const n = s.forecast.hazard_impacts.length;
+    el.innerHTML = `<button class="close" aria-label="Clear disasters" data-close="scenario">✕</button>
+      <h2>Disasters</h2><div class="sub">Dropped on the map and run straight through the engine; no language model involved</div>
+      <div><span class="chip soft">Assumption-based</span><span class="chip">${n} disaster${n > 1 ? 's' : ''}</span>
+        <span class="chip">${s.dropped.horizon_years}-year horizon</span></div>
+      ${hazardCards(s)}
+      <div class="note">Median of the Monte Carlo runs, 90% range in brackets. Damage curves are illustrative, not calibrated. On the map, the median number of buildings falls, taken from those each disaster hits hardest: one plausible picture, not a forecast for any single building. Drop another to add it; ✕ clears them all. Hover a disaster to see what it hits.</div>`;
+    return;
+  }
+  const allIssues = c.attempts.flatMap((a, i) => a.report.issues.map((x) => ({ ...x, attempt: i + 1 })));
+  const accepted = !!c.scenario;
+  const levers = accepted ? c.scenario.interventions : [];
+  el.innerHTML = `<button class="close" aria-label="Clear scenario" data-close="scenario">✕</button>
+    <h2>${accepted ? esc(c.scenario.scenario_id) : 'Scenario rejected'}</h2>
+    <div class="sub">${esc(c.request_text)}</div>
+    <div><span class="chip ${accepted ? 'ok' : 'hard'}">${accepted ? 'Validated' : 'Not runnable'}</span>
+      <span class="chip">${c.attempts.length} attempt${c.attempts.length > 1 ? 's' : ''}</span>
+      ${accepted ? `<span class="chip">${c.scenario.horizon_years}-year horizon</span>` : ''}</div>
+    ${levers.map((l, i) => `<div class="lever" data-lever="${i}"><div class="t"><span class="sw" style="width:10px;height:10px;border-radius:3px;background:${STATES[l.target_state].color}"></span>${esc(l.intervention_id)}</div>
+      <div class="m">→ ${esc(stateLabel(l.target_state))} · Δ log-odds ${l.log_odds_delta > 0 ? '+' : ''}${l.log_odds_delta} · step ${l.active_step} · ${l.object_ids.length.toLocaleString()} buildings</div>
+      <div class="m">Source: ${esc(l.effect_source)} · confidence ${esc(l.confidence_grade)}</div></div>`).join('')}
+    ${hazardCards(s)}
+    ${allIssues.map((x) => `<div class="issue ${x.severity}"><code>${esc(x.code)}</code> ${esc(x.message)}${c.attempts.length > 1 ? ` <span style="color:var(--ink-3)">(attempt ${x.attempt})</span>` : ''}</div>`).join('')}
+    ${accepted ? '<div class="note">Hover a lever to highlight the buildings it acts on.</div>' : ''}`;
+}
+
+const METRIC_UNIT = { change_probability: 'p', target_probability: 'p', height_m: 'm', floors: 'n', footprint_area_m2: 'm2' };
+function fmtMetric(metric, v) {
+  if (v === null || v === undefined) return 'n/a';
+  const u = METRIC_UNIT[metric];
+  return u === 'p' ? pct(v) : u === 'm' ? `${v.toFixed(1)} m` : u === 'm2' ? `${Math.round(v).toLocaleString()} m²` : Math.round(v).toLocaleString();
+}
+function renderAnswer() {
+  const el = $('p-answer');
+  const r = ui.answer;
+  if (!r) { el.hidden = true; return; }
+  el.hidden = false;
+  const a = r.answer;
+  const allIssues = r.attempts.flatMap((t, i) => t.report.issues.map((x) => ({ ...x, attempt: i + 1 })));
+  const rows = !a ? '' : a.kind === 'by_sector'
+    ? a.sectors.map((g) => `<div class="lever" data-sector="${esc(g.sector)}"><div class="t">${esc(g.sector)}</div>
+        <div class="m">${g.buildings.toLocaleString()} building${g.buildings === 1 ? '' : 's'} · average ${fmtMetric(a.metric, g.mean_value)}</div></div>`).join('')
+    : a.rows.map((x) => `<div class="lever" data-obj="${esc(x.object_id)}"><div class="t"><span class="sw" style="width:10px;height:10px;border-radius:3px;background:${STATES[x.state].color}"></span>${esc(x.sector || 'no sector')} · ${esc(x.building_use || 'use n/a')}</div>
+        <div class="m">${esc(stateLabel(x.state))} · ${fmtMetric(a.metric, x.value)}</div></div>`).join('');
+  el.innerHTML = `<button class="close" aria-label="Clear answer" data-close="answer">✕</button>
+    <h2>${a ? 'Answer' : 'Question not answerable'}</h2><div class="sub">${esc(r.question)}</div>
+    ${a ? `<p class="answer-text">${esc(a.text)}</p>` : ''}
+    <div><span class="chip ${a ? 'ok' : 'hard'}">${a ? 'Computed from the data' : 'Rejected'}</span>
+      ${a ? `<span class="chip">${a.matched.toLocaleString()} match${a.matched === 1 ? '' : 'es'}</span>` : ''}
+      <span class="chip">${r.attempts.length} attempt${r.attempts.length > 1 ? 's' : ''}</span></div>
+    ${rows}
+    ${allIssues.map((x) => `<div class="issue ${x.severity}"><code>${esc(x.code)}</code> ${esc(x.message)}${r.attempts.length > 1 ? ` <span style="color:var(--ink-3)">(attempt ${x.attempt})</span>` : ''}</div>`).join('')}
+    ${a ? `<div class="note">${esc(a.basis)}. The model only chose the query; every number above is computed by code.${a.rows.length || a.sectors.length ? ' Hover a row to find it; click to inspect.' : ''}</div>` : ''}`;
+}
+
+function setLens(lens) {
+  ui.lens = lens;
+  history.replaceState(null, '', `#lens=${lens}`);
+  document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.lens === lens)));
+  renderLegend(); render();
+}
+function togglePanel(id, button, force) {
+  const el = $(id);
+  el.hidden = force === undefined ? !el.hidden : !force;
+  if (button) button.setAttribute('aria-pressed', String(!el.hidden));
+  if (id === 'p-legend') renderLegend();
+  if (id === 'p-kpis') renderKpiTable();
+  if (id === 'p-info') renderInfo();
+}
+
+async function runScenario(text) {
+  ui.busy = true; syncPrompt();
+  $('progress').textContent = 'The model drafts the scenario · the validator checks it · the engine forecasts…';
+  try {
+    const res = await fetch('/v1/viewer/scenario', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+    ui.scenario = { compilation: body.compilation, forecast: body.forecast, hazards: body.hazards ?? [] };
+    ui.drops = [];
+    updateDeltaScale();
+    ui.highlight = null;
+    // A disaster is the headline, so the camera flies to where it hits (the
+    // way God's Plan cuts to the strike); otherwise to the lever buildings.
+    const struck = (body.hazards ?? []).filter((h) => h.ids.length);
+    const kinds = [...new Set(struck.map((h) => h.kind.replace(/_/g, ' ')))].join(', ');
+    $('progress').textContent = !body.forecast ? 'The validator rejected the scenario — see why on the right.'
+      : struck.length ? `${kinds[0].toUpperCase()}${kinds.slice(1)} — flying to the hardest-hit buildings.` : 'Scenario forecast ready.';
+    document.querySelector('[data-lens="delta"]').hidden = !body.forecast;
+    if (body.forecast) {
+      setLens('delta');
+      playFx(ui.scenario.hazards, ui.scenario.hazards.map((_, i) => i));
+      if (struck.length === 1) focusStrike(struck[0]);
+      else focusOn(struck.length ? struck.flatMap((h) => h.ids) : body.compilation.scenario.interventions.flatMap((l) => l.object_ids));
+    }
+  } catch (err) {
+    $('progress').textContent = `Could not run scenario: ${err.message}`;
+  } finally {
+    ui.busy = false; syncPrompt(); renderAll();
+  }
+}
+async function runAsk(question) {
+  ui.busy = true; syncPrompt();
+  $('progress').textContent = 'The model reads the question · the checker verifies the query · the answer is computed from the forecast…';
+  try {
+    const res = await fetch('/v1/viewer/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question }) });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+    ui.answer = body;
+    const ids = body.answer?.highlight_ids ?? [];
+    ui.answerIds = ids.length ? new Set(ids) : null;
+    ui.highlight = null;
+    $('progress').textContent = body.answer ? '' : 'The checker rejected the question — see why on the right.';
+    if (body.answer && ids.length) {
+      if (body.answer.metric === 'change_probability' && DATA.forecast && !ui.scenario) setLens('change');
+      focusOn(ids);
+    }
+  } catch (err) {
+    $('progress').textContent = `Could not answer: ${err.message}`;
+  } finally {
+    ui.busy = false; syncPrompt(); renderAll();
+  }
+}
+// Screen pixel → [longitude, latitude] on the ground.
+function toLngLat(x, y) {
+  if (map) { const p = map.unproject([x, y]); return [p.lng, p.lat]; }
+  const vp = deckgl?.getViewports()[0];
+  return vp ? vp.unproject([x, y]).slice(0, 2) : null;
+}
+const overMap = (x, y) => { const el = document.elementFromPoint(x, y); return !!el && $('scene').contains(el); };
+let drag = null, swallowClick = false;
+function startDrag(e) {
+  const tile = e.target.closest('.tile');
+  if (!tile || tile.disabled || e.button > 0) return;
+  drag = { kind: tile.dataset.kind, x0: e.clientX, y0: e.clientY, moved: false };
+  tile.setPointerCapture(e.pointerId);
+  const ghost = $('ghost');
+  const move = (ev) => {
+    if (!drag.moved && Math.hypot(ev.clientX - drag.x0, ev.clientY - drag.y0) < 6) return;
+    if (!drag.moved) { drag.moved = true; ghost.innerHTML = tile.innerHTML; ghost.hidden = false; }
+    ghost.style.left = `${ev.clientX}px`; ghost.style.top = `${ev.clientY}px`;
+    ghost.classList.toggle('off', !overMap(ev.clientX, ev.clientY));
+  };
+  const end = (ev) => {
+    tile.removeEventListener('pointermove', move); tile.removeEventListener('pointerup', end); tile.removeEventListener('pointercancel', end);
+    ghost.hidden = true;
+    if (drag.moved) {
+      swallowClick = true;
+      if (ev.type === 'pointerup' && overMap(ev.clientX, ev.clientY)) dropAt(drag.kind, ev.clientX, ev.clientY);
+    }
+    drag = null;
+  };
+  tile.addEventListener('pointermove', move); tile.addEventListener('pointerup', end); tile.addEventListener('pointercancel', end);
+}
+function dropAt(kind, x, y) {
+  const at = toLngLat(x, y);
+  if (!at || ui.busy) return;
+  if (pending?.steering) cancelSteer();
+  const how = HAZARDS.find((h) => h.kind === kind);
+  if (how?.path || how?.aim) {
+    // Touch down (or mark the impact), then the next drag steers the track
+    // or swings the approach (God's Plan style).
+    pending = { kind, at, path: null, aim: null, steering: true };
+    $('draw').hidden = false;
+    $('progress').textContent = how.path ? 'Drag to steer the tornado · or click to touch down right here · Esc cancels'
+      : 'Drag out from the impact to aim where the plane comes from · or click for a pass across the view · Esc cancels';
+    animate();
+    return;
+  }
+  runDrop({ kind, points: [at], severity: SEVERITIES[$('sev').value], ...(kind === 'flood' && { radius_m: Number($('reach').value) }) });
+}
+function steerStart(e) {
+  if (!pending?.steering) return;
+  $('draw').setPointerCapture(e.pointerId);
+  pending.path = [pending.at];
+  pending.last = [e.clientX, e.clientY];
+}
+function steerMove(e) {
+  if (pending?.steering && pending.kind === 'plane_crash' && pending.path) { pending.aim = toLngLat(e.clientX, e.clientY); return; }
+  if (!pending?.path || !pending.steering) return;
+  if (Math.hypot(e.clientX - pending.last[0], e.clientY - pending.last[1]) < 14 || pending.path.length >= 64) return;
+  const p = toLngLat(e.clientX, e.clientY);
+  if (p) { pending.path.push(p); pending.last = [e.clientX, e.clientY]; drawFx(); }
+}
+function steerEnd() {
+  if (!pending?.steering || !pending.path) return;
+  $('draw').hidden = true; pending.steering = false;
+  if (pending.kind === 'plane_crash') {
+    // Compass heading from the aim point to the impact; a short drag or a click keeps the camera's.
+    const { aim, at } = pending;
+    const heading = aim && metresBetween(aim, at) > 20
+      ? (Math.atan2((at[0] - aim[0]) * mPerLon(at[1]), (at[1] - aim[1]) * 111320) * 180) / Math.PI : crossingHeading();
+    runDrop({ kind: 'plane_crash', points: [at], severity: SEVERITIES[$('sev').value], heading });
+    return;
+  }
+  const points = pending.path.length > 1 ? pending.path : [pending.at];
+  runDrop({ kind: 'tornado', points, severity: SEVERITIES[$('sev').value] });
+}
+function cancelSteer() {
+  $('draw').hidden = true; pending = null; $('progress').textContent = ''; drawFx();
+}
+async function runDrop(drop) {
+  const prior = ui.scenario?.dropped ? ui.drops : [];
+  // Disasters stack, God's Plan style; past eight the oldest makes way.
+  ui.drops = [...prior, drop].slice(-8);
+  pending = { kind: drop.kind, at: drop.points.at(-1), path: drop.points.length > 1 ? drop.points : null, steering: false,
+    ...(drop.kind === 'plane_crash' && { heading: drop.heading, flyT0: performance.now() }) };
+  ui.busy = true; syncPrompt(); animate();
+  $('progress').textContent = `${hazardLabel(drop.kind)} strikes · the engine forecasts the damage…`;
+  try {
+    // The aim is the page's own: the engine only needs where the plane lands.
+    const hazards = ui.drops.map(({ heading, s0, ...rest }) => rest);
+    const res = await fetch('/v1/viewer/hazard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hazards }) });
+    const body = await res.json();
+    if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `HTTP ${res.status}`);
+    ui.scenario = { compilation: null, dropped: body.scenario, forecast: body.forecast, hazards: body.hazards };
+    // Hand the plane over mid-dive rather than restarting it.
+    if (pending?.flyT0) drop.s0 = waitingProgress(performance.now() - pending.flyT0);
+    pending = null;
+    updateDeltaScale();
+    ui.highlight = null;
+    document.querySelector('[data-lens="delta"]').hidden = false;
+    setLens('delta');
+    const last = body.hazards.length - 1, hit = body.hazards[last];
+    playFx(body.hazards, [last], ui.drops);
+    const impact = body.forecast.hazard_impacts.find((h) => h.hazard_id === hit.hazard_id);
+    if (hit.ids.length) {
+      focusStrike(hit);
+      $('progress').textContent = `${hazardLabel(drop.kind)}: about ${plural(Math.round(impact.destroyed.p50), 'building')} destroyed and ${Math.round(impact.damaged.p50).toLocaleString()} damaged.`;
+    } else {
+      $('progress').textContent = `${hazardLabel(drop.kind)} struck outside the surveyed buildings — nothing in the survey was hit.`;
+    }
+  } catch (err) {
+    ui.drops = prior; pending = null; render();
+    $('progress').textContent = `Could not run the disaster: ${err.message}`;
+  } finally {
+    ui.busy = false; syncPrompt(); renderAll();
+  }
+}
+function setMode(mode) {
+  ui.mode = mode;
+  document.querySelectorAll('#mode [data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+  syncPrompt();
+}
+function syncPrompt() {
+  const q = $('q'), go = $('go');
+  const live = !!DATA.api;
+  const ask = ui.mode === 'ask';
+  $('mode').hidden = !live || !DATA.forecast;
+  q.disabled = !live || ui.busy;
+  q.setAttribute('aria-label', ask ? 'Ask a question about the map' : 'Describe a scenario');
+  go.setAttribute('aria-label', ask ? 'Ask' : 'Run scenario');
+  q.placeholder = !live ? 'Run `dynacity serve --snapshot … --bbed …` to describe scenarios here'
+    : ask ? 'Ask the map… e.g. “Which stalled buildings in Hamra are most likely to change?”'
+    : 'Tell the city what happens… e.g. “Push stalled buildings in Mar Mikhael toward renovation”';
+  go.disabled = !live || ui.busy;
+  document.querySelectorAll('.tile').forEach((t) => (t.disabled = ui.busy));
+  go.innerHTML = ui.busy ? '<span class="spin" aria-hidden="true"></span>' : '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+}
+function renderAll() { renderStatus(); renderLegend(); renderDock(); renderInspector(); renderAnswer(); renderScenario(); renderInfo(); render(); }
+
+function wire() {
+  document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => setLens(t.dataset.lens)));
+  const tabs = [...document.querySelectorAll('.tab')];
+  document.querySelector('.tabs').addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    const vis = tabs.filter((t) => !t.hidden), i = vis.indexOf(document.activeElement);
+    const next = vis[(i + (e.key === 'ArrowRight' ? 1 : vis.length - 1)) % vis.length];
+    next.focus(); setLens(next.dataset.lens);
+  });
+  $('t-reset').onclick = () => { ui.topDown = false; $('t-2d').setAttribute('aria-pressed', 'false'); flyTo({}); };
+  $('t-2d').onclick = () => { ui.topDown = !ui.topDown; $('t-2d').setAttribute('aria-pressed', String(ui.topDown)); flyTo(ui.topDown ? { pitch: 0, bearing: 0 } : {}); };
+  $('t-sat').onclick = () => setSatellite(!ui.satellite);
+  $('t-legend').onclick = (e) => togglePanel('p-legend', e.currentTarget);
+  $('t-kpis').onclick = (e) => togglePanel('p-kpis', e.currentTarget);
+  $('t-info').onclick = (e) => togglePanel('p-info', e.currentTarget);
+  $('t-fx').onclick = (e) => togglePanel('tray', e.currentTarget);
+  $('tiles').innerHTML = HAZARDS.map((h) => `<button class="tile" type="button" data-kind="${h.kind}" title="${h.label}: drag onto the city (or press to drop it mid-view)">${hazardIcon(h.kind)}<span>${h.label}</span></button>`).join('');
+  $('tiles').addEventListener('pointerdown', startDrag);
+  $('tiles').addEventListener('click', (e) => {
+    const tile = e.target.closest('.tile');
+    if (swallowClick) { swallowClick = false; return; }
+    if (tile && !tile.disabled) dropAt(tile.dataset.kind, innerWidth / 2, innerHeight / 2);
+  });
+  $('reach').addEventListener('input', (e) => {
+    const label = metres(Number(e.target.value));
+    $('reach-label').textContent = label; e.target.setAttribute('aria-valuetext', label);
+  });
+  $('sev').addEventListener('input', (e) => {
+    const label = cap(SEVERITIES[e.target.value]);
+    $('sev-label').textContent = label; e.target.setAttribute('aria-valuetext', label);
+  });
+  $('draw').addEventListener('pointerdown', steerStart);
+  $('draw').addEventListener('pointermove', steerMove);
+  $('draw').addEventListener('pointerup', steerEnd);
+  document.addEventListener('click', (e) => {
+    const h = e.target.closest('[data-h]');
+    if (h) { ui.horizon = Number(h.dataset.h); renderDock(); return; }
+    if (e.target.closest('#more')) { togglePanel('p-kpis', $('t-kpis'), true); return; }
+    const close = e.target.closest('[data-close]');
+    if (!close) return;
+    const which = close.dataset.close;
+    if (which === 'inspect') { ui.selected = null; renderInspector(); render(); }
+    if (which === 'kpis') togglePanel('p-kpis', $('t-kpis'), false);
+    if (which === 'info') togglePanel('p-info', $('t-info'), false);
+    if (which === 'answer') { ui.answer = null; ui.answerIds = null; ui.highlight = null; renderAnswer(); render(); }
+    if (which === 'scenario') {
+      ui.scenario = null; ui.highlight = null; ui.drops = []; clearFx();
+      document.querySelector('[data-lens="delta"]').hidden = true;
+      if (ui.lens === 'delta') setLens('forecast');
+      $('progress').textContent = ''; renderAll();
+    }
+  });
+  $('p-scenario').addEventListener('mouseover', (e) => {
+    const card = e.target.closest('[data-lever]');
+    const lever = card && ui.scenario?.compilation?.scenario?.interventions[Number(card.dataset.lever)];
+    const hazard = e.target.closest('[data-hazard]');
+    const hits = hazard && ui.scenario?.hazards?.find((h) => h.hazard_id === hazard.dataset.hazard)?.ids;
+    const next = lever ? new Set(lever.object_ids.length ? lever.object_ids : DATA.buildings.map((b) => b.id)) : hits?.length ? new Set(hits) : null;
+    if (next !== ui.highlight) { ui.highlight = next; render(); }
+  });
+  $('p-scenario').addEventListener('mouseleave', () => { ui.highlight = null; render(); });
+  $('p-answer').addEventListener('mouseover', (e) => {
+    const row = e.target.closest('[data-obj],[data-sector]');
+    let next = null;
+    if (row?.dataset.obj) next = new Set([row.dataset.obj]);
+    else if (row?.dataset.sector) next = new Set(DATA.buildings.filter((b) => (b.sector || 'no sector') === row.dataset.sector && ui.answerIds?.has(b.id)).map((b) => b.id));
+    const same = next && ui.highlight && next.size === ui.highlight.size && [...next].every((id) => ui.highlight.has(id));
+    if (!same && (next || ui.highlight)) { ui.highlight = next; render(); }
+  });
+  $('p-answer').addEventListener('mouseleave', () => { ui.highlight = null; render(); });
+  $('p-answer').addEventListener('click', (e) => {
+    const row = e.target.closest('[data-obj]');
+    if (!row) return;
+    ui.selected = row.dataset.obj; renderInspector(); render(); focusOn([row.dataset.obj]);
+  });
+  document.querySelectorAll('#mode [data-mode]').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
+  $('prompt').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const t = $('q').value.trim();
+    if (!t || ui.busy) return;
+    if (ui.mode === 'ask') runAsk(t); else runScenario(t);
+  });
+  addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && pending?.steering) { cancelSteer(); return; }
+    if (e.key === 'Escape' && ui.selected) { ui.selected = null; renderInspector(); render(); }
+  });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
+}
+
+if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
+  $('empty').hidden = false;
+  document.querySelector('.chrome').hidden = true;
+  if (DATA && typeof deck === 'undefined') $('empty').querySelector('p').textContent = 'The 3D library could not load. Check your connection and reload.';
+} else {
+  $('attrib').textContent = attribution();
+  if (GOOGLE) document.documentElement.toggleAttribute('data-satellite', true);
+  if (!DATA.forecast) document.querySelectorAll('[data-lens="forecast"],[data-lens="change"]').forEach((t) => (t.hidden = true));
+  // On phones the legend starts collapsed so the city stays visible.
+  if (innerWidth < 760) togglePanel('p-legend', $('t-legend'), false);
+  // Dropping disasters needs the server; on phones the tray starts closed.
+  $('t-fx').hidden = !DATA.api;
+  if (DATA.api && innerWidth >= 760) togglePanel('tray', $('t-fx'), true);
+  wire(); syncPrompt(); initScene(); renderAll();
+  const hashLens = new URLSearchParams(location.hash.slice(1)).get('lens');
+  const tab = hashLens && document.querySelector(`.tab[data-lens="${CSS.escape(hashLens)}"]:not([hidden])`);
+  if (tab) setLens(hashLens);
+}
+</script>
+</body>
+</html>

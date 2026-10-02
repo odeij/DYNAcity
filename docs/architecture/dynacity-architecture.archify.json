@@ -1,0 +1,155 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "DynaCITY Forecasting Engine Architecture",
+    "output": "docs/architecture/dynacity-architecture.html",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "repository": {
+      "url": "https://github.com/odeij/DYNAcity.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "85a52b91f48b8cf55b64effd5be0df04c6cd24e4"
+    }
+  },
+  "components": [
+    { "id": "features", "type": "backend", "label": "Morphology features", "sublabel": "points inside BBED polygons", "pos": [540, 40], "size": [160, 64],
+      "sources": [
+        { "path": "src/dynacity/features.py", "line": 147, "label": "extract_building_features" },
+        { "path": "src/dynacity/features.py", "line": 182, "label": "Shapely contains_xy join" },
+        { "path": "src/dynacity/cli.py", "line": 128, "label": "extract-features command" }
+      ] },
+    { "id": "clouds", "type": "external", "label": "AUB point clouds", "sublabel": "photogrammetric LAS", "pos": [790, 40], "size": [160, 64], "tag": "PDAL → COPC",
+      "sources": [
+        { "path": "src/dynacity/las.py", "line": 172, "label": "Chunked LAS point reader" },
+        { "path": "src/dynacity/las.py", "line": 258, "end_line": 294, "label": "PDAL COPC pipeline, EPSG:32636" }
+      ] },
+
+    { "id": "bbed", "type": "external", "label": "BBED", "sublabel": "ArcGIS FeatureServer", "pos": [40, 220], "size": [160, 64], "tag": "ODbL",
+      "sources": [
+        { "path": "src/dynacity/config.py", "line": 24, "end_line": 27, "label": "Default BBED layer URL" },
+        { "path": "src/dynacity/bbed.py", "line": 107, "end_line": 146, "label": "Paged REST query" }
+      ] },
+    { "id": "fetch", "type": "backend", "label": "BBED fetch", "sublabel": "allowlisted fields only", "pos": [290, 220], "size": [160, 64],
+      "sources": [
+        { "path": "src/dynacity/bbed.py", "line": 34, "end_line": 49, "label": "BBED_FIELDS allowlist" },
+        { "path": "src/dynacity/bbed.py", "line": 98, "label": "BBEDClient" },
+        { "path": "src/dynacity/cli.py", "line": 89, "label": "fetch-bbed command" }
+      ] },
+    { "id": "panel", "type": "backend", "label": "PanelBuilder", "sublabel": "transition panel + leak checks", "pos": [540, 220], "size": [160, 64],
+      "sources": [
+        { "path": "src/dynacity/panel.py", "line": 58, "end_line": 80, "label": "Three intervals, lidar year" },
+        { "path": "src/dynacity/panel.py", "line": 191, "label": "assert_no_temporal_leakage" },
+        { "path": "src/dynacity/cli.py", "line": 142, "label": "build-panel command" }
+      ] },
+    { "id": "bench", "type": "backend", "label": "Temporal benchmark", "sublabel": "no-change · Markov · HGB", "pos": [790, 220], "size": [160, 64], "tag": "F1 + Brier gate",
+      "sources": [
+        { "path": "src/dynacity/models.py", "line": 453, "label": "temporal_benchmark" },
+        { "path": "src/dynacity/models.py", "line": 480, "end_line": 484, "label": "Three candidates" },
+        { "path": "src/dynacity/models.py", "line": 499, "end_line": 505, "label": "Selection gate" }
+      ] },
+    { "id": "bundle", "type": "database", "label": "ModelBundle", "sublabel": "joblib + .metrics.json", "pos": [1040, 220], "size": [160, 64],
+      "sources": [
+        { "path": "src/dynacity/models.py", "line": 439, "end_line": 447, "label": "joblib save / load" },
+        { "path": "src/dynacity/cli.py", "line": 198, "end_line": 204, "label": "train writes bundle + metrics" }
+      ] },
+
+    { "id": "snapshot", "type": "backend", "label": "Snapshot builder", "sublabel": "current building states", "pos": [290, 400], "size": [160, 64],
+      "sources": [
+        { "path": "src/dynacity/snapshot.py", "line": 44, "label": "snapshot_from_bbed" },
+        { "path": "src/dynacity/cli.py", "line": 153, "label": "build-snapshot command" }
+      ] },
+    { "id": "engine", "type": "backend", "label": "ForecastEngine", "sublabel": "Monte Carlo p05/p50/p95", "pos": [1040, 400], "size": [160, 64], "tag": "hazards first",
+      "sources": [
+        { "path": "src/dynacity/engine.py", "line": 163, "label": "forecast()" },
+        { "path": "src/dynacity/engine.py", "line": 189, "label": "Hazard shocks" },
+        { "path": "src/dynacity/engine.py", "line": 245, "end_line": 264, "label": "Sample states, compute KPIs" }
+      ] },
+
+    { "id": "evidence", "type": "database", "label": "Evidence bundle", "sublabel": "content-hashed sources", "pos": [540, 580], "size": [160, 64],
+      "sources": [
+        { "path": "src/dynacity/evidence.py", "line": 122, "label": "freeze_bundle" },
+        { "path": "src/dynacity/cli.py", "line": 219, "label": "freeze-evidence command" }
+      ] },
+    { "id": "compiler", "type": "security", "label": "NL front end", "sublabel": "scenario compiler · map query", "pos": [790, 580], "size": [160, 64], "tag": "code checks drafts",
+      "sources": [
+        { "path": "src/dynacity/scenario_compiler.py", "line": 770, "end_line": 781, "label": "Draft, check, resolve" },
+        { "path": "src/dynacity/map_query.py", "line": 442, "end_line": 463, "label": "Query checked, answered by code" }
+      ] },
+    { "id": "api", "type": "backend", "label": "FastAPI service", "sublabel": "dynacity serve · uvicorn", "pos": [1040, 580], "size": [160, 64],
+      "sources": [
+        { "path": "src/dynacity/service.py", "line": 52, "label": "create_app" },
+        { "path": "src/dynacity/service.py", "line": 111, "end_line": 127, "label": "/v1/forecast and /v1/plan" },
+        { "path": "src/dynacity/cli.py", "line": 290, "end_line": 292, "label": "serve command" }
+      ] },
+    { "id": "planning", "type": "backend", "label": "Planning search", "sublabel": "backcast + Pareto front", "pos": [1290, 400], "size": [160, 64],
+      "sources": [
+        { "path": "src/dynacity/planning.py", "line": 234, "label": "plan()" },
+        { "path": "src/dynacity/planning.py", "line": 265, "label": "Forecast per lever combination" },
+        { "path": "src/dynacity/planning.py", "line": 305, "label": "Pareto mask" }
+      ] },
+
+    { "id": "llm", "type": "external", "label": "LLM provider", "sublabel": "Claude or Gemini", "pos": [790, 760], "size": [160, 64], "tag": "aggregates only",
+      "sources": [
+        { "path": "src/dynacity/providers.py", "line": 67, "label": "AnthropicProvider" },
+        { "path": "src/dynacity/providers.py", "line": 139, "label": "GeminiProvider" },
+        { "path": "src/dynacity/providers.py", "line": 221, "label": "resolve_provider" }
+      ] },
+    { "id": "viewer", "type": "frontend", "label": "3D viewer", "sublabel": "deck.gl + MapLibre", "pos": [1040, 760], "size": [160, 64],
+      "sources": [
+        { "path": "src/dynacity/viewer.py", "line": 253, "label": "render_viewer" },
+        { "path": "src/dynacity/viewer_template.html", "line": 10, "end_line": 12, "label": "MapLibre and deck.gl" },
+        { "path": "src/dynacity/viewer_template.html", "line": 826, "label": "POST /v1/viewer/scenario" }
+      ] },
+    { "id": "planner", "type": "external", "label": "Planner", "sublabel": "browser user", "pos": [1290, 760], "size": [160, 64],
+      "sources": [
+        { "path": "src/dynacity/viewer_template.html", "line": 845, "label": "Questions sent from the page" }
+      ] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "dynacity serve process", "wraps": ["evidence", "compiler", "api", "planning", "engine"] }
+  ],
+  "connections": [
+    { "id": "bbed-query", "from": "bbed", "to": "fetch", "label": "REST query", "variant": "emphasis" },
+    { "id": "fetch-panel", "from": "fetch", "to": "panel", "label": "GeoJSON", "variant": "emphasis" },
+    { "id": "panel-bench", "from": "panel", "to": "bench", "label": "panel CSV", "variant": "emphasis" },
+    { "id": "bench-bundle", "from": "bench", "to": "bundle", "label": "joblib", "variant": "emphasis" },
+    { "id": "bundle-engine", "from": "bundle", "to": "engine", "label": "load", "variant": "emphasis" },
+    { "id": "clouds-features", "from": "clouds", "to": "features", "label": "points" },
+    { "id": "fetch-features", "from": "fetch", "to": "features", "label": "footprints", "variant": "dashed" },
+    { "id": "features-panel", "from": "features", "to": "panel", "label": "2022→24 only", "variant": "dashed" },
+    { "id": "fetch-snapshot", "from": "fetch", "to": "snapshot", "label": "GeoJSON" },
+    { "id": "snapshot-engine", "from": "snapshot", "to": "engine", "label": "UrbanStateSnapshot" },
+    { "id": "api-engine", "from": "api", "to": "engine", "label": "forecast()" },
+    { "id": "api-planning", "from": "api", "to": "planning", "label": "plan()" },
+    { "id": "planning-engine", "from": "planning", "to": "engine", "label": "per lever combo" },
+    { "id": "api-compiler", "from": "api", "to": "compiler", "label": "prose" },
+    { "id": "evidence-compiler", "from": "evidence", "to": "compiler", "label": "citations", "variant": "dashed" },
+    { "id": "compiler-llm", "from": "compiler", "to": "llm", "label": "draft request", "variant": "security" },
+    { "id": "viewer-api", "from": "viewer", "to": "api", "label": "POST /v1/viewer" },
+    { "id": "planner-viewer", "from": "planner", "to": "viewer", "label": "prose" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Time-forward validation", "items": [
+      "Train on 2018→2022, test on 2022→2024",
+      "2018→2024 is descriptive only and never reaches train or test",
+      "The gradient-boosting model ships only if it beats both baselines on macro-F1 and Brier; otherwise the best baseline ships"
+    ] },
+    { "dot": "cyan", "title": "Forecast engine", "items": [
+      "8 canonical building states, one 2-year step at a time",
+      "Monte Carlo draws give p05/p50/p95 KPI bands at 2, 4 and 6 years",
+      "Hazards strike before the model on their step; fragility numbers are uncalibrated"
+    ] },
+    { "dot": "rose", "title": "LLM guardrails", "items": [
+      "The LLM drafts structure; code checks scope and sets every number",
+      "Only aggregate allowlisted attributes are sent, never per-building rows",
+      "Map answers are computed and phrased by code"
+    ] },
+    { "dot": "slate", "title": "Optional and offline", "items": [
+      "Every step also runs from the dynacity CLI",
+      "Point-cloud features are banned from 2018→2022 rows (captured after the 2020 blast)",
+      "Google Photorealistic 3D Tiles go through a same-origin proxy that keeps the key server-side"
+    ] }
+  ]
+}
