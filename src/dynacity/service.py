@@ -28,6 +28,7 @@ from .planning import PlanningRequest, PlanningResult, plan
 from .providers import DraftProvider, resolve_provider
 from .scenario_compiler import CompilationResult, compile_scenario
 from .terrain import GroundModel
+from .traffic import TrafficModel, road_disruption, traffic_impact
 from .viewer import drop_to_metres, forecast_summary, hazard_focus
 
 
@@ -43,6 +44,8 @@ class ViewerScenarioRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     text: str = Field(min_length=1, max_length=4000)
+    # Hour of day (Beirut time) the road impact is measured at.
+    hour: int = Field(default=8, ge=0, le=23)
 
 
 class DroppedHazard(BaseModel):
@@ -61,6 +64,7 @@ class ViewerHazardRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     hazards: list[DroppedHazard] = Field(min_length=1, max_length=8)
+    hour: int = Field(default=8, ge=0, le=23)
 
 
 class ViewerAskRequest(BaseModel):
@@ -82,6 +86,7 @@ def create_app(
     viewer_ground: GroundModel | None = None,
     llm_budget: RequestBudget | None = None,
     tiles_proxy: GoogleTilesProxy | None = None,
+    viewer_traffic: TrafficModel | None = None,
 ) -> FastAPI:
     def spend_llm_call() -> None:
         # Checked before any model call; a refused request costs nothing.
@@ -101,6 +106,13 @@ def create_app(
                 status_code=503,
                 detail=f"no language-model provider configured ({exc}); set GEMINI_API_KEY or ANTHROPIC_API_KEY",
             ) from exc
+
+    def roads_after(hazards: list[HazardEvent], hour: int) -> dict | None:
+        # What the disasters do to the street network; None without a traffic model.
+        if viewer_traffic is None or not hazards:
+            return None
+        disruption = road_disruption(hazards, viewer_snapshot, viewer_traffic, ground=viewer_ground)
+        return traffic_impact(viewer_traffic, disruption, hour=hour)
 
     app = FastAPI(
         title="DynaCITY Urban-Form Forecasting",
@@ -188,6 +200,7 @@ def create_app(
                 raise HTTPException(status_code=503, detail=str(exc)) from exc
             forecast = None
             hazards: list[dict] = []
+            traffic = None
             if compilation.scenario is not None:
                 result = engine.forecast(ForecastRequest(
                     snapshot=viewer_snapshot, scenario=compilation.scenario, draws=viewer_draws
@@ -195,7 +208,11 @@ def create_app(
                 forecast = forecast_summary(result)
                 # Lets the page fly to where each disaster strikes.
                 hazards = hazard_focus(compilation.scenario.hazards, viewer_snapshot, ground=viewer_ground)
-            return {"compilation": compilation.model_dump(mode="json"), "forecast": forecast, "hazards": hazards}
+                traffic = roads_after(compilation.scenario.hazards, request.hour)
+            return {
+                "compilation": compilation.model_dump(mode="json"), "forecast": forecast, "hazards": hazards,
+                "traffic": traffic,
+            }
 
     # Disasters dragged onto the map: placed by the page, so no language model
     # is involved and the drop runs straight through the engine. They all
@@ -235,6 +252,7 @@ def create_app(
                 "scenario": scenario.model_dump(mode="json"),
                 "forecast": forecast_summary(result),
                 "hazards": hazard_focus(hazards, viewer_snapshot, ground=viewer_ground),
+                "traffic": roads_after(hazards, request.hour),
             }
 
     # Questions about the map are answered by code from the snapshot and the

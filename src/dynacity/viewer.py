@@ -196,6 +196,7 @@ def build_viewer_payload(
     *,
     api: bool = False,
     basemap: str = "carto",
+    traffic: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Join geometry, snapshot, and forecast into the viewer's data contract.
 
@@ -276,6 +277,8 @@ def build_viewer_payload(
         "forecast": None if forecast is None else forecast_summary(forecast),
         "api": api,
         "attribution": ATTRIBUTION,
+        # Roads with hourly speeds from `traffic.traffic_payload`, or None.
+        "traffic": traffic,
     }
 
 

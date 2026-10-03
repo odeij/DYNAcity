@@ -149,6 +149,9 @@ button { cursor: pointer; touch-action: manipulation; }
 .legend-row.muted { opacity: 0.55; }
 .ramp { height: 10px; border-radius: 999px; margin: 6px 0 4px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3); }
 .ramp-labels { display: flex; justify-content: space-between; color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.road-row { display: grid; grid-template-columns: 22px 1fr; align-items: center; gap: 9px; padding: 3px 0; font-size: 12px; }
+.road-row .ln { height: 4px; border-radius: 2px; }
+.panel .sev { margin: 4px 0 10px; }
 .note { margin-top: 10px; color: var(--ink-3); font-size: 11.5px; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; margin: 8px 0 10px; }
 .kv dt { color: var(--ink-3); }
@@ -267,6 +270,7 @@ table.kpis td { text-align: right; padding: 5px 0 5px 10px; border-top: 1px soli
     <button id="t-kpis" title="All KPIs table" aria-label="All KPIs table" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
     <button id="t-info" title="About this forecast" aria-label="About this forecast" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg></button>
     <button id="t-fx" title="Disasters" aria-label="Disasters" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 5h18M5 9h13M8 13h9M10 17h5M11 21h2"/></svg></button>
+    <button id="t-traffic" title="Traffic" aria-label="Traffic" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M5 17v2M19 17v2M4 13l2-6h12l2 6zM4 13h16v4H4z"/><circle cx="7.5" cy="15" r=".6"/><circle cx="16.5" cy="15" r=".6"/></svg></button>
   </nav>
   <section class="tray glass" id="tray" aria-label="Disasters" hidden>
     <h2>Disasters</h2>
@@ -285,6 +289,7 @@ table.kpis td { text-align: right; padding: 5px 0 5px 10px; border-top: 1px soli
     <section class="panel glass" id="p-inspect" hidden></section>
     <section class="panel glass" id="p-kpis" hidden></section>
     <section class="panel glass" id="p-info" hidden></section>
+    <section class="panel glass" id="p-traffic" hidden></section>
     <section class="panel glass" id="p-legend"></section>
   </aside>
 
@@ -372,7 +377,7 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
 const metres = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
 
-const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, mode: 'scenario', answer: null, answerIds: null, tilesFailed: false, drops: [] };
+const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, mode: 'scenario', answer: null, answerIds: null, tilesFailed: false, drops: [], traffic: false, hour: 8 };
 // Photorealistic mode: Google 3D Tiles through the server's key-holding proxy,
 // with BBED footprints draped onto the mesh instead of extruded beside it.
 const GOOGLE = !!DATA?.basemap?.tiles_3d;
@@ -600,6 +605,7 @@ function layers() {
       }),
     }));
   }
+  if (ui.traffic) out.push(...roadLayers());
   out.push(new deck.SolidPolygonLayer({
     id: 'buildings',
     data: mainRings(),
@@ -614,7 +620,7 @@ function layers() {
 function attribution() {
   if (GOOGLE) return [DATA.attribution, photoreal() && ['Google', ...credits].join(' · ')].filter(Boolean).join(' ');
   const terrain = fx.find((f) => f.water)?.water.source;
-  return [DATA.attribution, DATA.basemap?.attribution, ui.satellite && DATA.basemap?.satellite_attribution, terrain].filter(Boolean).join(' ');
+  return [DATA.attribution, DATA.basemap?.attribution, ui.satellite && DATA.basemap?.satellite_attribution, terrain, ui.traffic && DATA.traffic?.source].filter(Boolean).join(' ');
 }
 // Colour imagery goes over every road, water, and flat building fill of the
 // basemap but under its trailing label layers, so place names stay readable.
@@ -675,7 +681,8 @@ function render() { if (!deckgl) return; baseLayers = layers(); drawFx(); }
 function drawFx() {
   if (!deckgl) return;
   fxScreen = { flash: 0, shake: 0, warm: 0 };
-  deckgl.setProps({ layers: [...baseLayers, ...fxLayers(performance.now())] });
+  const now = performance.now();
+  deckgl.setProps({ layers: [...baseLayers, ...carLayers(now), ...fxLayers(now)] });
   applyScreen();
 }
 // What the effects of this frame ask of the whole screen; applied once per frame.
@@ -696,7 +703,7 @@ function animate() {
   cancelAnimationFrame(fxRaf);
   const frame = () => {
     drawFx();
-    if (!calm.matches && (pending || performance.now() < fxEnd)) fxRaf = requestAnimationFrame(frame);
+    if (!calm.matches && (pending || performance.now() < fxEnd || ui.traffic)) fxRaf = requestAnimationFrame(frame);
     else { fxScreen = { flash: 0, shake: 0, warm: 0 }; applyScreen(); }
   };
   frame();
@@ -748,6 +755,162 @@ function nearestAlong(path, c) {
     run += len;
   }
   return at;
+}
+
+// ---- traffic: roads coloured by typical speed, with cars moving along them ----
+// Speeds are per-road hourly medians from crowd-sourced probes (pre-2020);
+// how many cars are drawn is a picture of how busy a road is (probe readings
+// stand in for volume), not a count. After a disaster, closed roads empty,
+// slowed roads crawl, and the roads that take the detours fill up.
+const CAR_SPEEDUP = 4, CAR_CAP = 7000, LANE_M = 2.4;
+// Carriageway widths in metres, so roads read at street level and thin out from afar.
+const ROAD_WIDTH = { motorway: 14, trunk: 12, primary: 10, secondary: 8, tertiary: 7 };
+const FLOW = [hex(STATES.empty_or_parking.color), hex(STATES.active_construction.color), hex(STATES.demolished.color)];
+const CLOSED_RGB = [120, 20, 24], DETOUR_RGB = hex('#8a63e8');
+const roadImpact = () => ui.scenario?.traffic ?? null;
+const hourLabel = (h) => `${String(h).padStart(2, '0')}:00`;
+let cars = [], roadsMeta = null;
+function prepareRoads() {
+  if (roadsMeta || !DATA.traffic) return;
+  const maxN = Math.max(1, ...DATA.traffic.roads.map((r) => r.n));
+  roadsMeta = DATA.traffic.roads.map((r) => {
+    // Cumulative metres along the path, for placing cars by distance.
+    const cum = [0];
+    for (let i = 1; i < r.path.length; i++) cum.push(cum[i - 1] + metresBetween(r.path[i - 1], r.path[i]));
+    return { cum, busy: Math.log1p(r.n) / Math.log1p(maxN) };
+  });
+}
+// Typical speed over free-flow speed at the chosen hour, after any slowdown.
+function flowRatio(i, impact) {
+  const r = DATA.traffic.roads[i];
+  const slow = impact?.slowedMap?.get(i) ?? 1;
+  return Math.max(0.05, Math.min(1, (r.speed[ui.hour] * slow) / Math.max(r.free, 1)));
+}
+function flowColor(t) {
+  // 1 = free-flowing (blue), 0.5 = slow (amber), ≤ 0.25 = crawling (red).
+  const u = clamp01((1 - t) / 0.75);
+  return u < 0.5 ? mix(FLOW[0], FLOW[1], u * 2) : mix(FLOW[1], FLOW[2], (u - 0.5) * 2);
+}
+function indexImpact(impact) {
+  if (!impact || impact.closedSet) return impact;
+  impact.closedSet = new Set(impact.closed);
+  impact.slowedMap = new Map(impact.slowed);
+  impact.detourMap = new Map(impact.detour);
+  impact.detourMax = Math.max(1, ...impact.detour.map((d) => d[1]));
+  return impact;
+}
+function roadLayers() {
+  if (!DATA.traffic) return [];
+  const impact = indexImpact(roadImpact());
+  const roads = DATA.traffic.roads.map((r, i) => ({ r, i }));
+  const drape = photoreal() ? { extensions: [new deck._TerrainExtension()] } : {};
+  const out = [new deck.PathLayer({
+    id: 'roads', data: roads, getPath: (d) => d.r.path, widthUnits: 'meters', widthMinPixels: 1.2, capRounded: true, jointRounded: true,
+    getWidth: (d) => ROAD_WIDTH[d.r.cls.replace('_link', '')] ?? 5,
+    getColor: (d) => impact?.closedSet.has(d.i) ? [...CLOSED_RGB, 235] : [...flowColor(flowRatio(d.i, impact)), 210],
+    updateTriggers: { getColor: [ui.hour, impact] }, parameters: SOFT, ...drape,
+  })];
+  if (impact?.detour.length) {
+    out.push(new deck.PathLayer({
+      id: 'roads-detour', data: impact.detour, getPath: (d) => DATA.traffic.roads[d[0]].path, widthUnits: 'meters', widthMinPixels: 2,
+      getWidth: (d) => 6 + 14 * Math.sqrt(d[1] / impact.detourMax), getColor: [...DETOUR_RGB, 200], capRounded: true, parameters: SOFT, ...drape,
+    }));
+  }
+  if (impact?.closed.length) {
+    out.push(new deck.PathLayer({
+      id: 'roads-closed', data: impact.closed, getPath: (i) => DATA.traffic.roads[i].path, widthUnits: 'meters', widthMinPixels: 2.5,
+      getWidth: 12, getColor: [...CLOSED_RGB, 255], capRounded: true, parameters: SOFT, ...drape,
+    }));
+  }
+  return out;
+}
+// Cars are laid out once per hour or impact change; frames only move them.
+function prepareCars() {
+  prepareRoads();
+  cars = [];
+  if (!ui.traffic || !DATA.traffic) return;
+  const impact = indexImpact(roadImpact());
+  const wanted = [];
+  DATA.traffic.roads.forEach((r, i) => {
+    if (impact?.closedSet.has(i)) return;
+    const ratio = flowRatio(i, impact);
+    // Busier, slower roads hold more cars (queues bunch up); per kilometre.
+    const extra = impact?.detourMap.get(i) ?? 0;
+    const perKm = (8 + 45 * roadsMeta[i].busy) * (1 / Math.max(ratio, 0.3)) + 4 * Math.sqrt(extra);
+    const n = (perKm * r.len) / 1000;
+    wanted.push({ i, n, ratio });
+  });
+  const total = wanted.reduce((a, w) => a + w.n, 0);
+  const scale = total > CAR_CAP ? CAR_CAP / total : 1;
+  for (const w of wanted) {
+    const r = DATA.traffic.roads[w.i];
+    const count = Math.floor(w.n * scale + hash01(String(w.i), 7));
+    const mps = (r.speed[ui.hour] * (impact?.slowedMap?.get(w.i) ?? 1)) / 3.6;
+    for (let k = 0; k < count; k++) {
+      const key = `${w.i}:${k}`;
+      const dir = r.oneway === 1 ? 1 : r.oneway === -1 ? -1 : hash01(key, 3) < 0.5 ? 1 : -1;
+      cars.push({ i: w.i, s0: hash01(key, 1) * r.len, dir, mps: mps * (0.8 + 0.4 * hash01(key, 2)) });
+    }
+  }
+}
+function carPosition(c, now) {
+  const r = DATA.traffic.roads[c.i], cum = roadsMeta[c.i].cum, len = cum[cum.length - 1] || 1;
+  let d = (c.s0 + c.mps * CAR_SPEEDUP * (now / 1000)) % len;
+  if (c.dir < 0) d = len - d;
+  let k = 1;
+  while (k < cum.length - 1 && cum[k] < d) k++;
+  const a = r.path[k - 1], b = r.path[k], seg = cum[k] - cum[k - 1] || 1, f = clamp01((d - cum[k - 1]) / seg);
+  // Keep to the right of the direction of travel, so two-way roads show two streams.
+  const dx = (b[0] - a[0]) * mPerLon(a[1]) * c.dir, dy = (b[1] - a[1]) * 111320 * c.dir, h = Math.hypot(dx, dy) || 1;
+  return offset([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f], (dy / h) * LANE_M, (-dx / h) * LANE_M);
+}
+function carLayers(now) {
+  if (!ui.traffic || !cars.length) return [];
+  const t = calm.matches ? 0 : now;
+  return [new deck.ScatterplotLayer({
+    id: 'cars', data: cars, getPosition: (c) => carPosition(c, t), getRadius: 2.2, radiusUnits: 'meters', radiusMinPixels: 1.6,
+    getFillColor: isDark() ? [246, 248, 250, 235] : [36, 44, 52, 230], parameters: SOFT,
+    updateTriggers: { getPosition: t }, ...(photoreal() && { extensions: [new deck._TerrainExtension()] }),
+  })];
+}
+function setTraffic(on) {
+  ui.traffic = on && !!DATA.traffic;
+  $('t-traffic').setAttribute('aria-pressed', String(ui.traffic));
+  $('p-traffic').hidden = !ui.traffic;
+  $('attrib').textContent = attribution();
+  prepareCars(); renderTraffic(); render();
+  if (ui.traffic) animate();
+}
+function setHour(h) {
+  ui.hour = h;
+  prepareCars(); renderTraffic(); render();
+}
+function roadSummary(t) {
+  if (!t) return '';
+  const by = Object.entries(t.closed_by).filter(([, n]) => n).map(([k, n]) => `${n.toLocaleString()} by ${k}`).join(', ');
+  const closed = t.closed_roads ? `${plural(t.closed_roads, 'road segment')} closed (${t.closed_km.toLocaleString()} km${by ? `: ${by}` : ''})` : 'No roads closed';
+  const slowed = t.slowed_km ? ` · ${t.slowed_km.toLocaleString()} km slowed` : '';
+  const trips = !t.affected ? `None of ${t.trips.toLocaleString()} sampled trips at ${hourLabel(t.hour)} uses these roads.`
+    : `${t.affected.toLocaleString()} of ${t.trips.toLocaleString()} sampled trips at ${hourLabel(t.hour)} cross them: ${t.cut_off.toLocaleString()} cut off, the rest +${t.delay_min.p50} min (90% under +${t.delay_min.p90} min).`;
+  return `<div class="m">${closed}${slowed}</div><div class="m">${trips}</div>`;
+}
+function renderTraffic() {
+  const el = $('p-traffic');
+  if (el.hidden || !DATA.traffic) return;
+  const t = roadImpact();
+  const est = DATA.traffic.roads.filter((r) => r.est).length;
+  const swatch = (rgb) => `rgb(${rgb.join(',')})`;
+  el.innerHTML = `<button class="close" aria-label="Close" data-close="traffic">✕</button><h2>Traffic</h2>
+    <div class="sub">Typical speeds, ${esc(DATA.traffic.period)} · cars run ${CAR_SPEEDUP}× real time</div>
+    <div class="sev"><div class="row"><label for="hour">Hour</label><b>${hourLabel(ui.hour)}</b></div>
+      <input id="hour" type="range" min="0" max="23" step="1" value="${ui.hour}" aria-valuetext="${hourLabel(ui.hour)}"></div>
+    <div class="road-row"><span class="ln" style="background:${swatch(FLOW[0])}"></span><span>Near free-flow speed</span></div>
+    <div class="road-row"><span class="ln" style="background:${swatch(FLOW[1])}"></span><span>About half speed</span></div>
+    <div class="road-row"><span class="ln" style="background:${swatch(FLOW[2])}"></span><span>Crawling</span></div>
+    ${t ? `<div class="road-row"><span class="ln" style="background:${swatch(CLOSED_RGB)}"></span><span>Closed by the disaster</span></div>
+    <div class="road-row"><span class="ln" style="background:${swatch(DETOUR_RGB)}"></span><span>Takes the detours</span></div>
+    <div class="lever"><div class="t">After the disaster</div>${roadSummary(t)}</div>` : `<div class="note">Drop a disaster to see which roads it closes and where traffic goes instead.</div>`}
+    <div class="note">Colour compares each road's median speed at this hour with its fastest hour. ${est.toLocaleString()} of ${DATA.traffic.roads.length.toLocaleString()} roads had too few readings and borrow their road class's profile. The number of cars is a picture of how busy a road is, not a count.${t ? ` ${esc(t.assumptions)}` : ''}</div>`;
 }
 
 // ---- meshes (metres; x east, y north, z up), flat-shaded triangle lists ----
@@ -1576,8 +1739,12 @@ function waterNote(s, h) {
   return w ? `<div class="m">Water fills low ground to ${w.level_m.toFixed(1)} m above sea level (approximate terrain)</div>`
     : '<div class="m">Flat water: no terrain loaded, so the depth is the same everywhere in reach</div>';
 }
+function roadCard(s) {
+  return s.traffic ? `<div class="lever"><div class="t">Roads</div>${roadSummary(s.traffic)}
+    ${ui.traffic ? '' : '<div class="m">Turn on Traffic to see the closures and detours.</div>'}</div>` : '';
+}
 function hazardCards(s) {
-  return (s.forecast?.hazard_impacts ?? []).map((h) => `<div class="lever" data-hazard="${esc(h.hazard_id)}">
+  return roadCard(s) + (s.forecast?.hazard_impacts ?? []).map((h) => `<div class="lever" data-hazard="${esc(h.hazard_id)}">
     <div class="t">${hazardIcon(h.kind, 'hz')}${esc(hazardLabel(h.kind))} · ${h.magnitude.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${esc(h.magnitude_unit)}</div>
     <div class="m">${Math.round(h.destroyed.p50).toLocaleString()} destroyed (${Math.round(h.destroyed.p05)}–${Math.round(h.destroyed.p95)}) · ${Math.round(h.damaged.p50).toLocaleString()} damaged (${Math.round(h.damaged.p05)}–${Math.round(h.damaged.p95)})</div>
     <div class="m">${h.exposed_buildings.toLocaleString()} buildings in reach · ${h.radius_m ? `${metres(h.radius_m)} radius` : 'citywide'} · strikes in years ${h.year_offset - 2}–${h.year_offset}</div>
@@ -1665,10 +1832,11 @@ async function runScenario(text) {
   ui.busy = true; syncPrompt();
   $('progress').textContent = 'The model drafts the scenario · the validator checks it · the engine forecasts…';
   try {
-    const res = await fetch('/v1/viewer/scenario', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    const res = await fetch('/v1/viewer/scenario', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, hour: ui.hour }) });
     const body = await res.json();
     if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
-    ui.scenario = { compilation: body.compilation, forecast: body.forecast, hazards: body.hazards ?? [] };
+    ui.scenario = { compilation: body.compilation, forecast: body.forecast, hazards: body.hazards ?? [], traffic: body.traffic ?? null };
+    prepareCars();
     ui.drops = [];
     updateDeltaScale();
     ui.highlight = null;
@@ -1802,10 +1970,11 @@ async function runDrop(drop) {
   try {
     // The aim is the page's own: the engine only needs where the plane lands.
     const hazards = ui.drops.map(({ heading, s0, ...rest }) => rest);
-    const res = await fetch('/v1/viewer/hazard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hazards }) });
+    const res = await fetch('/v1/viewer/hazard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hazards, hour: ui.hour }) });
     const body = await res.json();
     if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `HTTP ${res.status}`);
-    ui.scenario = { compilation: null, dropped: body.scenario, forecast: body.forecast, hazards: body.hazards };
+    ui.scenario = { compilation: null, dropped: body.scenario, forecast: body.forecast, hazards: body.hazards, traffic: body.traffic ?? null };
+    prepareCars();
     // Hand the plane over mid-dive rather than restarting it.
     if (pending?.flyT0) drop.s0 = waitingProgress(performance.now() - pending.flyT0);
     pending = null;
@@ -1849,7 +2018,7 @@ function syncPrompt() {
   document.querySelectorAll('.tile').forEach((t) => (t.disabled = ui.busy));
   go.innerHTML = ui.busy ? '<span class="spin" aria-hidden="true"></span>' : '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
 }
-function renderAll() { renderStatus(); renderLegend(); renderDock(); renderInspector(); renderAnswer(); renderScenario(); renderInfo(); render(); }
+function renderAll() { renderTraffic(); renderStatus(); renderLegend(); renderDock(); renderInspector(); renderAnswer(); renderScenario(); renderInfo(); render(); }
 
 function wire() {
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => setLens(t.dataset.lens)));
@@ -1867,6 +2036,8 @@ function wire() {
   $('t-kpis').onclick = (e) => togglePanel('p-kpis', e.currentTarget);
   $('t-info').onclick = (e) => togglePanel('p-info', e.currentTarget);
   $('t-fx').onclick = (e) => togglePanel('tray', e.currentTarget);
+  $('t-traffic').onclick = () => setTraffic(!ui.traffic);
+  $('p-traffic').addEventListener('input', (e) => { if (e.target.id === 'hour') setHour(Number(e.target.value)); });
   $('tiles').innerHTML = HAZARDS.map((h) => `<button class="tile" type="button" data-kind="${h.kind}" title="${h.label}: drag onto the city (or press to drop it mid-view)">${hazardIcon(h.kind)}<span>${h.label}</span></button>`).join('');
   $('tiles').addEventListener('pointerdown', startDrag);
   $('tiles').addEventListener('click', (e) => {
@@ -1895,9 +2066,10 @@ function wire() {
     if (which === 'inspect') { ui.selected = null; renderInspector(); render(); }
     if (which === 'kpis') togglePanel('p-kpis', $('t-kpis'), false);
     if (which === 'info') togglePanel('p-info', $('t-info'), false);
+    if (which === 'traffic') setTraffic(false);
     if (which === 'answer') { ui.answer = null; ui.answerIds = null; ui.highlight = null; renderAnswer(); render(); }
     if (which === 'scenario') {
-      ui.scenario = null; ui.highlight = null; ui.drops = []; clearFx();
+      ui.scenario = null; ui.highlight = null; ui.drops = []; clearFx(); prepareCars();
       document.querySelector('[data-lens="delta"]').hidden = true;
       if (ui.lens === 'delta') setLens('forecast');
       $('progress').textContent = ''; renderAll();
@@ -1952,6 +2124,7 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
   if (innerWidth < 760) togglePanel('p-legend', $('t-legend'), false);
   // Dropping disasters needs the server; on phones the tray starts closed.
   $('t-fx').hidden = !DATA.api;
+  $('t-traffic').hidden = !DATA.traffic;
   if (DATA.api && innerWidth >= 760) togglePanel('tray', $('t-fx'), true);
   wire(); syncPrompt(); initScene(); renderAll();
   const hashLens = new URLSearchParams(location.hash.slice(1)).get('lens');

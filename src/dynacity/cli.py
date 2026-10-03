@@ -11,6 +11,7 @@ files rather than in-process state:
     summarize-transitions → descriptive interval JSON (never modelled)
     build-snapshot  → present-state snapshot JSON
     fetch-terrain   → approximate ground-elevation grid (.npz) for terrain-following floods
+    build-traffic   → OSM road graph + Tari'ak hourly speeds (.json) for traffic and road closures
     freeze-evidence → registry JSON → content-hashed EvidenceBundle
     compile-scenario→ planner prose → checked ScenarioSpec + audit trail
     train           → ModelBundle + sibling .metrics.json
@@ -57,6 +58,7 @@ from .scenario_compiler import compile_scenario
 from .service import create_app
 from .snapshot import snapshot_from_bbed
 from .terrain import GroundModel, attach_ground_elevation, fetch_ground_model
+from .traffic import TrafficModel, build_traffic_model, traffic_payload
 from .viewer import build_viewer_payload, render_viewer
 from .transitions import summarize_interval
 
@@ -271,7 +273,8 @@ def command_plan(args: argparse.Namespace) -> None:
 def command_export_viewer(args: argparse.Namespace) -> None:
     snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
     forecast = ForecastResult.model_validate(_json(args.forecast)) if args.forecast else None
-    payload = build_viewer_payload(_json(args.bbed), snapshot, forecast, basemap=args.basemap)
+    traffic = traffic_payload(TrafficModel.load(args.traffic)) if args.traffic else None
+    payload = build_viewer_payload(_json(args.bbed), snapshot, forecast, basemap=args.basemap, traffic=traffic)
     destination = Path(args.output)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(render_viewer(payload), encoding="utf-8")
@@ -288,6 +291,20 @@ def command_fetch_terrain(args: argparse.Namespace) -> None:
     ground.save(destination)
     rows, cols = ground.ground.shape
     print(f"terrain -> {args.output} ({cols}x{rows} cells of {ground.cell_m:g} m in {ground.crs})")
+
+
+def command_build_traffic(args: argparse.Namespace) -> None:
+    snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
+    model = build_traffic_model(
+        snapshot, args.velocities, overpass=_json(args.roads) if args.roads else None,
+        margin_m=args.margin_m, velocity_unit=args.velocity_unit,
+    )
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    model.save(destination)
+    observed = int((~model.estimated).sum())
+    print(f"traffic -> {args.output} ({len(model)} roads, {model.length_m.sum() / 1000:.0f} km; "
+          f"{observed} with their own speeds, {len(model) - observed} from their road class)")
 
 
 def _business_as_usual(engine: ForecastEngine, snapshot: UrbanStateSnapshot) -> ForecastResult:
@@ -310,6 +327,9 @@ def command_serve(args: argparse.Namespace) -> None:
         if not tiles.api_key:
             raise SystemExit(f"--basemap google needs {MAPS_KEY_VARIABLE} (a Google Maps key with the Map Tiles API)")
     ground = GroundModel.load(args.terrain) if args.terrain else None
+    traffic = TrafficModel.load(args.traffic) if args.traffic else None
+    if traffic is not None and not args.snapshot:
+        raise SystemExit("--traffic needs --snapshot")
     if args.snapshot:
         snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
         if ground is not None:
@@ -325,7 +345,10 @@ def command_serve(args: argparse.Namespace) -> None:
             else _business_as_usual(engine, snapshot)
         )
         viewer_html = render_viewer(
-            build_viewer_payload(_json(args.bbed), snapshot, baseline, api=True, basemap=args.basemap)
+            build_viewer_payload(
+                _json(args.bbed), snapshot, baseline, api=True, basemap=args.basemap,
+                traffic=traffic_payload(traffic) if traffic is not None else None,
+            )
         )
         print(f"3D viewer at http://{args.host}:{args.port}/")
     provider = None
@@ -347,6 +370,7 @@ def command_serve(args: argparse.Namespace) -> None:
             total=args.llm_request_limit, per_minute=args.llm_requests_per_minute, what="language-model requests"
         ),
         tiles_proxy=tiles,
+        viewer_traffic=traffic,
     )
     print(f"language-model requests capped at {args.llm_request_limit} per run, "
           f"{args.llm_requests_per_minute} a minute")
@@ -413,6 +437,15 @@ def build_parser() -> argparse.ArgumentParser:
     terrain.add_argument("--cell-m", type=float, default=10.0)
     terrain.set_defaults(func=command_fetch_terrain)
 
+    traffic = subparsers.add_parser("build-traffic")
+    traffic.add_argument("--snapshot", required=True, help="snapshot with building centroids; sets the extent")
+    traffic.add_argument("--velocities", required=True, help="Tari'ak velocities.csv")
+    traffic.add_argument("--roads", help="saved Overpass JSON of the roads; fetched from Overpass when omitted")
+    traffic.add_argument("--output", required=True)
+    traffic.add_argument("--margin-m", type=float, default=800.0)
+    traffic.add_argument("--velocity-unit", choices=["kmh", "ms"], default="kmh")
+    traffic.set_defaults(func=command_build_traffic)
+
     train = subparsers.add_parser("train")
     train.add_argument("--panel", required=True)
     train.add_argument("--output", required=True)
@@ -456,6 +489,7 @@ def build_parser() -> argparse.ArgumentParser:
     viewer.add_argument("--forecast")
     viewer.add_argument("--output", required=True)
     viewer.add_argument("--basemap", choices=["carto", "none"], default="carto")
+    viewer.add_argument("--traffic", help="traffic model from build-traffic; draws roads and moving cars")
     viewer.set_defaults(func=command_export_viewer)
 
     serve = subparsers.add_parser("serve")
@@ -465,6 +499,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--forecast")
     serve.add_argument("--evidence")
     serve.add_argument("--terrain", help="ground model from fetch-terrain; floods then follow it")
+    serve.add_argument("--traffic", help="traffic model from build-traffic; disasters then close roads")
     serve.add_argument("--basemap", choices=["carto", "google", "none"], default="carto")
     serve.add_argument("--provider", choices=["anthropic", "gemini"])
     serve.add_argument("--llm-model")

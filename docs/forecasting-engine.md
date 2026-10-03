@@ -86,7 +86,7 @@ Hard issues trigger one repair round with the issues fed back; every attempt is 
 
 ### Hazards
 
-A scenario can also strike the city with a hazard (`ScenarioSpec.hazards`, `hazards.py`). The kinds follow God's Plan's disasters: `tornado`, `storm`, `rain`, `flood`, `fire`, `heat`, `earthquake`, `explosion` (gas leaks and bombings too), `plane_crash`, `orbital_strike` (fictional, a recovery stress test) and `riot`. God's Plan's road closures and vehicle crashes are not included, because the engine has no street network. Its population and development commands are ordinary levers here.
+A scenario can also strike the city with a hazard (`ScenarioSpec.hazards`, `hazards.py`). The kinds follow God's Plan's disasters: `tornado`, `storm`, `rain`, `flood`, `fire`, `heat`, `earthquake`, `explosion` (gas leaks and bombings too), `plane_crash`, `orbital_strike` (fictional, a recovery stress test) and `riot`. God's Plan's road closures follow from these disasters on an optional street network (see *Traffic and road closures* below); its vehicle crashes are not included. Its population and development commands are ordinary levers here.
 
 Each `HazardEvent` is located in exactly one way: `citywide`, a point (`center_x_m`/`center_y_m`, snapshot CRS), or a track (`path_m`, tornadoes). It carries a magnitude in the kind's own unit (EF scale, peak gust km/h, rainfall mm, flood depth m, fire class, °C, Mw, TNT-equivalent tonnes, aircraft mass t, beam radius m, unrest class) and strikes on one 2-year step (`occurs_step`). Unless `radius_m` is given, the radius follows from the magnitude. For example, a blast's damage distance scales with the cube root of the charge, so 1,000 t reaches about 2 km.
 
@@ -99,6 +99,32 @@ A flood follows terrain when buildings carry `ground_elevation_m`. `dynacity fet
 The compiler drafts hazards from prose under the same rules as levers. The model names the kind, a sector and a severity (`minor`/`moderate`/`severe`/`extreme` → magnitude from the profile). Code builds the footprint from that sector's building centroids: a point at their centre; for floods, storms, rain, heat and riots, a radius grown to cover the sector; for tornadoes, a track along the sector's long axis. A numeric magnitude or radius counts only if the planner wrote it, and the model never writes coordinates. A citywide footprint is allowed without explicit wording only for storms, rain, heat and earthquakes. `PlanningRequest.hazards` puts every candidate in a plan under the same disaster, so the search asks which levers best absorb it.
 
 On the real snapshot, a 1,000 t blast at the port destroys p50 78 (p05–p95 67–92) and damages 175 (156–193) of 993 exposed buildings. Recovery is as fast as the fitted model says. The shipped Markov model has seen almost no demolished buildings and returns 45% of them to `stable_built` within one step, so recovery curves after a hazard should be read as optimistic.
+
+### Traffic and road closures
+
+`traffic.py` adds a street network beside the buildings. It sits outside the transition model, which never sees it, and it never changes a forecast's numbers. `dynacity build-traffic` joins two open sources over the snapshot extent (building centroids plus 800 m) and writes a JSON file under `DYNACITY_DATA_ROOT`:
+
+- **Roads:** drivable OpenStreetMap ways (motorway down to living street; service roads and footways left out), fetched from Overpass or read from a saved Overpass JSON (`--roads`). They are split at every node shared with another way into a routable graph, with one-way rules honoured.
+- **Speeds:** the [Lebanon Traffic Dataset](https://github.com/ramikay/lebanon-traffic-dataset) (Tari'ak app, ODbL). It holds 6.0 million crowd-sourced vehicle speeds from 17,274 phones, 2015–2019, each map-matched to an OSM way. Each way gets a median speed per hour of day (Beirut time). Readings under 3 km/h are dropped: they are phones standing still, and at 4 a.m. they would pull an empty road's median to zero. A way needs 10 readings in an hour to use its own median. Otherwise it borrows its road class's hourly profile, scaled to its own all-day median when it has one, and it is flagged `estimated`. The dataset's metadata says the Velocity column is in m/s, but its values only make sense as km/h (motorway median 57, hard cap 120), so km/h is the default (`--velocity-unit`).
+
+On the 2024 snapshot this gives 10,817 road segments (809 km) and about 1.0 million readings. 5,006 segments have their own speeds; the rest borrow their class's. Typical speeds drop from about 26 km/h at night to about 19 km/h from 07:00 to 19:00.
+
+When the server holds a traffic model (`serve --traffic`), every dropped or compiled disaster also returns `traffic`: which roads it closes or slows, and what that does to trips at the chosen hour:
+
+| Effect | Rule (an illustrative assumption) |
+| --- | --- |
+| Rubble | A building reaches the streets within half its height plus half its footprint width when it collapses. A road is closed when P(blocked) = 1 − Π(1 − P(destroyed)) over buildings in reach is ≥ 0.5, and slowed in proportion between 0.15 and 0.5. |
+| Water | A flood closes a road where it stands deeper than 0.3 m: the same water level as the buildings, against terrain when it is loaded, otherwise flat. |
+| Cordon | Fire, riot, blast, plane crash and orbital strike close the roads where the hazard's exposure is at least 0.5. |
+| Weather | Storm and rain multiply speeds by 0.7 and 0.85 at full exposure, easing back to 1 at the footprint edge. |
+
+`traffic_impact` samples about 1,000 trips between road junctions. Ends are drawn in proportion to probe readings × road length, because Tari'ak records speed but not volume, so readings stand in for how busy a road is. Each trip is routed by travel time before and after the disruption. It reports trips whose usual route crosses a closed or slowed road (`affected`), how many of those are cut off, and the p50/p90 extra minutes for the rest. It also reports the roads that pick up the rerouted trips (`detour`). Delays are over affected trips only, so a local closure is not averaged away across the city. When no sampled trip uses the closed streets, the result says so.
+
+In the viewer, the Traffic button colours each road by its median speed at the chosen hour against its fastest hour, and moves cars along the roads at 4× real time. The number of cars is a picture of how busy a road is, not a count. After a disaster, closed roads turn dark red and empty, slowed roads crawl, and purple marks the detours. The page receives only per-road hourly medians and reading counts, never individual probe readings.
+
+Limits: the speeds are typical pre-2020 conditions, before the 2019 crisis and the 2020 port blast. There is no traffic volume, signal timing, or demand response, so rerouted trips do not slow the roads they move onto. Closure rules are not calibrated against any observed disruption. Read the output as a picture of the consequence, not a traffic model.
+
+Other sources considered: the CDR's environmental and social impact assessment for the Tabarja–Beirut Bus Rapid Transit project (World Bank SFG3708) has corridor traffic counts, which could calibrate volume later. [Lebanese-Bus-Routes](https://github.com/LebaneseDevelopers/Lebanese-Bus-Routes) (MIT, last updated 2019) has KML bus routes. Open Data Lebanon has monthly national crash totals only, with no locations. The Beirut Urban Observatory reports 2023 trip data that is not openly downloadable.
 
 ### Evidence bundles
 
