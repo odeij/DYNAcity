@@ -44,11 +44,13 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from collections import Counter
+from collections.abc import Sequence
 from typing import Any, Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from .contracts import (
     ConfidenceGrade,
@@ -155,6 +157,31 @@ REGIONAL_HAZARDS = frozenset({HazardKind.STORM, HazardKind.RAIN, HazardKind.HEAT
 AREA_HAZARDS = frozenset({HazardKind.FLOOD, HazardKind.STORM, HazardKind.RAIN, HazardKind.HEAT, HazardKind.RIOT})
 
 
+class DraftRoadEvent(BaseModel):
+    """A road closed, or a vehicle crash, on a street the planner named.
+
+    The model only copies the street name as written; code finds the road
+    segments (`match_street`), so the model never chooses where it is.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str
+    kind: Literal["closure", "crash"]
+    street: str
+    description: str = ""
+
+
+class RoadEvent(BaseModel):
+    """A checked road event: the street as written and the road indices it matched."""
+
+    event_id: str
+    kind: Literal["closure", "crash"]
+    street: str
+    matched_names: list[str]
+    roads: list[int]
+
+
 class ScenarioDraft(BaseModel):
     """The model's entire output. Nothing here is trusted until checked."""
 
@@ -165,6 +192,9 @@ class ScenarioDraft(BaseModel):
     interventions: list[DraftIntervention] = Field(default_factory=list)
     hazards: list[DraftHazard] = Field(default_factory=list)
     requested_kpis: list[str] = Field(default_factory=list)
+    # Road closures and crashes; only accepted when the caller has a street
+    # network (`road_names`), otherwise they belong in unsupported_requests.
+    road_events: list[DraftRoadEvent] = Field(default_factory=list)
     # Parts of the request this schema cannot express (e.g. traffic, rents).
     # Surfaced as soft issues so they are visibly dropped, not silently lost.
     unsupported_requests: list[str] = Field(default_factory=list)
@@ -204,6 +234,17 @@ class CompilationResult(BaseModel):
     model: str
     scenario: ScenarioSpec | None
     attempts: list[CompileAttempt]
+    # Checked road closures and crashes, for the street network beside the
+    # engine (`traffic.py`); the engine itself never sees them.
+    road_events: list[RoadEvent] = Field(default_factory=list)
+
+    @computed_field
+    @property
+    def status(self) -> Literal["accepted", "partial", "rejected"]:
+        if self.scenario is None:
+            return "rejected"
+        final = self.attempts[-1].draft if self.attempts else None
+        return "partial" if final and final.unsupported_requests else "accepted"
 
     @property
     def ok(self) -> bool:
@@ -212,6 +253,29 @@ class CompilationResult(BaseModel):
 
 def _norm(value: object) -> str:
     return re.sub(r"\s+", " ", str(value).strip().lower())
+
+
+# Words that say what kind of road it is rather than which: dropped before
+# matching, so "Charles Helou" finds "Charles Hélou Avenue - Sea Highway".
+_STREET_WORDS = frozenset({
+    "street", "st", "road", "rd", "avenue", "ave", "av", "rue", "boulevard", "blvd", "bd", "highway", "hwy",
+    "corniche", "the", "of", "de", "du", "la", "le", "el", "al", "and", "شارع", "طريق",
+})
+
+
+def _street_tokens(value: str) -> list[str]:
+    folded = unicodedata.normalize("NFKD", value)
+    folded = "".join(c for c in folded if not unicodedata.combining(c)).casefold()
+    return [t for t in re.split(r"[\W_]+", folded) if t and t not in _STREET_WORDS]
+
+
+def match_street(street: str, road_names: Sequence[str]) -> list[int]:
+    """Indices of roads whose name contains every distinctive word of `street` (accents and case ignored)."""
+
+    wanted = _street_tokens(street)
+    if not wanted:
+        return []
+    return [i for i, name in enumerate(road_names) if name and set(wanted) <= set(_street_tokens(name))]
 
 
 def _magnitudes_in(text: str) -> set[float]:
@@ -261,6 +325,7 @@ def check_draft(
     snapshot: UrbanStateSnapshot,
     request_text: str,
     evidence: EvidenceBundle | None = None,
+    road_names: Sequence[str] | None = None,
 ) -> ValidationReport:
     """Deterministically decide whether a draft may become a ScenarioSpec.
 
@@ -276,6 +341,17 @@ def check_draft(
     }
     known_ids = {item.object_id for item in snapshot.objects}
     max_step = draft.horizon_years // 2
+
+    if not (draft.interventions or draft.hazards or draft.road_events):
+        # An empty model reply must not turn an unsupported/ambiguous request
+        # into a successful BAU forecast. BAU is valid only when requested.
+        baseline_requested = re.search(r"business.as.usual|\bbau\b|no (?:changes|interventions)", text)
+        if draft.unsupported_requests or not baseline_requested:
+            issues.append(ValidationIssue(
+                code="request.no_action", severity="hard",
+                message="No supported change could be resolved. Name a sector and a building-state "
+                "change (for example, renovate stalled buildings), or explicitly request business as usual.",
+            ))
 
     for kpi in draft.requested_kpis:
         if kpi not in DEFAULT_KPIS:
@@ -438,12 +514,63 @@ def check_draft(
             ))
         seen_hazards.add(hazard.hazard_id)
 
+    issues.extend(_check_road_events(draft, request_text, road_names))
+
     for item in draft.unsupported_requests:
         issues.append(ValidationIssue(
             code="request.unsupported", severity="soft",
-            message=f"not expressible as a building-state lever or hazard and dropped: {item}",
+            message=f"This part of the request was not modeled: {item}",
         ))
     return ValidationReport(issues=issues)
+
+
+def _check_road_events(
+    draft: ScenarioDraft, request_text: str, road_names: Sequence[str] | None
+) -> list[ValidationIssue]:
+    issues: list[ValidationIssue] = []
+    written = " ".join(_street_tokens(request_text))
+    seen: set[str] = set()
+    for event in draft.road_events:
+        ref = event.event_id
+        if road_names is None:
+            issues.append(ValidationIssue(
+                code="road.unsupported", severity="hard",
+                message=f"{ref}: this run has no street network, so road closures and crashes cannot be placed; "
+                "remove the event and list it under unsupported_requests", refs=[ref],
+            ))
+            continue
+        if ref in seen:
+            issues.append(ValidationIssue(code="road.duplicate_id", severity="hard",
+                                          message=f"event_id {ref!r} is used more than once", refs=[ref]))
+        seen.add(ref)
+        tokens = _street_tokens(event.street)
+        if not tokens or f" {' '.join(tokens)} " not in f" {written} ":
+            issues.append(ValidationIssue(
+                code="road.not_in_request", severity="hard",
+                message=f"{ref}: street {event.street!r} is not written in the request; copy the street name "
+                "exactly as the planner wrote it", refs=[ref],
+            ))
+            continue
+        if not match_street(event.street, road_names):
+            issues.append(ValidationIssue(
+                code="road.unknown_street", severity="hard",
+                message=f"{ref}: no road on the map is named {event.street!r}; remove the event and list the street "
+                "under unsupported_requests", refs=[ref],
+            ))
+    return issues
+
+
+def resolve_road_events(draft: ScenarioDraft, road_names: Sequence[str]) -> list[RoadEvent]:
+    """Checked road events with the road indices their streets match. Call only when check_draft is ok."""
+
+    events = []
+    for event in draft.road_events:
+        roads = match_street(event.street, road_names)
+        events.append(RoadEvent(
+            event_id=event.event_id, kind=event.kind, street=event.street,
+            matched_names=sorted({road_names[i] for i in roads}), roads=roads,
+        ))
+    return events
 
 
 def _located_points(location: HazardLocation, snapshot: UrbanStateSnapshot) -> np.ndarray:
@@ -661,7 +788,7 @@ _HAZARD_UNITS = "\n".join(
     for kind, profile in PROFILES.items()
 )
 
-SYSTEM_PROMPT = f"""You translate an urban planner's scenario for Beirut into a ScenarioDraft for a \
+_SYSTEM_TEMPLATE = f"""You translate an urban planner's scenario for Beirut into a ScenarioDraft for a \
 building-state forecasting engine. The engine moves each building between canonical states in \
 2-year steps; a scenario can nudge the odds of a target state for a chosen set of buildings \
 (interventions), and can strike the city with a hazard that destroys or damages buildings in its \
@@ -699,10 +826,26 @@ only when the planner wrote the number, in the kind's unit:
 {_HAZARD_UNITS}
   Set explicit_radius_m only when the planner wrote a distance. occurs_step counts 2-year steps \
 from 1 (default 1).
-- Anything that is neither a building-state lever nor a hazard (traffic, road closures, vehicle \
-crashes, rents, population, infrastructure capacity) goes in unsupported_requests rather than \
-being approximated.
+__OTHER__
 - scenario_id is a short kebab-case slug."""
+
+_NO_ROADS = """- Anything that is neither a building-state lever nor a hazard (traffic, road closures, vehicle \
+crashes, rents, population, infrastructure capacity) goes in unsupported_requests rather than \
+being approximated."""
+
+_ROADS = """- A road closed or blocked, or a vehicle crash, on a street the planner names is a road event \
+(kind closure or crash). Copy the street name exactly as the planner wrote it into street; never \
+add or translate words, and never invent a street. A street the planner did not name cannot be an \
+event.
+- Anything that is neither a building-state lever, a hazard nor a road event (traffic volumes, \
+rents, population, infrastructure capacity) goes in unsupported_requests rather than being \
+approximated."""
+
+
+def system_prompt(roads: bool = False) -> str:
+    """The instructions, with road events allowed only when a street network is loaded."""
+
+    return _SYSTEM_TEMPLATE.replace("__OTHER__", _ROADS if roads else _NO_ROADS)
 
 
 def _user_message(
@@ -747,6 +890,7 @@ def compile_scenario(
     model: str | None = None,
     max_repairs: int = 1,
     evidence: EvidenceBundle | None = None,
+    road_names: Sequence[str] | None = None,
 ) -> CompilationResult:
     """Compile planner prose into a ScenarioSpec, or report why it could not be.
 
@@ -758,6 +902,10 @@ def compile_scenario(
     The model comes from `provider` if given; a bare `client` is treated as an
     Anthropic client (kept for callers that inject one); otherwise
     `providers.resolve_provider` picks from the environment.
+
+    `road_names` (the street name of each road in a traffic model, by index)
+    lets the draft close roads and place crashes; without it, those requests
+    are listed as unsupported.
     """
 
     if provider is None:
@@ -766,8 +914,10 @@ def compile_scenario(
     attempts: list[CompileAttempt] = []
     content = _user_message(request_text, snapshot, evidence)
     scenario = None
+    road_events: list[RoadEvent] = []
+    prompt = system_prompt(roads=road_names is not None)
     for _ in range(max_repairs + 1):
-        draft, failure = provider.propose(SYSTEM_PROMPT, content, ScenarioDraft)
+        draft, failure = provider.propose(prompt, content, ScenarioDraft)
         served_by = getattr(provider, "last_model", provider.model)
         if draft is None:
             attempts.append(CompileAttempt(draft=None, model=served_by, report=ValidationReport(issues=[
@@ -775,10 +925,11 @@ def compile_scenario(
                                 message=FAILURE_MESSAGES.get(failure or "", "the model returned no usable draft")),
             ])))
             break
-        report = check_draft(draft, snapshot, request_text, evidence)
+        report = check_draft(draft, snapshot, request_text, evidence, road_names)
         attempts.append(CompileAttempt(draft=draft, report=report, model=served_by))
         if report.ok:
             scenario = resolve_draft(draft, snapshot, evidence)
+            road_events = resolve_road_events(draft, road_names) if road_names is not None else []
             break
         content = _repair_message(request_text, snapshot, draft, report, evidence)
 
@@ -789,4 +940,9 @@ def compile_scenario(
         model=provider.model,
         scenario=scenario,
         attempts=attempts,
+        road_events=road_events,
     )
+
+
+# The instructions without road events, as before; kept for callers that import it.
+SYSTEM_PROMPT = system_prompt(roads=False)

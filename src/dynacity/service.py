@@ -11,6 +11,7 @@ engine without touching disk.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException, Request
@@ -18,6 +19,7 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .contracts import ForecastRequest, ForecastResult, HazardEvent, HazardKind, ScenarioSpec, UrbanStateSnapshot
+from .comparison import compare_forecast
 from .engine import ForecastEngine
 from .hazards import PROFILES
 from .evidence import EvidenceBundle, verify_bundle
@@ -28,7 +30,7 @@ from .planning import PlanningRequest, PlanningResult, plan
 from .providers import DraftProvider, resolve_provider
 from .scenario_compiler import CompilationResult, compile_scenario
 from .terrain import GroundModel
-from .traffic import TrafficModel, road_disruption, traffic_impact
+from .traffic import TrafficModel, combine_disruptions, road_disruption, road_events, traffic_impact
 from .viewer import drop_to_metres, forecast_summary, hazard_focus
 
 
@@ -64,6 +66,22 @@ class ViewerHazardRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     hazards: list[DroppedHazard] = Field(min_length=1, max_length=8)
+    hour: int = Field(default=8, ge=0, le=23)
+
+
+# Road segments one request may close by hand or by prose (a long street is
+# 50-100 segments; the Beirut network has about 11,000).
+MAX_CLOSED_ROADS = 1000
+
+
+class ViewerTrafficRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The disasters already on the map, as the server returned them (snapshot metres).
+    hazards: list[HazardEvent] = Field(default_factory=list, max_length=8)
+    # Road indices closed by hand, and crash sites, from the page's road list.
+    closed: list[int] = Field(default_factory=list, max_length=MAX_CLOSED_ROADS)
+    crashes: list[int] = Field(default_factory=list, max_length=20)
     hour: int = Field(default=8, ge=0, le=23)
 
 
@@ -107,12 +125,33 @@ def create_app(
                 detail=f"no language-model provider configured ({exc}); set GEMINI_API_KEY or ANTHROPIC_API_KEY",
             ) from exc
 
-    def roads_after(hazards: list[HazardEvent], hour: int) -> dict | None:
-        # What the disasters do to the street network; None without a traffic model.
-        if viewer_traffic is None or not hazards:
+    def roads_after(
+        hazards: list[HazardEvent], hour: int, closed: Sequence[int] = (), crashes: Sequence[int] = ()
+    ) -> dict | None:
+        # What the disasters (and any hand-placed closures or crashes) do to the
+        # street network; None without a traffic model or with nothing on the roads.
+        if viewer_traffic is None or not (hazards or closed or crashes):
             return None
-        disruption = road_disruption(hazards, viewer_snapshot, viewer_traffic, ground=viewer_ground)
-        return traffic_impact(viewer_traffic, disruption, hour=hour)
+        parts = [road_events(viewer_traffic, closed=closed, crashes=crashes)]
+        if hazards:
+            parts.append(road_disruption(hazards, viewer_snapshot, viewer_traffic, ground=viewer_ground))
+        # Three trip samples, so the page can show the sampling range (~1 s).
+        return traffic_impact(viewer_traffic, combine_disruptions(*parts), hour=hour, samples=3)
+
+    def road_event_sites(events: list) -> tuple[list[int], list[int]]:
+        # A closure shuts every segment of the named street; a crash sits on
+        # its busiest segment (most probe readings), since prose names a
+        # street, not a spot on it.
+        closed: list[int] = []
+        crashes: list[int] = []
+        for event in events:
+            if event.kind == "closure":
+                closed.extend(r for r in event.roads if r not in closed)
+            elif event.roads and viewer_traffic is not None:
+                busiest = max(event.roads, key=lambda r: int(viewer_traffic.readings[r]))
+                if busiest not in crashes:
+                    crashes.append(busiest)
+        return closed[:MAX_CLOSED_ROADS], crashes[:20]
 
     app = FastAPI(
         title="DynaCITY Urban-Form Forecasting",
@@ -149,6 +188,13 @@ def create_app(
         # reports schema violations — rather than a 500.
         try:
             return engine.forecast(request)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/forecast/compare")
+    def forecast_compare(request: ForecastRequest) -> dict:
+        try:
+            return compare_forecast(engine, request)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -195,23 +241,37 @@ def create_app(
                 compilation = compile_scenario(
                     request.text, viewer_snapshot, provider=provider(),
                     client=scenario_client, evidence=evidence,
+                    road_names=viewer_traffic.name if viewer_traffic is not None else None,
                 )
             except RuntimeError as exc:
                 raise HTTPException(status_code=503, detail=str(exc)) from exc
             forecast = None
+            baseline = None
+            comparison = None
             hazards: list[dict] = []
             traffic = None
             if compilation.scenario is not None:
-                result = engine.forecast(ForecastRequest(
-                    snapshot=viewer_snapshot, scenario=compilation.scenario, draws=viewer_draws
-                ))
-                forecast = forecast_summary(result)
+                try:
+                    compared = compare_forecast(engine, ForecastRequest(
+                        snapshot=viewer_snapshot, scenario=compilation.scenario, draws=viewer_draws
+                    ))
+                except ValueError as exc:
+                    raise HTTPException(status_code=422, detail=str(exc)) from exc
+                forecast = forecast_summary(compared["forecast"])
+                baseline = forecast_summary(compared["baseline"])
+                comparison = compared["comparison"]
                 # Lets the page fly to where each disaster strikes.
                 hazards = hazard_focus(compilation.scenario.hazards, viewer_snapshot, ground=viewer_ground)
-                traffic = roads_after(compilation.scenario.hazards, request.hour)
+                closed, crashes = road_event_sites(compilation.road_events)
+                traffic = roads_after(compilation.scenario.hazards, request.hour, closed, crashes)
+            else:
+                closed, crashes = [], []
             return {
                 "compilation": compilation.model_dump(mode="json"), "forecast": forecast, "hazards": hazards,
+                "baseline": baseline, "comparison": comparison,
                 "traffic": traffic,
+                # Road indices the typed closures and crashes landed on, for the page's road tools.
+                "road_events": {"closed": closed, "crashes": crashes},
             }
 
     # Disasters dragged onto the map: placed by the page, so no language model
@@ -247,13 +307,32 @@ def create_app(
                 )
             except ValidationError as exc:
                 raise HTTPException(status_code=422, detail=exc.errors()[0]["msg"]) from exc
-            result = engine.forecast(ForecastRequest(snapshot=viewer_snapshot, scenario=scenario, draws=viewer_draws))
+            try:
+                compared = compare_forecast(engine, ForecastRequest(
+                    snapshot=viewer_snapshot, scenario=scenario, draws=viewer_draws
+                ))
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
             return {
                 "scenario": scenario.model_dump(mode="json"),
-                "forecast": forecast_summary(result),
+                "forecast": forecast_summary(compared["forecast"]),
+                "baseline": forecast_summary(compared["baseline"]),
+                "comparison": compared["comparison"],
                 "hazards": hazard_focus(hazards, viewer_snapshot, ground=viewer_ground),
                 "traffic": roads_after(hazards, request.hour),
             }
+
+    # Road impact alone, without re-running the forecast: for the hour slider,
+    # and for closures and crashes placed on the roads by hand.
+    if viewer_snapshot is not None and viewer_traffic is not None:
+        from .traffic_sumo import install_routes
+        install_routes(app, viewer_traffic, viewer_snapshot, viewer_ground)
+        @app.post("/v1/viewer/traffic")
+        def viewer_traffic_impact(request: ViewerTrafficRequest) -> dict:
+            try:
+                return {"traffic": roads_after(request.hazards, request.hour, request.closed, request.crashes)}
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     # Questions about the map are answered by code from the snapshot and the
     # business-as-usual forecast; the model only turns the question into a

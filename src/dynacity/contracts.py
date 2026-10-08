@@ -241,6 +241,12 @@ class ScenarioSpec(BaseModel):
         ids = [item.hazard_id for item in self.hazards]
         if len(ids) != len(set(ids)):
             raise ValueError("hazard_id values must be unique")
+        lever_ids = [item.intervention_id for item in self.interventions]
+        if len(lever_ids) != len(set(lever_ids)):
+            raise ValueError("intervention_id values must be unique")
+        for item in self.interventions:
+            if item.active_step > self.horizon_years // 2:
+                raise ValueError(f"intervention {item.intervention_id!r} acts beyond the scenario horizon")
         for item in self.hazards:
             if item.occurs_step > self.horizon_years // 2:
                 raise ValueError(
@@ -275,6 +281,10 @@ class ForecastRequest(BaseModel):
 
         if self.snapshot.snapshot_id != self.scenario.baseline_snapshot_id:
             raise ValueError("scenario baseline_snapshot_id does not match snapshot_id")
+        known_ids = {item.object_id for item in self.snapshot.objects}
+        for item in self.scenario.interventions:
+            if set(item.object_ids) - known_ids:
+                raise ValueError(f"intervention {item.intervention_id!r} refers to buildings outside the snapshot")
         return self
 
 
@@ -345,4 +355,7 @@ class ForecastResult(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     evidence_bundle_id: str | None = None
     hazard_impacts: list[HazardImpact] = Field(default_factory=list)
-
+    # Optional for compatibility with saved results; never infer unknown periods.
+    baseline_as_of: date | None = None
+    training_intervals: list[str] = Field(default_factory=list)
+    monte_carlo_draws: int | None = Field(default=None, ge=50)

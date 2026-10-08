@@ -38,6 +38,11 @@ graph = [
   "torch>=2.5,<3",
 ]
 
+sumo = [
+  "eclipse-sumo==1.22.0",
+  "traci==1.22.0",
+]
+
 [project.scripts]
 dynacity = "dynacity.cli:main"
 

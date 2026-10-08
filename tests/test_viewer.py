@@ -40,7 +40,7 @@ def test_utm_inverse_matches_reference_projection():
 def test_payload_joins_geometry_to_states_in_lonlat(bbed_collection):
     snapshot = snapshot_for(bbed_collection)
     payload = build_viewer_payload(bbed_collection, snapshot, bau(snapshot))
-    assert payload["coverage"] == {"drawn": 2, "missing_geometry": 0, "estimated_height": 0}
+    assert {k: v for k, v in payload["coverage"].items() if k != "quality"} == {"drawn": 2, "missing_geometry": 0, "estimated_height": 0}
     first = payload["buildings"][0]
     assert first["id"] == snapshot.objects[0].object_id and first["state"] == "stable_built"
     assert first["rings"][0][0] == pytest.approx(list(utm_to_lonlat(0.0, 0.0, 36)), abs=1e-7)
@@ -71,7 +71,7 @@ def test_missing_geometry_and_estimated_heights_are_counted(bbed_collection):
     bbed_collection["features"][1]["geometry"] = None
     bbed_collection["features"][0]["properties"]["Building_Hight_m"] = None
     payload = build_viewer_payload(bbed_collection, snapshot_for(bbed_collection))
-    assert payload["coverage"] == {"drawn": 1, "missing_geometry": 1, "estimated_height": 1}
+    assert {k: v for k, v in payload["coverage"].items() if k != "quality"} == {"drawn": 1, "missing_geometry": 1, "estimated_height": 1}
     assert payload["buildings"][0]["est"] is True and payload["buildings"][0]["h"] == pytest.approx(4 * 3.2 + 3.2)
 
 
@@ -135,3 +135,73 @@ def test_export_viewer_cli(tmp_path, bbed_collection):
     main(["export-viewer", "--bbed", str(bbed), "--snapshot", str(snapshot), "--output", str(output)])
     page = output.read_text()
     assert "deck.gl@9.4.0" in page and "maplibre-gl@5.24.0" in page
+
+
+def test_imported_car_geometry_and_export_are_self_contained():
+    import base64
+    import json
+    from importlib.resources import files
+
+    import numpy as np
+
+    source = files("dynacity").joinpath("assets/cars/meshes.json").read_text()
+    models = json.loads(source)
+    for name, length in [("sedan", 4.4), ("suv", 4.6)]:
+        model = models[name]
+        positions = np.frombuffer(base64.b64decode(model["positions"]), dtype="<f4").reshape(-1, 3)
+        normals = np.frombuffer(base64.b64decode(model["normals"]), dtype="<f4").reshape(-1, 3)
+        indices = np.frombuffer(base64.b64decode(model["indices"]), dtype="<u2")
+        assert len(positions) == model["vertices"] == len(normals)
+        assert np.isfinite(positions).all() and np.isfinite(normals).all()
+        assert np.ptp(positions[:, 0]) == pytest.approx(length)
+        assert positions[:, 2].min() == pytest.approx(0)
+        assert np.linalg.norm(normals, axis=1) == pytest.approx(np.ones(len(normals)), abs=1e-5)
+        assert len(indices) == model["triangles"] * 3 and indices.max() < len(positions)
+        assert len(base64.b64decode(model["colors"])) == len(positions) * 3
+    page = render_viewer({"traffic": {"roads": []}})
+    assert "__DYNACITY_CARS__" not in page
+    assert models["sedan"]["positions"] in page
+    assert "const IMPORTED_CARS = {};" in render_viewer({})
+
+
+def test_evidence_distinguishes_source_wave_and_height_derivation(bbed_collection):
+    props = bbed_collection['features'][0]['properties']
+    props['F5__Current_status'] = None
+    props['Building_Hight_m'] = None
+    snapshot = snapshot_for(bbed_collection)
+    snapshot.objects[0].features['private_probe'] = 918273
+    snapshot.objects[0].provenance['private_note'] = 'do not publish'
+    payload = build_viewer_payload(bbed_collection, snapshot)
+    building = payload['buildings'][0]
+    assert building['status_source'] == 'BBED 2022 fallback'
+    assert building['height_source'] == 'Estimated from floors × 3.2 m'
+    assert payload['evidence']['status_sources'] == {'BBED 2022 fallback': 1, 'BBED 2024': 1}
+    assert payload['evidence']['height_recorded'] == 1
+    assert 'private_probe' not in json.dumps(payload)
+    assert 'do not publish' not in json.dumps(payload)
+    snapshot.objects[0].floors = None
+    fallback = build_viewer_payload(bbed_collection, snapshot)['buildings'][0]
+    assert fallback['height_source'] == 'Illustrative fallback (6 m)'
+
+
+def test_forecast_evidence_survives_api_and_saved_result(bbed_collection):
+    from dynacity.contracts import ForecastResult
+    snapshot = snapshot_for(bbed_collection)
+    result = bau(snapshot)
+    summary = build_viewer_payload(bbed_collection, snapshot, result)['forecast']
+    assert summary['baseline_as_of'] == '2024-04-30'
+    assert summary['training_intervals'] == engine_fixture().bundle.training_intervals
+    assert summary['monte_carlo_draws'] == 50
+    client = TestClient(create_app(engine_fixture()))
+    request = ForecastRequest(snapshot=snapshot, scenario=ScenarioSpec(
+        scenario_id='bau', baseline_snapshot_id=snapshot.snapshot_id, horizon_years=2), draws=50)
+    response = client.post('/v1/forecast', json=request.model_dump(mode='json'))
+    assert response.status_code == 200
+    assert response.json()['monte_carlo_draws'] == 50
+    old = result.model_dump(mode='json')
+    for key in ('baseline_as_of', 'training_intervals', 'monte_carlo_draws'):
+        old.pop(key)
+    legacy = ForecastResult.model_validate(old)
+    legacy_summary = build_viewer_payload(bbed_collection, snapshot, legacy)['forecast']
+    assert legacy_summary['training_intervals'] == []
+    assert legacy_summary['monte_carlo_draws'] is None

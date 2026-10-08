@@ -200,3 +200,57 @@ def test_use_filter_that_narrows_scope_is_flagged():
                      eligible_from_states=["stalled_or_cancelled", "active_construction"])
     report = check_draft(narrowed, snapshot(), REQUEST)
     assert "selector.use_filter_narrows" in codes(report)
+
+
+def test_street_matching_ignores_accents_case_and_road_words():
+    from dynacity.scenario_compiler import match_street
+
+    names = ["Charles Hélou Avenue - Sea Highway", "Rue Gouraud", "Charles Malek Avenue", ""]
+    assert match_street("charles helou", names) == [0]
+    assert match_street("Charles Helou Avenue", names) == [0]
+    assert match_street("Charles", names) == [0, 2]
+    assert match_street("Avenue", names) == []  # no distinctive word
+
+
+def test_road_events_are_checked_against_the_request_and_the_map():
+    from dynacity.scenario_compiler import DraftRoadEvent, check_draft
+
+    def with_event(street):
+        return ScenarioDraft(scenario_id="r", horizon_years=2,
+                             road_events=[DraftRoadEvent(event_id="e", kind="closure", street=street)])
+
+    names = ["Rue Gouraud", "Charles Hélou Avenue"]
+    text = "Close Rue Gouraud for a month"
+    assert check_draft(with_event("Gouraud"), snapshot(), text, road_names=names).ok
+    assert "road.unsupported" in codes(check_draft(with_event("Gouraud"), snapshot(), text))
+    assert "road.not_in_request" in codes(check_draft(with_event("Charles Helou"), snapshot(), text, road_names=names))
+    unknown = check_draft(with_event("Gouraud"), snapshot(), text, road_names=["Rue Spears"])
+    assert "road.unknown_street" in codes(unknown)
+
+
+def test_road_events_reach_the_prompt_only_with_a_street_network():
+    from dynacity.scenario_compiler import DraftRoadEvent, system_prompt
+
+    assert "road event" in system_prompt(roads=True)
+    assert "road event" not in system_prompt(roads=False)
+    draft = ScenarioDraft(scenario_id="r", horizon_years=2,
+                          road_events=[DraftRoadEvent(event_id="e", kind="crash", street="Gouraud")])
+    client = FakeClient(draft)
+    result = compile_scenario("A crash on Gouraud", snapshot(), client=client, road_names=["Rue Gouraud", "Spears"])
+    assert result.ok and result.road_events[0].roads == [0]
+    assert "road event" in str(client.calls[0])
+
+
+def test_arabic_street_names_are_matched_and_checked_without_losing_letters():
+    from dynacity.scenario_compiler import DraftRoadEvent, match_street
+
+    names = ["شارع الحمراء", "شارع الحمرا", "شارع غورو"]
+    assert match_street("الحَمْراء", names) == [0]
+    assert match_street("شارع", names) == []
+    draft = ScenarioDraft(scenario_id="arabic", horizon_years=2, road_events=[
+        DraftRoadEvent(event_id="closure", kind="closure", street="شارع الحمراء"),
+    ])
+    assert check_draft(draft, snapshot(), "أغلق شارع الحمراء", road_names=names).ok
+    assert "road.not_in_request" in codes(
+        check_draft(draft, snapshot(), "أغلق شارع غورو", road_names=names)
+    )

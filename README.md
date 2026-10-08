@@ -166,3 +166,6 @@ pytest
 ```
 
 The tests use synthetic LAS and BBED fixtures. They do not download or redistribute AUB data.
+
+For repeatable extract, snapshot and panel coverage checks and immutable private
+update candidates, see [Data coverage and checked updates](docs/data-coverage.md).

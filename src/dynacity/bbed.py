@@ -83,7 +83,8 @@ def resolved_object_ids(
             resolved.append(f"OBJECTID:{arcgis_id}")
         else:
             resolved.append(f"{preferred_field}:{preferred}|OBJECTID:{arcgis_id}")
-    if len(set(resolved)) != len(resolved):
+    row_ids = [str(f.get("properties", {}).get("OBJECTID")) for f in feature_list]
+    if len(set(row_ids)) != len(row_ids) or len(set(resolved)) != len(resolved):
         raise ValueError("BBED OBJECTID values do not provide unique object identities")
     return resolved
 
@@ -111,6 +112,8 @@ class BBEDClient:
         bbox: tuple[float, float, float, float] | None = None,
         fields: Iterable[str] = BBED_FIELDS,
     ) -> dict:
+        if self.page_size <= 0:
+            raise ValueError("page_size must be positive")
         requested = tuple(fields)
         # The privacy gate. Checked before any network call, so a disallowed
         # field can never reach the server — not even to be discarded locally.
@@ -118,6 +121,8 @@ class BBEDClient:
         if disallowed:
             raise ValueError(f"fields are not in the privacy allowlist: {disallowed}")
 
+        if "OBJECTID" not in requested:
+            raise ValueError("OBJECTID is required for complete pagination")
         features: list[dict] = []
         offset = 0
         # ArcGIS caps rows per response, so paginate until a short page arrives.
@@ -147,9 +152,14 @@ class BBEDClient:
             page = json.loads(self.transport(url))
             if "error" in page:
                 raise RuntimeError(f"BBED query failed: {page['error']}")
-            page_features = page.get("features", [])
+            if page.get("type") != "FeatureCollection" or not isinstance(page.get("features"), list):
+                raise RuntimeError("BBED returned a malformed feature page")
+            page_features = page["features"]
             features.extend(page_features)
-            if len(page_features) < self.page_size:
+            resolved_object_ids(features)
+            if not page_features and page.get("exceededTransferLimit"):
+                raise RuntimeError("BBED pagination made no progress")
+            if len(page_features) < self.page_size and not page.get("exceededTransferLimit"):
                 break
             offset += len(page_features)
 

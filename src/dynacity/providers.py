@@ -104,6 +104,15 @@ class AnthropicProvider:
         except Exception as exc:
             if self._unavailable(exc):
                 return None, UNAVAILABLE
+            if isinstance(exc, ValidationError):
+                return None, INVALID_OUTPUT
+            try:
+                import anthropic
+            except ImportError:
+                raise exc
+            if isinstance(exc, anthropic.APIStatusError):
+                raise RuntimeError("Language-model provider rejected the call; check its credentials, "
+                                   "configured model and structured-output support.") from exc
             raise
         if response.stop_reason == "refusal":
             return None, REFUSED
@@ -176,7 +185,8 @@ class GeminiProvider:
                 return response
             except errors.APIError as exc:
                 if getattr(exc, "code", None) not in self._UNAVAILABLE:
-                    raise
+                    raise RuntimeError("Language-model provider rejected the call; check its credentials, "
+                                       "configured model and structured-output support.") from exc
             except httpx.TransportError:
                 # Dropped connections (seen live as SSL EOFs) are not the
                 # request's fault; the next model is effectively a retry.

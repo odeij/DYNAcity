@@ -5,11 +5,18 @@
 - the drivable OpenStreetMap ways (fetched from Overpass, or a saved Overpass
   JSON), split at shared nodes into a directed road graph in the snapshot CRS;
 - the Tari'ak Lebanon traffic dataset: about six million crowd-sourced vehicle
-  speeds map-matched to OSM ways, 2014-2019. Each way gets a median speed per
+  speeds map-matched to OSM ways, 2014-2019 (2015-2019 inside Beirut). Each way gets a median speed per
   hour of the day; ways with too few readings borrow their road class's hourly
   profile and are flagged `estimated`.
 
 The result is a small JSON file kept under `DYNACITY_DATA_ROOT`.
+
+Volume comes from a third source: the AM and PM peak-hour vehicle counts the
+CDR's Bus Rapid Transit study made on named Beirut roads (`COUNT_STATIONS`).
+They are matched to OSM ways by name and summarised per road class, spread
+over the day with that class's hourly share of probe readings and bent to
+pass through both peaks, then scaled by each road's lanes (`estimated_flow`).
+The counts are 2016-17 road-level figures, not per-segment measurements.
 
 What it can and cannot say. Tari'ak records *speed*, not how many vehicles
 there are, so congestion comes from the data but volume does not: the number
@@ -28,8 +35,17 @@ Disasters act on roads through `road_disruption`:
   inner part of the footprint (exposure at least `CORDON_EXPOSURE`);
 - weather: storms and rain slow the roads they reach.
 
+Closures and vehicle crashes can also be placed on the map by hand
+(`road_events`), God's Plan style, and combined with any disasters
+(`combine_disruptions`).
+
 `traffic_impact` then samples trips across the graph and routes each before
 and after, reporting how many are cut off and how much longer the rest take.
+The trips over closed roads are rerouted in batches (incremental assignment),
+and the roads they move onto slow down by the BPR volume-delay curve
+(capacity from OSM lane counts), so a detour through a narrow street jams;
+trips are then re-timed once on the congested network. Bus and van routes from OSM are kept
+alongside, so a result can name the lines a closure cuts.
 Every closure rule and slowdown factor is an illustrative assumption, like the
 fragility numbers in `hazards.PROFILES`; nothing here is calibrated against
 observed disruptions. It is a picture of the consequence, not a traffic model.
@@ -51,6 +67,8 @@ from .hazards import PROFILES, _distance_to_path, _exposure, flood_level, hazard
 from .viewer import _utm_zone, lonlat_to_utm, utm_to_lonlat
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+# Tried in turn when the main server is busy (it often answers 429/504).
+OVERPASS_MIRRORS = ("https://overpass.kumi.systems/api/interpreter",)
 ATTRIBUTION = (
     "Traffic speeds: Lebanon Traffic Dataset (Tari'ak, 2014-2019), ODbL. "
     "Roads © OpenStreetMap contributors, ODbL."
@@ -84,6 +102,29 @@ CORDON_KINDS = frozenset({
 })
 # Speed multiplier at full exposure; it eases back to 1 at the footprint edge.
 WEATHER_SLOWDOWN = {HazardKind.STORM: 0.7, HazardKind.RAIN: 0.85}
+# A crash blocks its own segment and slows traffic queuing behind it: speeds
+# drop to CRASH_SLOWDOWN × normal right at the crash, easing back to normal
+# CRASH_QUEUE_M away. Assumptions, like the rules above.
+CRASH_SLOWDOWN = 0.5
+CRASH_QUEUE_M = 250.0
+# Lanes in each direction when OSM has no `lanes` tag, by road class.
+DEFAULT_LANES = {"motorway": 3, "trunk": 2, "primary": 2, "secondary": 2}
+# Vehicles per hour per lane a road can carry, by class (assumed: typical
+# urban values, not measured in Beirut). Links carry 80% of their class.
+CAPACITY_PER_LANE = {
+    "motorway": 1900, "trunk": 1600, "primary": 1200, "secondary": 1000, "tertiary": 800,
+    "unclassified": 600, "residential": 500, "living_street": 300,
+}
+# Classes the CDR survey did not count are assumed to run at this share of
+# their capacity at 09:00, shaped over the day by their probe readings. The
+# counted classes come out at 0.69 (trunk) and 0.76 (secondary).
+UNCOUNTED_PEAK_VC = 0.6
+# BPR volume-delay curve: travel time = free time × (1 + α (V/C)^β).
+BPR_ALPHA, BPR_BETA = 0.15, 4.0
+# Detoured trips are assigned in this many batches (incremental assignment).
+ASSIGNMENT_STEPS = 4
+# A trip delayed by more than this counts as delayed.
+DELAYED_MIN = 0.5
 # Edge geometry is sampled this often when testing it against a hazard.
 SAMPLE_STEP_M = 10.0
 
@@ -112,6 +153,16 @@ class TrafficModel:
     estimated: np.ndarray
     period: str = "2014-2019"
     source: str = ATTRIBUTION
+    # OSM street name per road ("" when unnamed).
+    name: list[str] = field(default_factory=list)
+    # Probe readings per hour of day for each road class: how the day's
+    # traffic is shaped, used to spread the peak-hour counts over 24 hours.
+    class_hour_readings: dict[str, list[int]] = field(default_factory=dict)
+    # Lanes in each direction from OSM (0 = untagged; see `lanes_of`).
+    lanes: np.ndarray | None = None
+    # Bus and van routes from OSM: label, operator, member way ids, and paths
+    # in longitude/latitude.
+    bus_routes: list[dict[str, Any]] = field(default_factory=list)
     _graph_cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     def __len__(self) -> int:
@@ -123,14 +174,18 @@ class TrafficModel:
 
     def save(self, path: str | Path) -> None:
         payload = {
-            "schema": "dynacity-traffic/1",
+            "schema": "dynacity-traffic/2",
             "crs": self.crs,
             "period": self.period,
             "source": self.source,
+            "class_hour_readings": self.class_hour_readings,
+            "bus_routes": self.bus_routes,
             "roads": [
                 {
                     "u": int(self.u[i]), "v": int(self.v[i]), "oneway": int(self.oneway[i]),
                     "highway": self.highway[i], "way": int(self.way_id[i]),
+                    "name": self.name[i] if self.name else "",
+                    "lanes": float(self.lanes[i]) if self.lanes is not None else 0.0,
                     "length_m": round(float(self.length_m[i]), 1),
                     "xy": [[round(x, 1), round(y, 1)] for x, y in self.geometry[i]],
                     "speed": [round(float(s), 1) for s in self.speed_kmh[i]],
@@ -144,7 +199,7 @@ class TrafficModel:
     @classmethod
     def load(cls, path: str | Path) -> TrafficModel:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
-        if payload.get("schema") != "dynacity-traffic/1":
+        if payload.get("schema") not in ("dynacity-traffic/1", "dynacity-traffic/2"):
             raise ValueError(f"{path} is not a dynacity traffic model")
         roads = payload["roads"]
         speed = np.asarray([r["speed"] for r in roads], dtype=np.float64).reshape(len(roads), 24)
@@ -163,10 +218,30 @@ class TrafficModel:
             estimated=np.asarray([r["estimated"] for r in roads], dtype=bool),
             period=payload.get("period", "2014-2019"),
             source=payload.get("source", ATTRIBUTION),
+            name=[r.get("name", "") for r in roads],
+            class_hour_readings=payload.get("class_hour_readings", {}),
+            lanes=np.asarray([r.get("lanes", 0.0) for r in roads], dtype=np.float64),
+            bus_routes=payload.get("bus_routes", []),
         )
 
 
 # --- building the model -----------------------------------------------------
+
+
+def _cached(fn):
+    """Memoise a model-only computation on the model (they are re-used per request)."""
+
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(model: TrafficModel):
+        key = f"fn:{fn.__name__}"
+        if key not in model._graph_cache:
+            model._graph_cache[key] = fn(model)
+        value = model._graph_cache[key]
+        return value.copy() if isinstance(value, np.ndarray) else value
+
+    return wrapper
 
 
 def snapshot_extent(snapshot: UrbanStateSnapshot, margin_m: float) -> tuple[float, float, float, float]:
@@ -195,16 +270,31 @@ def overpass_query(bbox: tuple[float, float, float, float]) -> str:
     )
 
 
-def fetch_osm_roads(bbox: tuple[float, float, float, float], *, url: str = OVERPASS_URL) -> dict:
-    """Drivable OSM ways in the box, as Overpass JSON (ways carry node ids and geometry)."""
+def _overpass(query: str, url: str) -> dict:
+    """Run an Overpass query, falling back to the mirrors when a server is busy."""
 
+    import time
+    import urllib.error
     import urllib.parse
     import urllib.request
 
-    body = urllib.parse.urlencode({"data": overpass_query(bbox)}).encode()
-    request = urllib.request.Request(url, data=body, headers={"User-Agent": "dynacity-forecasting/0.1"})
-    with urllib.request.urlopen(request, timeout=180) as response:
-        return json.loads(response.read().decode("utf-8"))
+    body = urllib.parse.urlencode({"data": query}).encode()
+    last: Exception | None = None
+    for attempt, server in enumerate((url, *OVERPASS_MIRRORS, url)):
+        request = urllib.request.Request(server, data=body, headers={"User-Agent": "dynacity-forecasting/0.1"})
+        try:
+            with urllib.request.urlopen(request, timeout=180) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError) as exc:
+            last = exc
+            time.sleep(2 + 3 * attempt)
+    raise RuntimeError(f"Overpass did not answer: {last}")
+
+
+def fetch_osm_roads(bbox: tuple[float, float, float, float], *, url: str = OVERPASS_URL) -> dict:
+    """Drivable OSM ways in the box, as Overpass JSON (ways carry node ids and geometry)."""
+
+    return _overpass(overpass_query(bbox), url)
 
 
 def _oneway(tags: dict) -> int:
@@ -216,6 +306,22 @@ def _oneway(tags: dict) -> int:
     if tags.get("highway") == "motorway" or tags.get("junction") == "roundabout":
         return 1 if value != "no" else 0
     return 0
+
+
+def _lanes_per_direction(tags: dict, oneway: int) -> float:
+    """Lanes in each direction from OSM `lanes` (a two-way total is halved); 0 when untagged."""
+
+    try:
+        total = float(str(tags.get("lanes", "")).split(";")[0])
+    except ValueError:
+        return 0.0
+    if total <= 0:
+        return 0.0
+    return total if oneway else max(1.0, total / 2)
+
+
+def _road_name(tags: dict) -> str:
+    return str(tags.get("name:en") or tags.get("name:fr") or tags.get("name") or "")
 
 
 def road_graph(overpass: dict, crs: str) -> dict[str, Any]:
@@ -232,7 +338,7 @@ def road_graph(overpass: dict, crs: str) -> dict[str, Any]:
         for node in way["nodes"]:
             uses[node] = uses.get(node, 0) + 1
     index: dict[int, int] = {}
-    geometry, u, v, oneway, highway, way_ids = [], [], [], [], [], []
+    geometry, u, v, oneway, highway, way_ids, names, lanes = [], [], [], [], [], [], [], []
     for way in ways:
         nodes = way["nodes"]
         points = [lonlat_to_utm(p["lon"], p["lat"], zone, north) for p in way["geometry"]]
@@ -247,14 +353,16 @@ def road_graph(overpass: dict, crs: str) -> dict[str, Any]:
                     oneway.append(_oneway(way.get("tags", {})))
                     highway.append(way["tags"]["highway"])
                     way_ids.append(int(way["id"]))
+                    names.append(_road_name(way["tags"]))
+                    lanes.append(_lanes_per_direction(way["tags"], oneway[-1]))
                 start = i
     lengths = [
         sum(math.dist(a, b) for a, b in zip(g[:-1], g[1:], strict=True)) for g in geometry
     ]
     return {
         "geometry": geometry, "u": np.asarray(u, dtype=np.int64), "v": np.asarray(v, dtype=np.int64),
-        "oneway": np.asarray(oneway, dtype=np.int8), "highway": highway, "way_id": way_ids,
-        "length_m": np.asarray(lengths, dtype=np.float64),
+        "oneway": np.asarray(oneway, dtype=np.int8), "highway": highway, "way_id": way_ids, "name": names,
+        "lanes": np.asarray(lanes, dtype=np.float64), "length_m": np.asarray(lengths, dtype=np.float64),
     }
 
 
@@ -338,6 +446,7 @@ def build_traffic_model(
     margin_m: float = 800.0,
     velocity_unit: str = "kmh",
     chunksize: int = 500_000,
+    bus_overpass: dict | None = None,
 ) -> TrafficModel:
     """Roads over the snapshot extent (plus a margin) with Tari'ak hourly speeds.
 
@@ -350,7 +459,10 @@ def build_traffic_model(
 
     factor = {"kmh": 1.0, "ms": 3.6}[velocity_unit]
     if overpass is None:
-        overpass = fetch_osm_roads(snapshot_extent(snapshot, margin_m))
+        bbox = snapshot_extent(snapshot, margin_m)
+        overpass = fetch_osm_roads(bbox)
+        if bus_overpass is None:
+            bus_overpass = fetch_bus_routes(bbox)
     graph = road_graph(overpass, snapshot.crs)
     if not graph["geometry"]:
         raise ValueError("no drivable roads in the snapshot extent")
@@ -360,11 +472,252 @@ def build_traffic_model(
         ignore_index=True,
     )
     speed, counts, estimated = hourly_speeds(readings, graph["way_id"], graph["highway"])
+    cls_of_way = dict(zip(graph["way_id"], graph["highway"], strict=True))
+    per_hour = readings.assign(cls=readings["way"].map(cls_of_way)).groupby(["cls", "hour"]).size()
+    class_hour = {
+        cls: [int(per_hour.get((cls, h), 0)) for h in range(24)] for cls in sorted(set(graph["highway"]))
+    }
     return TrafficModel(
         crs=snapshot.crs, geometry=graph["geometry"], u=graph["u"], v=graph["v"],
         length_m=graph["length_m"], oneway=graph["oneway"], highway=graph["highway"], way_id=graph["way_id"],
         speed_kmh=speed, free_kmh=speed.max(axis=1), readings=counts, estimated=estimated,
+        name=graph["name"], class_hour_readings=class_hour, lanes=graph["lanes"],
+        bus_routes=(
+            bus_routes_from_overpass(bus_overpass, snapshot_extent(snapshot, margin_m), overpass) if bus_overpass else []
+        ),
     )
+
+
+def fetch_bus_routes(bbox: tuple[float, float, float, float], *, url: str = OVERPASS_URL) -> dict:
+    """Bus, minibus and shared-taxi route relations touching the box, with member geometry."""
+
+    west, south, east, north = bbox
+    # Members only, no geometry: route geometry comes from the road ways
+    # already fetched (`bus_routes_from_overpass`), which keeps the query
+    # light enough for the public servers.
+    query = (
+        f'[out:json][timeout:120];relation["route"~"^(bus|minibus|share_taxi)$"]'
+        f"({south:.6f},{west:.6f},{north:.6f},{east:.6f});out body;"
+    )
+    return _overpass(query, url)
+
+
+def bus_routes_from_overpass(
+    overpass: dict, bbox: tuple[float, float, float, float], roads: dict | None = None
+) -> list[dict[str, Any]]:
+    """Routes clipped to the ways that come within the box (long intercity lines are cut at the edge).
+
+    A member's geometry is its own when the query returned it, else that of
+    the same way in `roads` (the roads Overpass JSON); members found in
+    neither are outside the extent and dropped.
+    """
+
+    west, south, east, north = bbox
+    known = {
+        int(w["id"]): w["geometry"] for w in (roads or {}).get("elements", [])
+        if w.get("type") == "way" and w.get("geometry")
+    }
+    routes = []
+    for rel in overpass.get("elements", []):
+        if rel.get("type") != "relation":
+            continue
+        tags = rel.get("tags", {})
+        ways, paths = [], []
+        for member in rel.get("members", []):
+            if member.get("type") != "way":
+                continue
+            geometry = member.get("geometry") or known.get(int(member["ref"])) or []
+            if len(geometry) < 2 or any(p is None for p in geometry):
+                continue
+            if not any(west <= p["lon"] <= east and south <= p["lat"] <= north for p in geometry):
+                continue
+            ways.append(int(member["ref"]))
+            paths.append([[round(p["lon"], 6), round(p["lat"], 6)] for p in geometry])
+        if not paths:
+            continue
+        label = tags.get("ref") or tags.get("name:en") or tags.get("name") or (
+            f"{tags['operator']} route" if tags.get("operator") else "Unnamed route"
+        )
+        routes.append({
+            "id": int(rel["id"]), "label": str(label), "name": tags.get("name:en") or tags.get("name") or "",
+            "operator": tags.get("operator", ""), "mode": tags.get("route", "bus"), "ways": ways, "paths": paths,
+        })
+    return routes
+
+
+# --- measured volumes ----------------------------------------------------------
+
+# Full citation: CDR, Environmental and Social Impact Assessment for the Bus
+# Rapid Transit System between Tabarja and Beirut (ELARD, 2017), Table 4-4.
+COUNT_SOURCE = "Peak counts: CDR BRT ESIA (ELARD, 2017)."
+# Vehicles per hour in each direction on Beirut roads in that survey: AM peak
+# 09:00-10:00 and PM peak 15:30-16:30. Numbered positions on one road are
+# separate rows. Each road is matched to OSM ways by an English/French name
+# pattern. Stations outside Beirut (the Jounieh coastal highway, Zouk,
+# Harissa, Antelias) are left out: the snapshot extent never reaches them.
+COUNT_STATIONS: tuple[tuple[str, str, tuple[int, int], tuple[int, int]], ...] = (
+    ("General De Gaulle Road", r"de gaulle", (1161, 1095), (970, 1699)),
+    ("Minet El Hosn Road", r"minet el[- ]?hosn", (1331, 2783), (1564, 2777)),
+    ("Charles Helou Road", r"charles h[eé]lou", (3705, 7024), (4731, 4270)),
+    ("Pierre Gemayel Road-1", r"pierre gemayel", (2366, 1744), (2354, 1540)),
+    ("Pierre Gemayel Road-2", r"pierre gemayel", (2852, 3033), (2866, 2605)),
+    ("Abdallah Elyafi", r"abdallah el[- ]?yafi", (2512, 2170), (2395, 1945)),
+    ("Saeb Salem Road", r"sa[eë]b sala", (2284, 2378), (2835, 2490)),
+    ("Michel Chiha Road", r"michel chiha", (2738, 1910), (3815, 1612)),
+    ("Sagesse Road", r"sagesse", (1156, 1117), (1136, 1035)),
+    ("Independence Street-1", r"^independence avenue", (1273, 1517), (1495, 1152)),
+    ("Independence Street-2", r"^independence avenue", (973, 1036), (1005, 779)),
+    ("Independence Street-3", r"^independence avenue", (2002, 1267), (1814, 1582)),
+)
+COUNT_HOUR = 9  # the AM peak window starts at 09:00
+
+
+def match_stations(model: TrafficModel) -> list[dict[str, Any]]:
+    """Count stations with the roads they were matched to (those of the road's main class)."""
+
+    import re
+
+    matched = []
+    for label, pattern, am, pm in COUNT_STATIONS:
+        roads = [i for i, n in enumerate(model.name) if n and re.search(pattern, n, re.I)]
+        cls = None
+        if roads:
+            length: dict[str, float] = {}
+            for i in roads:
+                length[model.highway[i]] = length.get(model.highway[i], 0.0) + float(model.length_m[i])
+            cls = max(length, key=length.get)
+            roads = [i for i in roads if model.highway[i] == cls]
+        matched.append({
+            "label": label, "am": list(am), "pm": list(pm), "class": cls, "roads": roads,
+            "am_per_direction": round(sum(am) / len(am)),
+        })
+    return matched
+
+
+@_cached
+def class_peak_volumes(model: TrafficModel) -> dict[str, dict[str, Any]]:
+    """AM-peak vehicles per hour per direction for each counted road class.
+
+    The median over that class's matched stations. `primary` was not counted;
+    it gets the geometric mean of `trunk` and `secondary`, flagged
+    `interpolated`. Other classes get nothing.
+    """
+
+    per_class: dict[str, list[tuple[float, float, list[int]]]] = {}
+    for station in match_stations(model):
+        if station["class"] in ("motorway", "trunk", "primary", "secondary"):
+            pm = sum(station["pm"]) / len(station["pm"])
+            per_class.setdefault(station["class"], []).append((station["am_per_direction"], pm, station["roads"]))
+    lanes = lanes_of(model)
+    out = {}
+    for cls, rows in per_class.items():
+        counted = [r for _, _, roads in rows for r in roads]
+        out[cls] = {
+            "vph": float(np.median([am for am, _, _ in rows])),
+            "pm_vph": float(np.median([pm for _, pm, _ in rows])),
+            # Lanes each way on the counted roads: a road with more lanes than
+            # this carries proportionally more (see `estimated_flow`).
+            "ref_lanes": float(np.median(lanes[counted])) if counted else float(DEFAULT_LANES.get(cls, 1)),
+            "stations": len(rows), "interpolated": False,
+        }
+    if "primary" not in out and "trunk" in out and "secondary" in out:
+        out["primary"] = {
+            "vph": float(math.sqrt(out["trunk"]["vph"] * out["secondary"]["vph"])),
+            "pm_vph": float(math.sqrt(out["trunk"]["pm_vph"] * out["secondary"]["pm_vph"])),
+            "ref_lanes": float(DEFAULT_LANES["primary"]), "stations": 0, "interpolated": True,
+        }
+    return out
+
+
+def lanes_of(model: TrafficModel) -> np.ndarray:
+    """Lanes in each direction per road: the OSM tag, else the class default (1 for links and minor roads)."""
+
+    tagged = model.lanes if model.lanes is not None else np.zeros(len(model))
+    default = np.asarray([DEFAULT_LANES.get(h, 1) for h in model.highway], dtype=np.float64)
+    return np.where(tagged > 0, tagged, default)
+
+
+def capacity_of(model: TrafficModel) -> np.ndarray:
+    """Vehicles per hour per direction each road can carry (lanes × an assumed per-lane capacity)."""
+
+    per_lane = np.asarray([
+        CAPACITY_PER_LANE.get(h.removesuffix("_link"), 500) * (0.8 if h.endswith("_link") else 1.0)
+        for h in model.highway
+    ])
+    return lanes_of(model) * per_lane
+
+
+def _pm_correction(shape: np.ndarray, am: float, pm: float) -> np.ndarray:
+    """Multiplier that makes the readings-shaped day hit the PM count as well as the AM one.
+
+    1 up to 09:00, the PM factor from 16:00 on, linear in between. The PM
+    window is 15:30-16:30, so its shape value is the mean of hours 15 and 16.
+    """
+
+    shape_pm = (shape[15] + shape[16]) / 2
+    if shape_pm <= 0 or am <= 0:
+        return np.ones(24)
+    factor = (pm / am) / shape_pm
+    hours = np.arange(24)
+    return np.where(hours <= COUNT_HOUR, 1.0, np.where(hours >= 16, factor,
+                    1.0 + (factor - 1.0) * (hours - COUNT_HOUR) / (16 - COUNT_HOUR)))
+
+
+@_cached
+def estimated_flow(model: TrafficModel) -> np.ndarray:
+    """[road, hour] vehicles per hour per direction; NaN for classes without a count.
+
+    The class's AM-peak count, scaled by the class's probe readings at each
+    hour relative to 09:00. The probe app's users stand in for drivers' daily
+    rhythm, which is an assumption.
+    """
+
+    flow = np.full((len(model), 24), np.nan)
+    factor = lane_factor(model)
+    for cls, ref in class_peak_volumes(model).items():
+        curve = class_flow_curve(model, cls, ref)
+        if curve is None:
+            continue
+        for i in np.flatnonzero(np.asarray(model.highway) == cls):
+            flow[i] = curve * factor[i]
+    return flow
+
+
+def class_flow_curve(model: TrafficModel, cls: str, ref: dict[str, Any]) -> np.ndarray | None:
+    """Vehicles per hour per direction over the day on a counted road of `ref_lanes` lanes."""
+
+    hours = np.asarray(model.class_hour_readings.get(cls, []), dtype=np.float64)
+    if hours.size != 24 or hours[COUNT_HOUR] <= 0:
+        return None
+    shape = hours / hours[COUNT_HOUR]
+    return ref["vph"] * shape * _pm_correction(shape, ref["vph"], ref.get("pm_vph", ref["vph"]))
+
+
+def lane_factor(model: TrafficModel) -> np.ndarray:
+    """Each road's lanes over its class's counted lanes, kept within 0.5-2 (1 for uncounted classes)."""
+
+    volumes = class_peak_volumes(model)
+    lanes = lanes_of(model)
+    ref = np.asarray([volumes.get(h, {}).get("ref_lanes", 0.0) for h in model.highway])
+    return np.where(ref > 0, np.clip(lanes / np.where(ref > 0, ref, 1.0), 0.5, 2.0), 1.0)
+
+
+@_cached
+def background_flow(model: TrafficModel) -> np.ndarray:
+    """[road, hour] vehicles per hour per direction on every road.
+
+    Counted classes use `estimated_flow`; the rest run at `UNCOUNTED_PEAK_VC`
+    of capacity at 09:00, shaped over the day by their own probe readings.
+    """
+
+    flow = estimated_flow(model) if model.class_hour_readings else np.full((len(model), 24), np.nan)
+    cap = capacity_of(model)
+    for cls in set(model.highway):
+        hours = np.asarray(model.class_hour_readings.get(cls, []), dtype=np.float64)
+        shape = hours / hours[COUNT_HOUR] if hours.size == 24 and hours[COUNT_HOUR] > 0 else np.ones(24)
+        idx = np.flatnonzero((np.asarray(model.highway) == cls) & np.isnan(flow[:, 0]))
+        flow[idx] = UNCOUNTED_PEAK_VC * cap[idx, None] * shape[None, :]
+    return flow
 
 
 # --- disasters on the road network -------------------------------------------
@@ -377,7 +730,7 @@ class RoadDisruption:
     closed: np.ndarray
     # Speed multiplier in (0, 1]; 1 where untouched.
     speed_factor: np.ndarray
-    # Why each closed road is closed: "rubble", "water" or "cordon".
+    # Why each closed road is closed: "rubble", "water", "cordon", "manual" or "crash".
     reason: list[str | None]
 
 
@@ -481,6 +834,40 @@ def road_disruption(
     return RoadDisruption(closed=closed, speed_factor=factor, reason=reason)
 
 
+def road_events(model: TrafficModel, *, closed: Sequence[int] = (), crashes: Sequence[int] = ()) -> RoadDisruption:
+    """Roads closed by hand, and crashes: each blocks its road and slows the queue behind it."""
+
+    roads = len(model)
+    bad = [i for i in (*closed, *crashes) if not 0 <= i < roads]
+    if bad:
+        raise ValueError(f"no road {bad[0]} in this traffic model ({roads} roads)")
+    out_closed = np.zeros(roads, dtype=bool)
+    factor = np.ones(roads)
+    reason: list[str | None] = [None] * roads
+    for i in closed:
+        out_closed[i], reason[i] = True, "manual"
+    if crashes:
+        xy, owner = _samples(model)
+        for i in crashes:
+            out_closed[i], reason[i] = True, "crash"
+            centre = xy[owner == i].mean(axis=0)
+            distance = np.full(roads, np.inf)
+            np.minimum.at(distance, owner, np.linalg.norm(xy - centre, axis=1))
+            near = distance < CRASH_QUEUE_M
+            slow = 1.0 - (1.0 - CRASH_SLOWDOWN) * (1.0 - distance[near] / CRASH_QUEUE_M)
+            factor[near] = np.minimum(factor[near], slow)
+    return RoadDisruption(closed=out_closed, speed_factor=factor, reason=reason)
+
+
+def combine_disruptions(*parts: RoadDisruption) -> RoadDisruption:
+    """Closed where any part closes a road (the first reason wins); speeds take the strongest slowdown."""
+
+    closed = np.logical_or.reduce([p.closed for p in parts])
+    factor = np.minimum.reduce([p.speed_factor for p in parts])
+    reason = [next((p.reason[i] for p in parts if p.closed[i]), None) for i in range(len(closed))]
+    return RoadDisruption(closed=closed, speed_factor=factor, reason=reason)
+
+
 def _directed(model: TrafficModel, hour: int, disruption: RoadDisruption | None) -> tuple[Any, dict]:
     """Sparse travel-time graph (seconds) and the road behind each directed arc."""
 
@@ -521,6 +908,17 @@ def _path_roads(predecessors: np.ndarray, origin: int, target: int, arc_road: di
     return roads
 
 
+# Summary figures reported with their spread across independent trip samples.
+RANGED = {
+    "affected": lambda r: r["affected"],
+    "cut_off": lambda r: r["cut_off"],
+    "delay_p50": lambda r: r["delay_min"]["p50"],
+    "delay_p90": lambda r: r["delay_min"]["p90"],
+    "diverted_vph": lambda r: r["diverted_vph"],
+    "spillover_trips": lambda r: r["spillover"]["trips"],
+}
+
+
 def traffic_impact(
     model: TrafficModel,
     disruption: RoadDisruption,
@@ -529,20 +927,72 @@ def traffic_impact(
     origins: int = 100,
     per_origin: int = 10,
     seed: int = 0,
+    congestion: bool = True,
+    samples: int = 1,
 ) -> dict[str, Any]:
     """Trips routed before and after the disruption at one hour of the day.
 
-    Delays are over the affected trips only (those whose usual route
-    crosses a closed or slowed road), so a local disaster is not averaged
-    away across the whole city. Trip ends are road nodes drawn in proportion to how busy their roads are
-    (probe readings × length, a stand-in for volume) from the largest
-    strongly connected part of the undisrupted network. Returns aggregate
-    counts and delay percentiles, plus the roads that lose or gain sampled
-    trips, for drawing.
+    With `samples` > 1, that many independent trip samples are drawn (seeds
+    `seed`, `seed + 1`, ...). The result is the sample with the median
+    `delay_min.p50`, plus `ranges`: the lowest and highest value of each
+    summary figure across samples, so the page can show how much of a number
+    is sampling noise. One sample of ~1,000 trips moves the median delay by
+    about ±15% and the 90th percentile by about ±35%.
+    """
+
+    if samples > 1:
+        runs = [
+            _traffic_impact(model, disruption, hour=hour, origins=origins, per_origin=per_origin,
+                            seed=seed + k, congestion=congestion)
+            for k in range(samples)
+        ]
+        order = sorted(range(samples), key=lambda k: runs[k]["delay_min"]["p50"])
+        result = runs[order[samples // 2]]
+        result["samples"] = samples
+        result["ranges"] = {
+            name: [min(get(r) for r in runs), max(get(r) for r in runs)] for name, get in RANGED.items()
+        }
+        return result
+    result = _traffic_impact(model, disruption, hour=hour, origins=origins, per_origin=per_origin,
+                             seed=seed, congestion=congestion)
+    result["samples"] = 1
+    return result
+
+
+def _traffic_impact(
+    model: TrafficModel,
+    disruption: RoadDisruption,
+    *,
+    hour: int,
+    origins: int,
+    per_origin: int,
+    seed: int,
+    congestion: bool,
+) -> dict[str, Any]:
+    """One trip sample routed before and after the disruption (see `traffic_impact`).
+
+    Trip ends are road nodes drawn in proportion to how busy their roads are
+    (probe readings × length) from the largest strongly connected part of the
+    undisrupted network.
+
+    Every sampled trip stands for the same vehicles per hour (`vph_per_trip`,
+    calibrated so the sample reproduces the volume on the counted roads). With
+    `congestion`, the trips over a closed road are rerouted in
+    `ASSIGNMENT_STEPS` batches, each on the network the earlier batches have
+    loaded; the added volume slows each road by the BPR curve against
+    `capacity_of`, and every trip is timed once more on that congested
+    network. This is one pass of incremental assignment, not an equilibrium,
+    and relief on the emptied roads is not credited.
+
+    `affected` trips are those whose usual route crosses a closed or slowed
+    road; `cut_off` and `delay_min` are over them, so a local disaster is not
+    averaged away across the city. `spillover` counts the other trips the
+    detour traffic delays.
     """
 
     from scipy.sparse.csgraph import connected_components, dijkstra
 
+    hour = hour % 24
     before, arcs_before = _directed(model, hour, None)
     after, arcs_after = _directed(model, hour, disruption)
     _, labels = connected_components(before, directed=True, connection="strong")
@@ -564,58 +1014,147 @@ def traffic_impact(
     dist_after, pred_after = dijkstra(after, indices=starts, return_predecessors=True)
 
     touched = disruption.closed | (disruption.speed_factor < 0.999)
+    trips = []  # (row, origin, target, usual route)
     load = np.zeros(len(model))
-    load_after = np.zeros(len(model))
-    delays, cut, trips, affected = [], 0, 0, 0
     for k, origin in enumerate(starts):
         for target in ends[k]:
             if target == origin or not np.isfinite(dist_before[k, target]):
                 continue
-            trips += 1
             path = _path_roads(pred_before[k], origin, target, arcs_before)
-            for r in path:
-                load[r] += 1
-            # Only trips whose usual route crosses a closed or slowed road are
-            # counted; a closure can only ever lengthen a trip.
-            if not touched[path].any():
-                for r in path:
-                    load_after[r] += 1
-                continue
+            np.add.at(load, path, 1)
+            trips.append((k, int(origin), int(target), path))
+
+    # Every sampled trip stands for the same number of vehicles per hour,
+    # chosen so the sample reproduces the flow on the counted roads:
+    # vehicle-km per hour ÷ sampled trip-km. A trip over a closed road takes
+    # its vehicles along its detour. (Giving each trip its closed road's flow
+    # ÷ the trips sampled there instead lets a rarely sampled segment hand
+    # one trip its whole flow, and inflates the diversion several-fold.)
+    flow = background_flow(model)[:, hour]
+    counted = estimated_flow(model)[:, hour] if model.class_hour_readings else np.full(len(model), np.nan)
+    basis = np.isfinite(counted) & (load > 0)
+    if not basis.any():
+        basis = load > 0
+    per_trip = float((flow[basis] * model.length_m[basis]).sum() / max((load[basis] * model.length_m[basis]).sum(), 1e-9))
+    cap = np.maximum(capacity_of(model), 1.0)
+
+    def jam_of(extra: np.ndarray) -> np.ndarray:
+        # Speed multiplier from the BPR curve: added volume over the usual one.
+        free = 1.0 + BPR_ALPHA * (flow / cap) ** BPR_BETA
+        return free / (1.0 + BPR_ALPHA * ((flow + extra) / cap) ** BPR_BETA)
+
+    def network(extra: np.ndarray) -> tuple[Any, dict]:
+        return _directed(model, hour, combine_disruptions(disruption, RoadDisruption(
+            closed=np.zeros(len(model), dtype=bool), speed_factor=jam_of(extra), reason=[None] * len(model),
+        )))
+
+    rerouted = [t for t in trips if disruption.closed[t[3]].any() and np.isfinite(dist_after[t[0], t[2]])]
+    cut_vph = per_trip * sum(1 for t in trips if disruption.closed[t[3]].any() and not np.isfinite(dist_after[t[0], t[2]]))
+    diverted = per_trip * len(rerouted)
+    extra = np.zeros(len(model))
+    # Incremental assignment: the detoured trips are routed in batches, each
+    # on the network the earlier batches have already loaded, so the diverted
+    # traffic spreads over the alternatives instead of all piling onto one.
+    batches = ASSIGNMENT_STEPS if congestion else 1
+    for b in range(batches):
+        batch = rerouted[b::batches]
+        if not batch:
+            continue
+        graph, arcs = (after, arcs_after) if b == 0 else network(extra)
+        rows = sorted({t[0] for t in batch})
+        _, pred = dijkstra(graph, indices=starts[rows], return_predecessors=True)
+        row_of = {k: j for j, k in enumerate(rows)}
+        for k, origin, target, _path in batch:
+            np.add.at(extra, _path_roads(pred[row_of[k]], origin, target, arcs), per_trip)
+
+    final, arcs_final, dist_final, pred_final = after, arcs_after, dist_after, pred_after
+    jam = np.ones(len(model))
+    if congestion and extra.any():
+        jam = jam_of(extra)
+        final, arcs_final = network(extra)
+        dist_final, pred_final = dijkstra(final, indices=starts, return_predecessors=True)
+
+    load_after = np.zeros(len(model))
+    delays, spill, cut, affected = [], [], 0, 0
+    uncongested = []
+    for k, origin, target, path in trips:
+        direct = bool(touched[path].any())
+        if direct:
             affected += 1
-            if not np.isfinite(dist_after[k, target]):
+            if not np.isfinite(dist_final[k, target]):
                 cut += 1
                 continue
-            delays.append(max(0.0, dist_after[k, target] - dist_before[k, target]) / 60.0)
-            for r in _path_roads(pred_after[k], origin, target, arcs_after):
-                load_after[r] += 1
-    delays_arr = np.asarray(delays) if delays else np.zeros(1)
+            uncongested.append(max(0.0, dist_after[k, target] - dist_before[k, target]) / 60.0)
+        late = max(0.0, dist_final[k, target] - dist_before[k, target]) / 60.0
+        if direct:
+            delays.append(late)
+        elif late > DELAYED_MIN:
+            spill.append(late)
+        if direct or late > 0:
+            np.add.at(load_after, _path_roads(pred_final[k], origin, target, arcs_final), 1)
+        else:
+            np.add.at(load_after, path, 1)
+
+    def stats(values: list[float]) -> dict[str, float]:
+        arr = np.asarray(values) if values else np.zeros(1)
+        return {
+            "p50": round(float(np.percentile(arr, 50)), 2),
+            "p90": round(float(np.percentile(arr, 90)), 2),
+            "mean": round(float(arr.mean()), 2),
+        }
+
     shift = load_after - load
-    closed_m = float(model.length_m[disruption.closed].sum())
+    closed_flow = counted[disruption.closed]
+    busiest = float(np.nanmax(closed_flow)) if np.isfinite(closed_flow).any() else None
     slowed = disruption.speed_factor < 0.999
-    reasons = {why: int(sum(1 for r in disruption.reason if r == why)) for why in ("rubble", "water", "cordon")}
+    jammed = (jam < 0.95) & ~disruption.closed
+    loaded_vc = (flow + extra) / np.maximum(capacity_of(model), 1.0)
+    reasons = {
+        why: int(sum(1 for r in disruption.reason if r == why))
+        for why in ("rubble", "water", "cordon", "manual", "crash")
+    }
+    closed_ways = {model.way_id[i] for i in np.flatnonzero(disruption.closed)}
+    routes_hit = [
+        {"id": route["id"], "label": route["label"], "name": route["name"]}
+        for route in model.bus_routes if closed_ways.intersection(route["ways"])
+    ]
     return {
-        "hour": int(hour % 24),
-        "trips": trips,
+        "hour": hour,
+        "trips": len(trips),
         # Sampled trips whose usual route crosses a closed or slowed road;
         # `cut_off` and `delay_min` are over these.
         "affected": affected,
         "cut_off": cut,
-        "delay_min": {
-            "p50": round(float(np.percentile(delays_arr, 50)), 2),
-            "p90": round(float(np.percentile(delays_arr, 90)), 2),
-            "mean": round(float(delays_arr.mean()), 2),
-        },
+        "delay_min": stats(delays),
+        # The same trips with detours that never congest, for comparison.
+        "delay_min_uncongested": stats(uncongested),
+        # Other trips held up by the detour traffic.
+        "spillover": {"trips": len(spill), "delay_min": stats(spill)},
         "closed_roads": int(disruption.closed.sum()),
-        "closed_km": round(closed_m / 1000.0, 2),
+        "closed_km": round(float(model.length_m[disruption.closed].sum()) / 1000.0, 2),
         "closed_by": reasons,
+        # Estimated vehicles per hour per direction on the busiest closed road
+        # of a counted class; None when no such road is closed.
+        "busiest_closed_vph": None if busiest is None else int(round(busiest, -1)),
+        # Vehicles per hour pushed onto detours, and those with no way through.
+        "diverted_vph": int(round(diverted, -1)),
+        "cut_off_vph": int(round(cut_vph, -1)),
+        # Vehicles per hour each sampled trip stands for at this hour.
+        "vph_per_trip": round(per_trip, 1),
+        "jammed_km": round(float(model.length_m[jammed].sum()) / 1000.0, 2),
+        "max_vc": round(float(loaded_vc[extra > 0].max()), 2) if (extra > 0).any() else None,
         "slowed_km": round(float(model.length_m[slowed & ~disruption.closed].sum()) / 1000.0, 2),
+        "bus_routes_hit": routes_hit,
         # Road indices into the viewer's road list.
         "closed": [int(i) for i in np.flatnonzero(disruption.closed)],
         "slowed": [[int(i), round(float(disruption.speed_factor[i]), 2)] for i in np.flatnonzero(slowed & ~disruption.closed)],
+        "jammed": [[int(i), round(float(jam[i]), 2)] for i in np.flatnonzero(jammed)],
         "detour": [[int(i), int(shift[i])] for i in np.flatnonzero(shift > 0)],
         "assumptions": (
-            "Closure rules and weather slowdowns are illustrative assumptions; trips are sampled with probe readings "
-            "standing in for volume, and speeds are typical pre-2020 conditions."
+            "Closure rules, weather slowdowns, crash queues, lane capacities and the volume on uncounted roads are "
+            "illustrative assumptions. Trips are sampled with probe readings standing in for demand, detour "
+            "congestion is one step of assignment rather than an equilibrium, and speeds are typical pre-2020 "
+            "conditions."
         ),
     }
 
@@ -631,6 +1170,8 @@ def traffic_payload(model: TrafficModel) -> dict[str, Any]:
     """
 
     zone, north = _utm_zone(model.crs)
+    lanes = lanes_of(model)
+    factor = lane_factor(model)
     roads = []
     for i, line in enumerate(model.geometry):
         roads.append({
@@ -638,9 +1179,32 @@ def traffic_payload(model: TrafficModel) -> dict[str, Any]:
             "len": round(float(model.length_m[i]), 1),
             "cls": model.highway[i],
             "oneway": int(model.oneway[i]),
+            "u": int(model.u[i]), "v": int(model.v[i]),
             "speed": [int(round(s)) for s in model.speed_kmh[i]],
             "free": int(round(model.free_kmh[i])),
             "n": int(model.readings[i]),
             "est": bool(model.estimated[i]),
+            "name": model.name[i] if model.name else "",
+            "lanes": float(lanes[i]),
+            # Multiplier on the class flow for this road's lanes (counted classes).
+            "qf": round(float(factor[i]), 2),
         })
-    return {"schema": "dynacity-roads/1", "roads": roads, "period": model.period, "source": model.source}
+    stations = match_stations(model) if model.name else []
+    volumes = class_peak_volumes(model) if model.name else {}
+    by_class = {}
+    for cls, ref in volumes.items():
+        curve = class_flow_curve(model, cls, ref)
+        if curve is not None:
+            by_class[cls] = [int(round(q)) for q in curve]
+    return {
+        "schema": "dynacity-roads/1", "roads": roads, "period": model.period, "source": model.source,
+        "stations": [{k: st[k] for k in ("label", "am", "pm", "class", "roads", "am_per_direction")} for st in stations],
+        "volumes": volumes,
+        "bus_routes": [
+            {k: route[k] for k in ("id", "label", "name", "operator", "mode", "paths")} for route in model.bus_routes
+        ],
+        # Vehicles per hour per direction by hour on a counted road of the
+        # class's `ref_lanes`; a road's own figure is this × its `qf`.
+        "flow": by_class,
+        "volume_source": COUNT_SOURCE,
+    }

@@ -1,9 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>__DYNACITY_TITLE__</title>
+<link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -65,7 +66,7 @@ body {
 .flash, .heat { position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: 0; }
 .flash { background: #f4f8ff; }
 .heat { background: radial-gradient(ellipse at 50% 30%, rgba(255, 196, 120, 0.55), rgba(255, 128, 48, 0.4) 55%, rgba(170, 64, 24, 0.5)); mix-blend-mode: multiply; }
-button, input { font: inherit; color: inherit; letter-spacing: inherit; }
+button, input, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
 button { cursor: pointer; touch-action: manipulation; }
 :focus-visible { outline: 2px solid #d8f0ff; outline-offset: 2px; }
 .glass {
@@ -110,6 +111,14 @@ button { cursor: pointer; touch-action: manipulation; }
 .rail button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.9); color: var(--tab-on-ink); }
 .rail svg { width: 19px; height: 19px; }
 .rail button[hidden] { display: none; }
+.tool-menu { position: relative; }
+.tool-menu summary { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; cursor: pointer; list-style: none; font-size: 17px; letter-spacing: 2px; }
+.tool-menu summary::-webkit-details-marker { display: none; }
+.tool-menu summary:hover, .tool-menu[open] summary { background: var(--control-hover); }
+.tool-options { position: absolute; top: 0; left: 54px; width: 190px; padding: 6px; border-radius: var(--r-md); }
+.tool-options button { width: 100%; display: flex; justify-content: flex-start; gap: 10px; padding: 0 10px; font-size: 12px; }
+.tool-options svg { flex: none; }
+.dock[hidden] { display: none; }
 
 /* disaster tray: drag a tile onto the city */
 .tray { width: 196px; min-height: 0; padding: 12px 10px 10px; border-radius: var(--r-md); overflow: auto; scrollbar-width: thin; }
@@ -151,6 +160,7 @@ button { cursor: pointer; touch-action: manipulation; }
 .ramp-labels { display: flex; justify-content: space-between; color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
 .road-row { display: grid; grid-template-columns: 22px 1fr; align-items: center; gap: 9px; padding: 3px 0; font-size: 12px; }
 .road-row .ln { height: 4px; border-radius: 2px; }
+.road-row[data-station] { grid-template-columns: 40px 1fr; }
 .panel .sev { margin: 4px 0 10px; }
 .note { margin-top: 10px; color: var(--ink-3); font-size: 11.5px; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; margin: 8px 0 10px; }
@@ -170,7 +180,7 @@ button { cursor: pointer; touch-action: manipulation; }
 .issue { font-size: 12px; color: var(--ink-2); margin: 6px 0; padding-left: 10px; border-left: 2px solid rgba(255, 255, 255, 0.25); }
 .issue.hard { border-color: var(--bad); }
 .issue.soft { border-color: var(--warn); }
-.issue code { font: 600 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--ink); }
+.issue code { font: 600 11px/1.3 var(--font); color: var(--ink); }
 .lever { padding: 9px 10px; margin: 8px 0; border-radius: var(--r-sm); background: rgba(255, 255, 255, 0.08); border: 1px solid var(--line); font-size: 12px; }
 .lever:hover { background: rgba(255, 255, 255, 0.14); }
 .lever .t { font-weight: 600; margin-bottom: 3px; display: flex; gap: 6px; align-items: center; }
@@ -180,7 +190,8 @@ button { cursor: pointer; touch-action: manipulation; }
 .lever[data-obj], .lever[data-sector] { cursor: pointer; }
 
 /* bottom: prompt + dock */
-.bottom { position: absolute; left: 50%; bottom: var(--edge); transform: translateX(-50%); width: min(1000px, calc(100vw - 2 * var(--edge))); display: grid; gap: 10px; }
+.bottom { position: absolute; left: 50%; bottom: var(--edge); transform: translateX(-50%); width: min(820px, calc(100vw - 2 * var(--edge))); display: grid; gap: 10px; }
+.bottom > * { min-width: 0; }
 .prompt { display: flex; align-items: center; gap: 10px; height: 48px; padding: 0 6px 0 16px; border-radius: 16px; }
 .prompt svg { width: 18px; height: 18px; flex: none; color: #e9f6ff; }
 .prompt input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; outline: none; font-size: 14px; }
@@ -225,6 +236,10 @@ table.kpis td { text-align: right; padding: 5px 0 5px 10px; border-top: 1px soli
 .empty-state { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: #1e3346; }
 .empty-state[hidden] { display: none; }
 
+@media (max-width: 1100px) {
+  .tabs { top: calc(var(--edge) + 46px); }
+  .rail, .side { top: calc(var(--edge) + 96px); }
+}
 @media (max-width: 760px) {
   .brand .city, .brand .div, .status .opt { display: none; }
   .status { padding: 6px 8px; min-height: 34px; }
@@ -234,6 +249,36 @@ table.kpis td { text-align: right; padding: 5px 0 5px 10px; border-top: 1px soli
   .side { top: calc(var(--edge) + 96px); left: calc(var(--edge) + 58px); right: var(--edge); width: auto; bottom: 200px; }
 }
 @media (prefers-reduced-motion: reduce) { .prompt .spin { animation-duration: 2s; } .ghost { transform: translate(-50%, -60%); } }
+/* Usability: readable controls, keyboard focus and scrollable detail sheets. */
+button:focus-visible, summary:focus-visible, input:focus-visible { outline: 3px solid #ffe49c; outline-offset: 3px; }
+.side { overflow-y: auto; overscroll-behavior: contain; }
+.side > .panel { flex-shrink: 0; }
+.panel .close { width: 36px; height: 36px; }
+.library-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.library-actions button, .building-result { border: 1px solid var(--line); border-radius: 10px; background: var(--control); padding: 9px 10px; text-align: left; }
+.library-field { display: block; font-size: 12px; margin: 10px 0 4px; }
+.library-input { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 9px; background: var(--control); }
+.building-result { display: block; width: 100%; margin: 6px 0; font-size: 12px; overflow-wrap: anywhere; }
+.library-message { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.issue code { font-family: inherit; }
+@media (max-width: 760px) {
+  .prompt { gap: 5px; padding-left: 8px; }
+  .prompt > svg { display: none; }
+  .prompt input { font-size: 16px; }
+  .prompt .seg button { padding: 6px; }
+  .prompt .go { width: 40px; height: 40px; flex: none; }
+  .progress { max-height: 72px; overflow-y: auto; border-radius: 14px; }
+  .bottom { bottom: max(10px, env(safe-area-inset-bottom)); }
+  .side { bottom: 210px; }
+  .panel { padding: 12px; }
+  .rail button, .tool-menu summary { min-height: 44px; }
+  .status { max-width: calc(100vw - 150px); white-space: normal; }
+}
+@media (max-height: 560px) {
+  .dock, .attrib { display: none; }
+  .side { bottom: 90px; }
+  .leftcol { bottom: 90px; }
+}
 </style>
 </head>
 <body>
@@ -263,14 +308,21 @@ table.kpis td { text-align: right; padding: 5px 0 5px 10px; border-top: 1px soli
 
   <div class="leftcol">
   <nav class="rail glass" aria-label="View tools">
-    <button id="t-reset" title="Reset view" aria-label="Reset view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
-    <button id="t-2d" title="Top-down view" aria-label="Top-down view" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg></button>
-    <button id="t-sat" title="Satellite view" aria-label="Satellite view" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/><circle cx="15.5" cy="9" r="1.5"/></svg></button>
-    <button id="t-legend" title="Legend" aria-label="Legend" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg></button>
-    <button id="t-kpis" title="All KPIs table" aria-label="All KPIs table" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></button>
-    <button id="t-info" title="About this forecast" aria-label="About this forecast" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg></button>
+    <button id="t-legend" title="Legend" aria-label="Legend" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg></button>
     <button id="t-fx" title="Disasters" aria-label="Disasters" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 5h18M5 9h13M8 13h9M10 17h5M11 21h2"/></svg></button>
     <button id="t-traffic" title="Traffic" aria-label="Traffic" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M5 17v2M19 17v2M4 13l2-6h12l2 6zM4 13h16v4H4z"/><circle cx="7.5" cy="15" r=".6"/><circle cx="16.5" cy="15" r=".6"/></svg></button>
+    <details class="tool-menu" id="tool-menu">
+      <summary aria-label="More tools" title="More tools">•••</summary>
+      <div class="tool-options glass">
+    <button id="t-buildings" aria-label="Find a building" aria-pressed="false"><span>Find a building</span></button>
+    <button id="t-library" aria-label="Saved scenarios" aria-pressed="false"><span>Saved scenarios</span></button>
+    <button id="t-reset" title="Reset view" aria-label="Reset view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg><span>Reset view</span></button>
+    <button id="t-2d" title="Top-down view" aria-label="Top-down view" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg><span>Top-down view</span></button>
+    <button id="t-sat" title="Satellite view" aria-label="Satellite view" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/><circle cx="15.5" cy="9" r="1.5"/></svg><span>Satellite view</span></button>
+    <button id="t-kpis" title="All KPIs table" aria-label="All KPIs table" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>All KPIs</span></button>
+    <button id="t-info" title="About this forecast" aria-label="About this forecast" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg><span>About this view</span></button>
+      </div>
+    </details>
   </nav>
   <section class="tray glass" id="tray" aria-label="Disasters" hidden>
     <h2>Disasters</h2>
@@ -283,18 +335,34 @@ table.kpis td { text-align: right; padding: 5px 0 5px 10px; border-top: 1px soli
   </section>
   </div>
 
-  <aside class="side" aria-live="polite">
+  <aside class="side" aria-label="Map details">
+    <section class="panel glass" id="p-buildings" hidden aria-label="Find a building">
+      <button class="close" data-close="buildings" aria-label="Close building finder">✕</button><h2>Find a building</h2>
+      <label class="library-field" for="building-query">Building ID, area or use</label>
+      <input class="library-input" id="building-query" type="search" maxlength="120" autocomplete="off">
+      <div id="building-count" class="note" role="status"></div><div id="building-results"></div>
+    </section>
+    <section class="panel glass" id="p-library" hidden aria-label="Saved scenarios">
+      <button class="close" data-close="library" aria-label="Close saved scenarios">✕</button><h2>Saved scenarios</h2>
+      <p class="note">Save the Scenario prompt as an input for a fresh run. Results, dropped disasters and road edits are not saved. Re-running may produce a different interpretation or forecast.</p>
+      <label class="library-field" for="scenario-name">Name</label><input class="library-input" id="scenario-name" maxlength="80" placeholder="My scenario">
+      <div class="library-actions"><button id="save-input">Save prompt</button><button id="export-input">Export prompt JSON</button><button id="import-input">Import JSON</button></div>
+      <input id="scenario-file" type="file" accept="application/json,.json" hidden>
+      <div id="library-message" class="library-message" role="status" aria-live="polite"></div>
+      <details id="json-export" hidden><summary>Portable JSON · select and copy if download is blocked</summary><textarea id="json-export-text" class="library-input" rows="6" readonly aria-label="Exported scenario input JSON"></textarea></details>
+      <div id="saved-inputs"></div>
+    </section>
     <section class="panel glass" id="p-answer" hidden></section>
     <section class="panel glass" id="p-scenario" hidden></section>
     <section class="panel glass" id="p-inspect" hidden></section>
     <section class="panel glass" id="p-kpis" hidden></section>
     <section class="panel glass" id="p-info" hidden></section>
     <section class="panel glass" id="p-traffic" hidden></section>
-    <section class="panel glass" id="p-legend"></section>
+    <section class="panel glass" id="p-legend" hidden></section>
   </aside>
 
   <div class="bottom">
-    <div class="progress" id="progress"></div>
+    <div class="progress" id="progress" role="status" aria-live="polite"></div>
     <form class="prompt glass" id="prompt" autocomplete="off">
       <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11 2.5 12.6 8a3 3 0 0 0 2 2l5.4 1.5-5.4 1.6a3 3 0 0 0-2 2L11 20.5l-1.6-5.4a3 3 0 0 0-2-2L2 11.5 7.4 10a3 3 0 0 0 2-2zM19 2l.7 2.3L22 5l-2.3.7L19 8l-.7-2.3L16 5l2.3-.7z"/></svg>
       <div class="seg" id="mode" role="group" aria-label="Prompt mode" hidden>
@@ -313,6 +381,10 @@ table.kpis td { text-align: right; padding: 5px 0 5px 10px; border-top: 1px soli
 
 <script>
 const DATA = /*__DYNACITY_DATA__*/null;
+const IMPORTED_CARS = __DYNACITY_CARS__;
+// Opt-in diagnostics for local performance checks; no extra product UI.
+const trafficDebug = new URLSearchParams(location.search).has('trafficStats');
+const simpleTraffic = new URLSearchParams(location.search).get('trafficDetail') === 'simple';
 
 // Canonical states in legend order. Stable/built is the neutral city massing;
 // the six change states use a categorical set validated for colour-vision
@@ -335,7 +407,7 @@ const KPI_TILES = ['completed_count', 'active_construction_count', 'stalled_coun
 const KPI_LABELS = {
   completed_count: 'Completed', active_construction_count: 'Construction', stalled_count: 'Stalled',
   vacant_count: 'Vacant', demolished_count: 'Demolished', empty_or_parking_area_m2: 'Empty / parking area',
-  estimated_gross_floor_area_m2: 'Gross floor area', height_p50_m: 'Median height', height_p90_m: 'Height p90',
+  estimated_gross_floor_area_m2: 'Estimated gross floor area', height_p50_m: 'Median height', height_p90_m: 'Height p90',
   built_land_fraction: 'Built land',
 };
 const KPI_RULE = {
@@ -377,7 +449,8 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
 const metres = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
 
-const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, mode: 'scenario', answer: null, answerIds: null, tilesFailed: false, drops: [], traffic: false, hour: 8 };
+const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, mode: 'scenario', answer: null, answerIds: null, tilesFailed: false, drops: [], traffic: false, hour: 8, roadHighlight: null, buses: false, stationsOpen: false,
+  trafficImpact: null, roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map() };
 // Photorealistic mode: Google 3D Tiles through the server's key-holding proxy,
 // with BBED footprints draped onto the mesh instead of extruded beside it.
 const GOOGLE = !!DATA?.basemap?.tiles_3d;
@@ -419,7 +492,8 @@ function divergeColor(d) {
   const t = Math.max(-1, Math.min(1, d / deltaScale));
   return t < 0 ? mix(hex(DIVERGE.mid), hex(DIVERGE.low), -t) : mix(hex(DIVERGE.mid), hex(DIVERGE.high), t);
 }
-const baseP = (b) => DATA.forecast?.p?.[b.id];
+const baselineForecast = () => ui.scenario?.baseline ?? DATA.forecast;
+const baseP = (b) => baselineForecast()?.p?.[b.id];
 const scenP = (b) => ui.scenario?.forecast?.p?.[b.id];
 const activeP = (b) => scenP(b) ?? baseP(b);
 const argmax = (p) => Object.entries(p).reduce((a, e) => (e[1] > a[1] ? e : a), ['unknown', -1])[0];
@@ -610,7 +684,8 @@ function layers() {
     id: 'buildings',
     data: mainRings(),
     getPolygon: (d) => d.ring, extruded: true, getElevation: (d) => elevation(d.b), getFillColor: (d) => fill(d.b),
-    pickable: true, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL,
+    // While a road tool is on, clicks go through buildings to the roads.
+    pickable: !ui.roadTool, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL,
     // No colour transition: an interrupted fade can leave a lens showing the
     // previous lens's colours, and a data view must never show stale values.
     updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario], getElevation: [ui.lens] },
@@ -620,7 +695,7 @@ function layers() {
 function attribution() {
   if (GOOGLE) return [DATA.attribution, photoreal() && ['Google', ...credits].join(' · ')].filter(Boolean).join(' ');
   const terrain = fx.find((f) => f.water)?.water.source;
-  return [DATA.attribution, DATA.basemap?.attribution, ui.satellite && DATA.basemap?.satellite_attribution, terrain, ui.traffic && DATA.traffic?.source].filter(Boolean).join(' ');
+  return [DATA.attribution, DATA.basemap?.attribution, ui.satellite && DATA.basemap?.satellite_attribution, terrain, ui.traffic && DATA.traffic?.source, ui.traffic && DATA.traffic?.stations?.length && DATA.traffic.volume_source].filter(Boolean).join(' ');
 }
 // Colour imagery goes over every road, water, and flat building fill of the
 // basemap but under its trailing label layers, so place names stay readable.
@@ -701,8 +776,19 @@ function envelope(ms, rise, hold, fall) {
 }
 function animate() {
   cancelAnimationFrame(fxRaf);
+  let measuredAt = performance.now(), frames = 0, drawMs = 0;
   const frame = () => {
+    const start = performance.now();
     drawFx();
+    if (trafficDebug && ui.traffic) {
+      frames++; drawMs += performance.now() - start;
+      const elapsed = performance.now() - measuredAt;
+      if (elapsed >= 2000) {
+        $('scene').dataset.trafficFps = (frames * 1000 / elapsed).toFixed(1);
+        $('scene').dataset.trafficDrawMs = (drawMs / frames).toFixed(1);
+        frames = 0; drawMs = 0; measuredAt = performance.now();
+      }
+    }
     if (!calm.matches && (pending || performance.now() < fxEnd || ui.traffic)) fxRaf = requestAnimationFrame(frame);
     else { fxScreen = { flash: 0, shake: 0, warm: 0 }; applyScreen(); }
   };
@@ -758,18 +844,32 @@ function nearestAlong(path, c) {
 }
 
 // ---- traffic: roads coloured by typical speed, with cars moving along them ----
-// Speeds are per-road hourly medians from crowd-sourced probes (pre-2020);
-// how many cars are drawn is a picture of how busy a road is (probe readings
-// stand in for volume), not a count. After a disaster, closed roads empty,
+// Speeds are per-road hourly medians from crowd-sourced probes (pre-2020).
+// On road classes the CDR survey counted, cars are drawn at density = flow ÷
+// speed from the measured volumes; elsewhere probe readings stand in for how
+// busy a road is. After a disaster, closed roads empty,
 // slowed roads crawl, and the roads that take the detours fill up.
-const CAR_SPEEDUP = 4, CAR_CAP = 7000, LANE_M = 2.4;
+const CAR_SPEEDUP = 1, LANE_M = 2.4;
 // Carriageway widths in metres, so roads read at street level and thin out from afar.
 const ROAD_WIDTH = { motorway: 14, trunk: 12, primary: 10, secondary: 8, tertiary: 7 };
 const FLOW = [hex(STATES.empty_or_parking.color), hex(STATES.active_construction.color), hex(STATES.demolished.color)];
 const CLOSED_RGB = [120, 20, 24], DETOUR_RGB = hex('#8a63e8');
-const roadImpact = () => ui.scenario?.traffic ?? null;
+// The current road impact: from the last disaster, scenario, or road event.
+const roadImpact = () => ui.trafficImpact;
+const roadClosed = (i, impact) => ui.closedRoads.has(i) || ui.crashes.has(i) || !!impact?.closedSet.has(i);
+// Why roads closed, as [one, many]: "1 by a crash", "3 by crashes".
+const REASON = { rubble: ['rubble', 'rubble'], water: ['water', 'water'], cordon: ['a cordon', 'cordons'],
+  manual: ['a closure', 'closures'], crash: ['a crash', 'crashes'] };
+const CRASH_RGB = [226, 38, 38];
 const hourLabel = (h) => `${String(h).padStart(2, '0')}:00`;
-let cars = [], roadsMeta = null;
+let cars = [], roadsMeta = null, carHour = null, carTime = null, carTurns = new Map();
+// Estimated vehicles per hour each way at an hour: the class's curve × this road's lane factor.
+const flowAt = (r, h) => { const c = DATA.traffic.flow?.[r.cls]; return c ? Math.round(c[h] * (r.qf ?? 1)) : null; };
+// Speed multiplier from the disruption and from detour congestion.
+const slowOf = (impact, i) => (impact?.slowedMap?.get(i) ?? 1) * (impact?.jamMap?.get(i) ?? 1);
+const BUS_RGB = hex('#0e8f7e');
+// A cut line is drawn in ink, not red, so it never reads as crawling traffic.
+const busCutRgb = () => (isDark() ? [240, 244, 248] : [24, 30, 38]);
 function prepareRoads() {
   if (roadsMeta || !DATA.traffic) return;
   const maxN = Math.max(1, ...DATA.traffic.roads.map((r) => r.n));
@@ -783,7 +883,7 @@ function prepareRoads() {
 // Typical speed over free-flow speed at the chosen hour, after any slowdown.
 function flowRatio(i, impact) {
   const r = DATA.traffic.roads[i];
-  const slow = impact?.slowedMap?.get(i) ?? 1;
+  const slow = slowOf(impact, i);
   return Math.max(0.05, Math.min(1, (r.speed[ui.hour] * slow) / Math.max(r.free, 1)));
 }
 function flowColor(t) {
@@ -795,6 +895,8 @@ function indexImpact(impact) {
   if (!impact || impact.closedSet) return impact;
   impact.closedSet = new Set(impact.closed);
   impact.slowedMap = new Map(impact.slowed);
+  impact.jamMap = new Map(impact.jammed ?? []);
+  impact.busHit = new Set((impact.bus_routes_hit ?? []).map((b) => b.id));
   impact.detourMap = new Map(impact.detour);
   impact.detourMax = Math.max(1, ...impact.detour.map((d) => d[1]));
   return impact;
@@ -802,115 +904,297 @@ function indexImpact(impact) {
 function roadLayers() {
   if (!DATA.traffic) return [];
   const impact = indexImpact(roadImpact());
+  const closed = [...new Set([...(impact?.closed ?? []), ...ui.closedRoads, ...ui.crashes])];
   const roads = DATA.traffic.roads.map((r, i) => ({ r, i }));
   const drape = photoreal() ? { extensions: [new deck._TerrainExtension()] } : {};
   const out = [new deck.PathLayer({
     id: 'roads', data: roads, getPath: (d) => d.r.path, widthUnits: 'meters', widthMinPixels: 1.2, capRounded: true, jointRounded: true,
     getWidth: (d) => ROAD_WIDTH[d.r.cls.replace('_link', '')] ?? 5,
-    getColor: (d) => impact?.closedSet.has(d.i) ? [...CLOSED_RGB, 235] : [...flowColor(flowRatio(d.i, impact)), 210],
-    updateTriggers: { getColor: [ui.hour, impact] }, parameters: SOFT, ...drape,
+    getColor: (d) => roadClosed(d.i, impact) ? [...CLOSED_RGB, 235] : [...flowColor(flowRatio(d.i, impact)), 210],
+    updateTriggers: { getColor: [ui.hour, impact, closed.join(',')] }, parameters: SOFT, pickable: true, ...drape,
   })];
-  if (impact?.detour.length) {
+  if (ui.buses && DATA.traffic.bus_routes?.length) {
+    const lines = DATA.traffic.bus_routes.flatMap((bus) => bus.paths.map((path) => ({ bus, path })));
     out.push(new deck.PathLayer({
-      id: 'roads-detour', data: impact.detour, getPath: (d) => DATA.traffic.roads[d[0]].path, widthUnits: 'meters', widthMinPixels: 2,
-      getWidth: (d) => 6 + 14 * Math.sqrt(d[1] / impact.detourMax), getColor: [...DETOUR_RGB, 200], capRounded: true, parameters: SOFT, ...drape,
+      id: 'bus-routes', data: lines, getPath: (d) => d.path, widthUnits: 'pixels', getWidth: (d) => (impact?.busHit.has(d.bus.id) ? 4 : 2.5),
+      getColor: (d) => (impact?.busHit.has(d.bus.id) ? [...busCutRgb(), 235] : [...BUS_RGB, 215]), capRounded: true, jointRounded: true,
+      pickable: true, parameters: ON_TOP, updateTriggers: { getColor: impact, getWidth: impact }, ...drape,
     }));
   }
-  if (impact?.closed.length) {
+  if (ui.roadHighlight?.length) {
     out.push(new deck.PathLayer({
-      id: 'roads-closed', data: impact.closed, getPath: (i) => DATA.traffic.roads[i].path, widthUnits: 'meters', widthMinPixels: 2.5,
+      id: 'roads-highlight', data: ui.roadHighlight, getPath: (i) => DATA.traffic.roads[i].path, widthUnits: 'meters', widthMinPixels: 3,
+      getWidth: 16, getColor: isDark() ? [255, 255, 255, 230] : [20, 30, 40, 220], capRounded: true, parameters: ON_TOP, ...drape,
+    }));
+  }
+  const detour = ui.traffic ? (trafficMetrics?.detour ?? []) : (impact?.detour ?? []);
+  const detourMax = Math.max(1, ...detour.map(d => d[1]));
+  if (detour.length) {
+    out.push(new deck.PathLayer({
+      id: 'roads-detour', data: detour, getPath: (d) => DATA.traffic.roads[d[0]].path, widthUnits: 'meters', widthMinPixels: 2,
+      getWidth: (d) => 6 + 14 * Math.sqrt(d[1] / detourMax), getColor: [...DETOUR_RGB, 200], capRounded: true, parameters: SOFT, ...drape,
+    }));
+  }
+  if (ui.crashes.size) {
+    const sites = [...ui.crashes].map((i) => ui.crashSites.get(i) ?? along(DATA.traffic.roads[i].path, 0.5));
+    out.push(
+      new deck.ScatterplotLayer({ id: 'crash-halo', data: sites, getPosition: (d) => d, getRadius: 22, radiusUnits: 'meters', radiusMinPixels: 9,
+        getFillColor: [...CRASH_RGB, 60], stroked: true, getLineColor: [...CRASH_RGB, 230], lineWidthUnits: 'pixels', getLineWidth: 2, parameters: ON_TOP }),
+      new deck.ScatterplotLayer({ id: 'crash', data: sites, getPosition: (d) => d, getRadius: 6, radiusUnits: 'meters', radiusMinPixels: 4,
+        getFillColor: [255, 255, 255, 255], stroked: true, getLineColor: [...CRASH_RGB, 255], lineWidthUnits: 'pixels', getLineWidth: 3, parameters: ON_TOP }),
+    );
+  }
+  if (closed.length) {
+    out.push(new deck.PathLayer({
+      id: 'roads-closed', data: closed, getPath: (i) => DATA.traffic.roads[i].path, widthUnits: 'meters', widthMinPixels: 2.5,
       getWidth: 12, getColor: [...CLOSED_RGB, 255], capRounded: true, parameters: SOFT, ...drape,
     }));
   }
   return out;
 }
-// Cars are laid out once per hour or impact change; frames only move them.
+// Authoritative SUMO replay; each displayed position comes from TraCI.
+// The clock advances at 1× and pauses at the buffer edge while fetching.
+let trafficSession = null, trafficFrames = [], trafficClock = null, trafficFetch = false;
+let trafficGeneration = 0, trafficMetrics = null, trafficError = null, trafficRevision = '', trafficNetwork = null, trafficMetricSecond = -1;
+function simulationRequest() {
+  return {hour:ui.hour, seconds:2, closed:[...ui.closedRoads], crashes:[...ui.crashes], hazards:currentHazards()};
+}
+function simulationRevision() {
+  const r = simulationRequest(); delete r.seconds; return JSON.stringify(r);
+}
+function closeTrafficSession() {
+  if (trafficSession) fetch(`/v1/viewer/traffic/simulation/${trafficSession}`, {method:'DELETE'}).catch(() => {});
+  trafficSession = null; trafficFrames = []; trafficClock = null; trafficMetrics = null; trafficMetricSecond = -1;
+  trafficGeneration++; trafficFetch = false;
+}
 function prepareCars() {
   prepareRoads();
-  cars = [];
-  if (!ui.traffic || !DATA.traffic) return;
-  const impact = indexImpact(roadImpact());
-  const wanted = [];
-  DATA.traffic.roads.forEach((r, i) => {
-    if (impact?.closedSet.has(i)) return;
-    const ratio = flowRatio(i, impact);
-    // Busier, slower roads hold more cars (queues bunch up); per kilometre.
-    const extra = impact?.detourMap.get(i) ?? 0;
-    const perKm = (8 + 45 * roadsMeta[i].busy) * (1 / Math.max(ratio, 0.3)) + 4 * Math.sqrt(extra);
-    const n = (perKm * r.len) / 1000;
-    wanted.push({ i, n, ratio });
-  });
-  const total = wanted.reduce((a, w) => a + w.n, 0);
-  const scale = total > CAR_CAP ? CAR_CAP / total : 1;
-  for (const w of wanted) {
-    const r = DATA.traffic.roads[w.i];
-    const count = Math.floor(w.n * scale + hash01(String(w.i), 7));
-    const mps = (r.speed[ui.hour] * (impact?.slowedMap?.get(w.i) ?? 1)) / 3.6;
-    for (let k = 0; k < count; k++) {
-      const key = `${w.i}:${k}`;
-      const dir = r.oneway === 1 ? 1 : r.oneway === -1 ? -1 : hash01(key, 3) < 0.5 ? 1 : -1;
-      cars.push({ i: w.i, s0: hash01(key, 1) * r.len, dir, mps: mps * (0.8 + 0.4 * hash01(key, 2)) });
-    }
-  }
+  if (!ui.traffic || !DATA.traffic) { closeTrafficSession(); cars = []; carHour = null; carTime = null; return; }
+  if (carHour !== ui.hour) { closeTrafficSession(); cars = []; carHour = ui.hour; carTime = null; trafficError = null; }
+  // Do not delete or reseed vehicles when a closure changes.
+  fetchTrafficFrames();
 }
-function carPosition(c, now) {
-  const r = DATA.traffic.roads[c.i], cum = roadsMeta[c.i].cum, len = cum[cum.length - 1] || 1;
-  let d = (c.s0 + c.mps * CAR_SPEEDUP * (now / 1000)) % len;
-  if (c.dir < 0) d = len - d;
-  let k = 1;
-  while (k < cum.length - 1 && cum[k] < d) k++;
-  const a = r.path[k - 1], b = r.path[k], seg = cum[k] - cum[k - 1] || 1, f = clamp01((d - cum[k - 1]) / seg);
-  // Keep to the right of the direction of travel, so two-way roads show two streams.
-  const dx = (b[0] - a[0]) * mPerLon(a[1]) * c.dir, dy = (b[1] - a[1]) * 111320 * c.dir, h = Math.hypot(dx, dy) || 1;
-  return offset([a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f], (dy / h) * LANE_M, (-dx / h) * LANE_M);
+async function fetchTrafficFrames() {
+  if (trafficFetch || !ui.traffic || trafficError) return;
+  trafficFetch = true;
+  const generation = trafficGeneration, revision = simulationRevision();
+  const url = '/v1/viewer/traffic/simulation' + (trafficSession ? `/${trafficSession}` : '');
+  try {
+    const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(simulationRequest())});
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.detail ?? `Traffic simulation: ${res.status}`);
+    if (generation !== trafficGeneration) {
+      if (body.session) fetch(`/v1/viewer/traffic/simulation/${body.session}`, {method:'DELETE'}).catch(() => {});
+      return;
+    }
+    if (body.session) trafficSession = body.session;
+    trafficRevision = revision; trafficNetwork = body.network ?? null;
+    for (const frame of body.frames) {
+      if (!trafficFrames.length || frame.time_s > trafficFrames.at(-1).time_s + 0.00001) trafficFrames.push(frame);
+    }
+    if (trafficClock === null) trafficClock = trafficFrames[0].time_s;
+    renderTraffic(); render();
+  } catch (err) {
+    if (generation === trafficGeneration) { trafficError = String(err.message); renderTraffic(); }
+  } finally { if (generation === trafficGeneration) trafficFetch = false; }
+}
+function advanceCars(now) {
+  const dt = carTime === null ? 0 : Math.max(0, Math.min((now-carTime)/1000, 0.25)) * CAR_SPEEDUP;
+  carTime = now;
+  if (!trafficFrames.length) return;
+  trafficClock = Math.min(trafficClock + dt, trafficFrames.at(-1).time_s);
+  while (trafficFrames.length > 1 && trafficFrames[1].time_s <= trafficClock) trafficFrames.shift();
+  const a = trafficFrames[0], b = trafficFrames[1] ?? a;
+  const f = b.time_s > a.time_s ? clamp01((trafficClock-a.time_s)/(b.time_s-a.time_s)) : 0;
+  const next = new Map(b.vehicles.map(v => [v[0], v]));
+  const existing = new Map(cars.map(c => [c.key, c]));
+  let membershipChanged = cars.length !== a.vehicles.length;
+  const updated = a.vehicles.map(v => {
+    const w = next.get(v[0]) ?? v;
+    // SUMO angle is clockwise from north; deck mesh heading is from east.
+    const delta = ((w[3] - v[3] + 540) % 360) - 180;
+    const c = existing.get(v[0]);
+    if (!c) membershipChanged = true;
+    return Object.assign(c ?? {}, {key:v[0], i:Number(v[5].split(':')[0]), speed:v[4], lane:v[6], pose:{
+      position:[v[1]+(w[1]-v[1])*f,v[2]+(w[2]-v[2])*f,0.15],
+      orientation:[0,90-(v[3]+delta*f),0]}});
+  });
+  if (membershipChanged) cars = updated;
+  trafficMetrics = a.metrics;
+  if (trafficFrames.at(-1).time_s - trafficClock < 1.8 || trafficRevision !== simulationRevision()) fetchTrafficFrames();
+  // Metrics follow the displayed frame rather than the server's buffer head.
+  if (Math.floor(a.time_s) !== trafficMetricSecond) { trafficMetricSecond = Math.floor(a.time_s); renderTraffic(); }
+}
+function carPose(c) { return c.pose; }
+function simulationSummary() {
+  if (trafficError) return `<div class="note">Traffic simulation unavailable: ${esc(trafficError)}</div>`;
+  const m = trafficMetrics;
+  if (!m) return '<div class="note">Starting SUMO traffic simulation…</div>';
+  return `<div class="note">${m.active.toLocaleString()} driving · ${m.pending.toLocaleString()} awaiting space · ${m.arrived.toLocaleString()} arrived / ${m.total.toLocaleString()} trips.<br>
+    ${m.rerouted} rerouted · ${m.no_detour} without a detour · ${m.stopped_on_closed ?? 0} stopped within closures · ${m.overdue} still travelling after their baseline arrival.
+    ${m.mean_completed_delay_s === null ? 'Completed-trip delay pending.' : `Mean completed-trip delay: ${m.mean_completed_delay_s.toFixed(1)} s (${m.paired_arrivals} matched trips).`}${trafficNetwork?.excluded_roads?.length ? `<br>${trafficNetwork.excluded_roads.length} unsupported road geometry excluded; see integration notes.` : ''}</div>`;
+}
+const CAR_PAINT = [[235, 239, 243], [65, 117, 157], [181, 63, 49], [209, 180, 111], [109, 131, 120], [102, 110, 123]];
+let carBuckets = null, carBucketSource = null, carBucketTime = 0, carBucketZoom = 0, carBucketCentre = null;
+function carDetail(c, zoom, centre) {
+  if (zoom < 16.5 || !centre || metresBetween(c.pose.position, centre) > 450) return 'simple';
+  return hash01(c.key, 31) < 0.7 ? 'sedan' : 'suv';
 }
 function carLayers(now) {
-  if (!ui.traffic || !cars.length) return [];
+  if (!ui.traffic) return [];
   const t = calm.matches ? 0 : now;
-  return [new deck.ScatterplotLayer({
-    id: 'cars', data: cars, getPosition: (c) => carPosition(c, t), getRadius: 2.2, radiusUnits: 'meters', radiusMinPixels: 1.6,
-    getFillColor: isDark() ? [246, 248, 250, 235] : [36, 44, 52, 230], parameters: SOFT,
-    updateTriggers: { getPosition: t }, ...(photoreal() && { extensions: [new deck._TerrainExtension()] }),
-  })];
+  advanceCars(calm.matches ? (carTime ?? now) : now);
+  if (!cars.length) return [];
+  const vp = !map && deckgl?.getViewports()[0];
+  const zoom = map ? map.getZoom() : vp?.zoom ?? 0;
+  const centre = map ? map.getCenter().toArray() : vp && [vp.longitude, vp.latitude];
+  for (const c of cars) c.pose = carPose(c);
+  if (!carBuckets || cars !== carBucketSource || now - carBucketTime > 500 ||
+      Math.abs(zoom - carBucketZoom) > 0.1 || (centre && carBucketCentre && metresBetween(centre, carBucketCentre) > 50)) {
+    carBuckets = { simple: [], sedan: [], suv: [] };
+    for (const c of cars) carBuckets[simpleTraffic ? 'simple' : carDetail(c, zoom, centre)].push(c);
+    carBucketSource = cars; carBucketTime = now; carBucketZoom = zoom; carBucketCentre = centre;
+  }
+  const buckets = carBuckets;
+  if (trafficDebug) {
+    $('scene').dataset.trafficCars = cars.length;
+    $('scene').dataset.trafficDetailed = buckets.sedan.length + buckets.suv.length;
+    $('scene').dataset.trafficZoom = zoom.toFixed(2);
+  }
+  return Object.entries(buckets).filter(([, data]) => data.length).map(([kind, data]) => new deck.SimpleMeshLayer({
+    id: `cars-${kind}`, data, mesh: kind === 'simple' ? mesh('car', carMesh) : importedCarMesh(kind),
+    getPosition: (c) => c.pose.position, getOrientation: (c) => c.pose.orientation,
+    getColor: kind === 'simple' ? (c) => CAR_PAINT[Math.min(CAR_PAINT.length - 1, Math.floor(hash01(c.key, 29) * CAR_PAINT.length))] : [255, 255, 255],
+    material: { ambient: 0.65, diffuse: 0.6, shininess: 32, specularColor: [90, 90, 90] },
+    updateTriggers: { getPosition: t, getOrientation: t }, ...(photoreal() && { extensions: [new deck._TerrainExtension()] }),
+  }));
 }
 function setTraffic(on) {
   ui.traffic = on && !!DATA.traffic;
+  if (!ui.traffic && ui.roadTool) setRoadTool(ui.roadTool);
   $('t-traffic').setAttribute('aria-pressed', String(ui.traffic));
   $('p-traffic').hidden = !ui.traffic;
   $('attrib').textContent = attribution();
-  prepareCars(); renderTraffic(); render();
+  prepareCars(); renderTraffic(); renderScenario(); render();
   if (ui.traffic) animate();
 }
 function setHour(h) {
   ui.hour = h;
   prepareCars(); renderTraffic(); render();
+  // The road impact depends on the hour; re-measure it (roads only, no forecast).
+  if (roadEventsActive()) requestTraffic();
+}
+const currentHazards = () => ui.scenario?.dropped?.hazards ?? ui.scenario?.compilation?.scenario?.hazards ?? [];
+const roadEventsActive = () => currentHazards().length > 0 || ui.closedRoads.size > 0 || ui.crashes.size > 0;
+let trafficSeq = 0, trafficTimer = 0;
+// Debounced: dragging the hour slider sends one request when it settles.
+function requestTraffic() {
+  clearTimeout(trafficTimer);
+  const seq = ++trafficSeq;
+  trafficTimer = setTimeout(async () => {
+    if (!roadEventsActive()) { ui.trafficImpact = null; prepareCars(); renderAll(); return; }
+    try {
+      const res = await fetch('/v1/viewer/traffic', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hazards: currentHazards(), closed: [...ui.closedRoads].slice(0, 1000), crashes: [...ui.crashes].slice(0, 20), hour: ui.hour }) });
+      const body = await res.json();
+      if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `HTTP ${res.status}`);
+      if (seq !== trafficSeq) return;  // a newer request is on its way
+      ui.trafficImpact = body.traffic;
+      prepareCars(); renderTraffic(); renderScenario(); render();
+    } catch (err) {
+      if (seq !== trafficSeq) return;
+      $('progress').textContent = `Could not measure the road impact: ${err.message}`;
+    }
+  }, 250);
+}
+function setRoadTool(tool) {
+  ui.roadTool = ui.roadTool === tool ? null : tool;
+  $('progress').textContent = ui.roadTool === 'close' ? 'Click a road to close it · click a closed one to reopen it'
+    : ui.roadTool === 'crash' ? 'Click a road to put a crash on it · click the crash to clear it' : '';
+  renderTraffic(); render();
+}
+function toggleRoadEvent(i, at) {
+  const set = ui.roadTool === 'crash' ? ui.crashes : ui.closedRoads;
+  const other = ui.roadTool === 'crash' ? ui.closedRoads : ui.crashes;
+  if (set.has(i)) set.delete(i); else { set.add(i); other.delete(i); }
+  // The crash marker goes where it was clicked, not mid-segment.
+  if (ui.crashes.has(i) && at) ui.crashSites.set(i, at.slice(0, 2)); else ui.crashSites.delete(i);
+  prepareCars(); renderTraffic(); render(); requestTraffic();
+}
+function clearRoadEvents() {
+  ui.closedRoads.clear(); ui.crashes.clear(); ui.crashSites.clear(); ui.roadTool = null; $('progress').textContent = '';
+  prepareCars(); renderTraffic(); render(); requestTraffic();
 }
 function roadSummary(t) {
+  if (ui.traffic) return simulationSummary();
   if (!t) return '';
-  const by = Object.entries(t.closed_by).filter(([, n]) => n).map(([k, n]) => `${n.toLocaleString()} by ${k}`).join(', ');
+  const by = Object.entries(t.closed_by).filter(([, n]) => n).map(([k, n]) => `${n.toLocaleString()} by ${REASON[k]?.[n === 1 ? 0 : 1] ?? k}`).join(', ');
   const closed = t.closed_roads ? `${plural(t.closed_roads, 'road segment')} closed (${t.closed_km.toLocaleString()} km${by ? `: ${by}` : ''})` : 'No roads closed';
   const slowed = t.slowed_km ? ` · ${t.slowed_km.toLocaleString()} km slowed` : '';
-  const trips = !t.affected ? `None of ${t.trips.toLocaleString()} sampled trips at ${hourLabel(t.hour)} uses these roads.`
-    : `${t.affected.toLocaleString()} of ${t.trips.toLocaleString()} sampled trips at ${hourLabel(t.hour)} cross them: ${t.cut_off.toLocaleString()} cut off, the rest +${t.delay_min.p50} min (90% under +${t.delay_min.p90} min).`;
-  return `<div class="m">${closed}${slowed}</div><div class="m">${trips}</div>`;
+  // A range is shown only when the trip samples disagree on the figure.
+  const count = (v) => v.toLocaleString();
+  const mins = (v) => (v < 10 ? v.toFixed(1) : Math.round(v).toString());
+  const span = (key, fmt = count) => {
+    const r = t.ranges?.[key];
+    return r && fmt(r[0]) !== fmt(r[1]) ? ` (${fmt(r[0])}–${fmt(r[1])})` : '';
+  };
+  const trips = !t.affected ? `None of ${count(t.trips)} sampled trips at ${hourLabel(t.hour)} uses these roads.`
+    : `${count(t.affected)} of ${count(t.trips)} sampled trips at ${hourLabel(t.hour)} cross them. ${count(t.cut_off)}${span('cut_off')} are cut off; the rest take +${mins(t.delay_min.p50)} min${span('delay_p50', mins)} at the median and +${mins(t.delay_min.p90)} min${span('delay_p90', mins)} for the slowest tenth.${t.samples > 1 ? ` Brackets show the spread across ${t.samples} independent trip samples.` : ''}`;
+  const flow = t.busiest_closed_vph ? `<div class="m">The busiest closed road normally carries about ${t.busiest_closed_vph.toLocaleString()} vehicles an hour each way at ${hourLabel(t.hour)} (estimated from the CDR peak counts).</div>` : '';
+  const jam = t.jammed_km ? `<div class="m">About ${t.diverted_vph.toLocaleString()}${span('diverted_vph')} vehicles an hour take detours, slowing ${Math.round(t.jammed_km).toLocaleString()} km of road (busiest at ${t.max_vc}× its capacity). Without that congestion the median delay would be +${mins(t.delay_min_uncongested.p50)} min.${t.spillover.trips ? ` ${count(t.spillover.trips)} other trips are held up too, +${mins(t.spillover.delay_min.p50)} min.` : ''}</div>` : '';
+  const buses = t.bus_routes_hit?.length ? `<div class="m">Bus and van lines cut: ${[...new Set(t.bus_routes_hit.map((b) => b.label))].map((l) => `<bdi>${esc(l)}</bdi>`).join(', ')}.</div>` : '';
+  return `<div class="m">Illustrative traffic impact · uncalibrated rules</div><div class="m">${closed}${slowed}</div><div class="m">${trips}</div>${jam}${flow}${buses}`;
+}
+// Peak-hour counts from the CDR survey, with the roads each was matched to.
+function stationRows() {
+  const st = DATA.traffic.stations ?? [];
+  if (!st.length) return '';
+  const vol = DATA.traffic.volumes ?? {};
+  const classes = Object.entries(vol).map(([c, v]) => `${c} ${Math.round(v.vph).toLocaleString()}${v.interpolated ? ' (interpolated)' : ''}`).join(' · ');
+  // Collapsible, so the panel stays short on a phone; the open state survives redraws.
+  return `<details class="lever" data-stations ${ui.stationsOpen ? 'open' : ''}><summary class="t" style="cursor:pointer">Measured volumes, 09:00 peak</summary>
+    <div class="m">Vehicles per hour each way, CDR survey 2016–17. By road class: ${esc(classes)}.</div>
+    ${st.map((x, k) => `<div class="road-row" data-station="${k}" style="cursor:${x.roads.length ? 'pointer' : 'default'}"><span class="n" style="text-align:right;color:var(--ink-3)">${x.am_per_direction.toLocaleString()}</span><span>${esc(x.label)}${x.roads.length ? '' : ' · <span style="color:var(--ink-3)">not found on the map</span>'}</span></div>`).join('')}
+    <div class="m">Hover a station to find its road.</div></details>`;
 }
 function renderTraffic() {
   const el = $('p-traffic');
   if (el.hidden || !DATA.traffic) return;
+  // The header and slider are built once, so dragging the slider is never
+  // interrupted by the panel redrawing underneath it.
+  if (!$('hour')) {
+    el.innerHTML = `<button class="close" aria-label="Close" data-close="traffic">✕</button><h2>Traffic</h2>
+      <div class="sub">Historical speeds, ${esc(DATA.traffic.period)} · ${CAR_SPEEDUP}× playback; pauses while buffering</div>
+      <div class="sev"><div class="row"><label for="hour">Hour</label><b id="hour-label"></b></div>
+        <input id="hour" type="range" min="0" max="23" step="1" value="${ui.hour}"></div>
+      <div id="traffic-body"></div>`;
+  }
+  $('hour').value = ui.hour;
+  $('hour').setAttribute('aria-valuetext', hourLabel(ui.hour));
+  $('hour-label').textContent = hourLabel(ui.hour);
   const t = roadImpact();
   const est = DATA.traffic.roads.filter((r) => r.est).length;
   const swatch = (rgb) => `rgb(${rgb.join(',')})`;
-  el.innerHTML = `<button class="close" aria-label="Close" data-close="traffic">✕</button><h2>Traffic</h2>
-    <div class="sub">Typical speeds, ${esc(DATA.traffic.period)} · cars run ${CAR_SPEEDUP}× real time</div>
-    <div class="sev"><div class="row"><label for="hour">Hour</label><b>${hourLabel(ui.hour)}</b></div>
-      <input id="hour" type="range" min="0" max="23" step="1" value="${ui.hour}" aria-valuetext="${hourLabel(ui.hour)}"></div>
+  const events = ui.closedRoads.size + ui.crashes.size;
+  const tools = DATA.api ? `<div class="row" style="display:flex;align-items:center;gap:8px;margin:2px 0 10px">
+      <div class="seg" role="group" aria-label="Road tools">
+        <button type="button" data-road-tool="close" aria-pressed="${ui.roadTool === 'close'}">Close a road</button>
+        <button type="button" data-road-tool="crash" aria-pressed="${ui.roadTool === 'crash'}">Crash</button></div>
+      ${events ? `<button type="button" class="more" data-road-clear style="border:1px solid var(--line);background:var(--control);border-radius:999px;padding:5px 10px;font-size:12px">Clear ${events}</button>` : ''}</div>` : '';
+  $('traffic-body').innerHTML = `${tools}
     <div class="road-row"><span class="ln" style="background:${swatch(FLOW[0])}"></span><span>Near free-flow speed</span></div>
     <div class="road-row"><span class="ln" style="background:${swatch(FLOW[1])}"></span><span>About half speed</span></div>
     <div class="road-row"><span class="ln" style="background:${swatch(FLOW[2])}"></span><span>Crawling</span></div>
-    ${t ? `<div class="road-row"><span class="ln" style="background:${swatch(CLOSED_RGB)}"></span><span>Closed by the disaster</span></div>
-    <div class="road-row"><span class="ln" style="background:${swatch(DETOUR_RGB)}"></span><span>Takes the detours</span></div>
-    <div class="lever"><div class="t">After the disaster</div>${roadSummary(t)}</div>` : `<div class="note">Drop a disaster to see which roads it closes and where traffic goes instead.</div>`}
-    <div class="note">Colour compares each road's median speed at this hour with its fastest hour. ${est.toLocaleString()} of ${DATA.traffic.roads.length.toLocaleString()} roads had too few readings and borrow their road class's profile. The number of cars is a picture of how busy a road is, not a count.${t ? ` ${esc(t.assumptions)}` : ''}</div>`;
+    ${t ? `<div class="road-row"><span class="ln" style="background:${swatch(CLOSED_RGB)}"></span><span>Closed</span></div>
+
+    ${ui.crashes.size ? `<div class="road-row"><span class="ln" style="background:${swatch(CRASH_RGB)}"></span><span>Crash · slows the queue up to 250 m behind it</span></div>` : ''}
+    ` : ''}
+    ${trafficMetrics?.detour?.length ? `<div class="road-row"><span class="ln" style="background:${swatch(DETOUR_RGB)}"></span><span>Rerouted vehicles here</span></div>` : ''}
+    <div class="lever"><div class="t">Simulated trips</div>${simulationSummary()}</div>
+    ${DATA.traffic.bus_routes?.length ? `<label class="road-row" style="cursor:pointer"><input type="checkbox" data-buses ${ui.buses ? 'checked' : ''} style="margin:0;accent-color:#0e8f7e"><span>Bus and van routes (${DATA.traffic.bus_routes.length}, OpenStreetMap)</span></label>
+      ${ui.buses ? `<div class="road-row"><span class="ln" style="background:${swatch(BUS_RGB)}"></span><span>Route</span></div>${t?.bus_routes_hit?.length ? `<div class="road-row"><span class="ln" style="background:${swatch(busCutRgb())}"></span><span>Route cut by a closure</span></div>` : ''}` : ''}` : ''}
+    ${stationRows()}
+    <div class="note">SUMO generates destination-based trips, car following, lane queues and junction controls. Closures reroute this same fleet; vehicles without detours remain accounted for and resume after reopening. Colour compares each road's median speed at this hour with its fastest hour. ${est.toLocaleString()} of ${DATA.traffic.roads.length.toLocaleString()} roads had too few readings and borrow their road class's profile. These are simulated trajectories, not measured GPS trips or a live vehicle count. Destinations and signal timing are assumptions. Demand uses 2016–17 class counts; speeds predate 2020. The finite fleet drains as trips finish.${t ? ' Closure and hazard slowdown rules are illustrative assumptions.' : ''}</div>`;
 }
 
 // ---- meshes (metres; x east, y north, z up), flat-shaded triangle lists ----
@@ -942,6 +1226,44 @@ function taper(out, bx, h, cz, apex, col) {
   for (let i = 0; i < 4; i++) tri(out, q[i], q[(i + 1) % 4], apex, col, [bx, 0, cz]);
 }
 const meshes = {};
+function importedCarMesh(name) {
+  if (meshes[name]) return meshes[name];
+  const source = IMPORTED_CARS[name];
+  const bytes = value => Uint8Array.from(atob(value), c => c.charCodeAt(0));
+  return meshes[name] = {
+    attributes: {
+    positions: { value: new Float32Array(bytes(source.positions).buffer), size: 3 },
+    normals: { value: new Float32Array(bytes(source.normals).buffer), size: 3 },
+    colors: { value: Float32Array.from(bytes(source.colors), c => c / 255), size: 3 },
+    texCoords: { value: new Float32Array(source.vertices * 2), size: 2 },
+    },
+    indices: { value: new Uint16Array(bytes(source.indices).buffer), size: 1 },
+  };
+}
+// Shared low-poly sedan, 4.4 m long, nose along +x. One instanced mesh for
+// the whole fleet: no per-car model requests or separate wheel draw calls.
+function carMesh() {
+  const v = [], paint = [1, 1, 1], glass = [0.18, 0.25, 0.32], rubber = [0.09, 0.10, 0.12];
+  box(v, [-2.2, -0.9, 0.4], [2.2, 0.9, 0.98], paint);
+  // Cabin with sloped windshield and rear window.
+  const a = [-1.35, -0.78, 0.98], b = [0.85, -0.78, 0.98],
+    c = [0.35, -0.68, 1.55], d = [-0.9, -0.68, 1.55];
+  const flip = p => [p[0], -p[1], p[2]];
+  quad(v, d, c, flip(c), flip(d), [0, 0, 1], paint);
+  quad(v, b, flip(b), flip(c), c, [0.75, 0, 0.66], glass);
+  quad(v, flip(a), a, d, flip(d), [-0.78, 0, 0.62], glass);
+  quad(v, a, b, c, d, [0, -1, 0], glass);
+  quad(v, flip(b), flip(a), flip(d), flip(c), [0, 1, 0], glass);
+  // Four dark wheels, visible from both sides, and contrasting lights.
+  for (const x of [-1.35, 1.35]) for (const y of [-0.91, 0.91]) {
+    box(v, [x - 0.32, y - 0.12, 0.08], [x + 0.32, y + 0.12, 0.65], rubber);
+  }
+  for (const y of [-0.65, 0.65]) {
+    box(v, [2.2, y - 0.18, 0.65], [2.23, y + 0.18, 0.85], [1, 1, 0.85]);
+    box(v, [-2.23, y - 0.18, 0.65], [-2.2, y + 0.18, 0.85], [0.8, 0.08, 0.05]);
+  }
+  return meshOf(v);
+}
 // A generic airliner, nose along +x, ~55 m long.
 function planeMesh() {
   const v = [], W = [0.95, 0.95, 0.96], G = [0.66, 0.69, 0.73], D = [0.22, 0.25, 0.29], R = [0.62, 0.66, 0.72];
@@ -1530,7 +1852,9 @@ const deckProps = () => ({
   effects: [lighting()],
   getCursor: ({ isHovering, isDragging }) => (isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'),
   onHover: showTip,
-  onClick: ({ object }) => { ui.selected = object ? object.b.id : null; renderInspector(); render(); },
+  // Roads are thin; a few pixels of slack makes them clickable.
+  pickingRadius: 6,
+  onClick: ({ object, coordinate }) => { if (object?.bus) return; if (object?.r) { if (ui.roadTool) toggleRoadEvent(object.i, coordinate); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
 });
 
 function initScene() {
@@ -1588,10 +1912,15 @@ function focusStrike(hit) {
 // Fly to the buildings a scenario touches, so the result is on screen.
 function focusOn(ids) {
   const wanted = new Set(ids);
+  focusPoints(DATA.buildings.filter((b) => wanted.has(b.id)).flatMap((b) => b.rings[0]));
+}
+// Frames the given road segments (indices into DATA.traffic.roads).
+function focusRoads(indices) {
+  focusPoints(indices.flatMap((i) => DATA.traffic?.roads[i]?.path ?? []));
+}
+function focusPoints(points) {
   let w = Infinity, s = Infinity, e = -Infinity, n = -Infinity;
-  for (const b of DATA.buildings) if (wanted.has(b.id)) for (const [x, y] of b.rings[0]) {
-    w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y);
-  }
+  for (const [x, y] of points) { w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y); }
   if (!Number.isFinite(w)) return;
   if (!map) {
     const vp = new deck.WebMercatorViewport({ width: innerWidth, height: innerHeight });
@@ -1619,25 +1948,62 @@ function probRows(p, compare, current) {
       <div class="track"><div class="fill" style="width:${(v * 100).toFixed(1)}%"></div>${compare ? `<div class="ghost" style="left:calc(${((compare[s] ?? 0) * 100).toFixed(1)}% - 1px)" title="baseline ${pct(compare[s] ?? 0)}"></div>` : ''}</div></div>
       <span class="v">${pct(v)}</span></div>`).join('');
 }
+function roadTip(tip, { r, i }, x, y) {
+  const impact = indexImpact(roadImpact());
+  const q = flowAt(r, ui.hour);
+  const closed = roadClosed(i, impact);
+  const jam = impact?.jamMap?.get(i);
+  tip.innerHTML = `<div class="h"><bdi>${esc(r.name || 'Unnamed road')}</bdi></div>
+    <div class="s">${esc(r.cls.replace(/_/g, ' '))}${r.oneway ? ' · one-way' : ''}${r.lanes ? ` · ${r.lanes} lane${r.lanes === 1 ? '' : 's'} each way` : ''}</div>
+    <div class="s" style="margin:6px 0 0">${closed ? 'Closed' : `${Math.round(r.speed[ui.hour] * slowOf(impact, i))} km/h at ${hourLabel(ui.hour)}${jam ? ` (normally ${r.speed[ui.hour]}; detour traffic)` : ''} · fastest ${r.free} km/h`}</div>
+    ${q !== null ? `<div class="s">About ${q.toLocaleString()} vehicles an hour ${r.oneway ? 'in its direction' : 'each way'} (estimate from its class and lanes)</div>` : ''}
+    <div class="s">Historical speeds · ${esc(DATA.traffic.period)}${impact ? ' · illustrative impact' : ''}</div><div class="s">${r.est ? 'Few readings: speeds borrowed from its road class' : `${r.n.toLocaleString()} probe readings`}</div>`;
+  tip.hidden = false;
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = `${Math.min(x + 16, innerWidth - w - 10)}px`;
+  tip.style.top = `${Math.min(y + 16, innerHeight - h - 10)}px`;
+}
 function showTip({ object, x, y }) {
   const tip = $('tip');
   if (!object) { tip.hidden = true; return; }
+  if (object.r) { roadTip(tip, object, x, y); return; }
+  if (object.bus) {
+    const b = object.bus, hit = indexImpact(roadImpact())?.busHit.has(b.id);
+    tip.innerHTML = `<div class="h">${esc(b.mode === 'bus' ? 'Bus' : 'Van')} <bdi>${esc(b.label)}</bdi></div>
+      ${b.name && b.name !== b.label ? `<div class="s"><bdi>${esc(b.name)}</bdi></div>` : ''}${b.operator ? `<div class="s"><bdi>${esc(b.operator)}</bdi></div>` : ''}
+      ${hit ? '<div class="s" style="margin-top:6px">A closed road cuts this route</div>' : ''}`;
+    tip.hidden = false;
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = `${Math.min(x + 16, innerWidth - w - 10)}px`;
+    tip.style.top = `${Math.min(y + 16, innerHeight - h - 10)}px`;
+    return;
+  }
   const b = object.b, p = activeP(b);
   tip.innerHTML = `<div class="h">${esc(b.sector || 'Building')} · ${esc(b.use || 'use n/a')}</div>
-    <div class="s">${esc(stateLabel(b.state))} · ${b.h.toFixed(1)} m${b.est ? ' (est.)' : ''}</div>
-    ${p ? `<div class="s" style="margin:6px 0 0">In 2 years${ui.scenario ? ' (scenario)' : ''}</div>${probRows(Object.fromEntries(Object.entries(p).sort((a, c) => c[1] - a[1]).slice(0, 3)), null, b.state)}` : ''}`;
+    <div class="s">${esc(stateLabel(b.state))} · ${esc(b.status_source || 'Source period unavailable')}</div>
+    <div class="s">${b.h.toFixed(1)} m · ${esc(heightEvidence(b))}</div>
+    ${hasHazards() ? '<div class="s">Collapse animation is illustrative, not a building-level outcome.</div>' : ''}
+    ${p ? `<div class="s" style="margin:6px 0 0">${esc(evidenceLabel(ui.scenario?.forecast ?? DATA.forecast))} · next 2 years</div>${probRows(Object.fromEntries(Object.entries(p).sort((a, c) => c[1] - a[1]).slice(0, 3)), null, b.state)}` : ''}`;
   tip.hidden = false;
   const w = tip.offsetWidth, h = tip.offsetHeight;
   tip.style.left = `${Math.min(x + 16, innerWidth - w - 10)}px`;
   tip.style.top = `${Math.min(y + 16, innerHeight - h - 10)}px`;
 }
 
+function evidenceLabel(f) {
+  return f?.evidence_level === 'assumption_based_scenario' ? 'Assumption-based prediction' : 'Model prediction · BAU';
+}
+function heightEvidence(b) {
+  return b.height_source || (b.est ? 'Estimated height; method unavailable' : 'Recorded height');
+}
+function bandNote(f) {
+  return `p05–p95 · 90% simulation range${f?.monte_carlo_draws ? ` · ${f.monte_carlo_draws} draws` : ''}`;
+}
 function renderStatus() {
   const f = ui.scenario?.forecast ?? DATA.forecast;
   const assumed = f?.evidence_level === 'assumption_based_scenario';
-  $('status').innerHTML = `<span class="opt"><b>${esc(DATA.snapshot.data_version)}</b></span><span class="sep opt"></span>
-    <span class="opt">${DATA.coverage.drawn.toLocaleString()} buildings</span>
-    ${f ? `<span class="sep opt"></span><span class="badge ${assumed ? 'assumed' : ''}"><i></i>${assumed ? 'Assumption-based scenario' : 'Business as usual'}</span>` : ''}`;
+  const label = ui.lens === 'observed' ? 'Observed records' : f ? evidenceLabel(f) : 'No model prediction';
+  $('status').innerHTML = `<span class="badge ${assumed ? 'assumed' : ''}"><i></i>${label}${hasHazards() ? ' · illustrative effects' : ''}</span>`;
 }
 
 function counts(fn) {
@@ -1651,10 +2017,11 @@ function renderLegend() {
   let body = '';
   if (ui.lens === 'observed' || ui.lens === 'forecast') {
     const c = ui.lens === 'observed' ? counts((b) => b.state) : counts((b) => { const p = activeP(b); return p ? argmax(p) : null; });
-    const title = ui.lens === 'observed' ? `Observed state · ${esc(DATA.snapshot.as_of.slice(0, 4))}` : `Most likely state in 2 years${ui.scenario ? ' · scenario' : ''}`;
+    const title = ui.lens === 'observed' ? `Recorded building states` : `Most likely state in 2 years${ui.scenario ? ' · scenario' : ''}`;
     body = `<h2>${title}</h2><div class="sub">Building count per canonical BBED state</div>` +
       ORDER.map((s) => `<div class="legend-row ${c[s] ? '' : 'muted'}"><span class="sw" style="background:${STATES[s].color}"></span><span>${esc(STATES[s].label)}</span><span class="n">${c[s].toLocaleString()}</span></div>`).join('');
-    if (ui.lens === 'forecast') body += `<div class="note">Colour is the single most likely state; hover a building for the full distribution.</div>`;
+    if (ui.lens === 'observed') body += `<div class="note">Snapshot reference: ${esc(DATA.snapshot.as_of)}. Source waves may differ by building; hover for the recorded period. Heights marked estimated are for display.</div>`;
+    if (ui.lens === 'forecast') body += `<div class="note">Model prediction: colour is the single most likely state; hover for probabilities. Scenario changes use assumed effects.</div>`;
   } else if (ui.lens === 'change') {
     body = `<h2>Chance of leaving current state</h2><div class="sub">Next 2-year step${ui.scenario ? ', under the scenario' : ''}</div>
       <div class="ramp" style="background:linear-gradient(90deg,${RAMP.join(',')})"></div><div class="ramp-labels"><span>0%</span><span>50%</span><span>100%</span></div>
@@ -1663,7 +2030,7 @@ function renderLegend() {
     const disaster = hasHazards() && !leverTarget.size;
     body = disaster ? `<h2>Disaster vs baseline</h2><div class="sub">Rise in the chance of losing the current state, next 2 years</div>
       <div class="ramp" style="background:linear-gradient(90deg,${DIVERGE.low},${DIVERGE.mid},${DIVERGE.high})"></div><div class="ramp-labels"><span>−${(deltaScale * 100).toFixed(0)} pts</span><span>no change</span><span>+${(deltaScale * 100).toFixed(0)} pts</span></div>
-      <div class="note">Orange = the disaster makes destruction, damage or another change more likely. Grey = out of reach.</div>`
+      <div class="note">Illustrative, uncalibrated effects. Orange = the disaster makes destruction, damage or another change more likely. Grey = out of reach.</div>`
     : `<h2>Scenario vs baseline</h2><div class="sub">Change in chance of reaching each lever's target state, next 2 years</div>
       <div class="ramp" style="background:linear-gradient(90deg,${DIVERGE.low},${DIVERGE.mid},${DIVERGE.high})"></div><div class="ramp-labels"><span>−${(deltaScale * 100).toFixed(0)} pts</span><span>no change</span><span>+${(deltaScale * 100).toFixed(0)} pts</span></div>
       <div class="note">Orange = more likely to reach the lever's target; blue = less likely. Grey buildings are outside every lever.${hasHazards() ? ' Outside the levers, orange marks disaster damage.' : ''}</div>`;
@@ -1678,21 +2045,26 @@ function renderInspector() {
   const p = activeP(b), base = ui.scenario ? baseP(b) : null;
   el.hidden = false;
   el.innerHTML = `<button class="close" aria-label="Close" data-close="inspect">✕</button>
-    <h2>${esc(b.sector || 'Building')}</h2><div class="sub" style="overflow-wrap:anywhere">${esc(b.id)}</div>
-    <dl class="kv"><dt>Observed</dt><dd>${esc(stateLabel(b.state))}</dd><dt>Use</dt><dd>${esc(b.use || '—')}</dd>
-    <dt>Height</dt><dd>${b.h.toFixed(1)} m${b.est ? ' (estimated)' : ''}</dd><dt>Floors</dt><dd>${b.floors ?? '—'}</dd></dl>
-    ${p ? `<div class="sub" style="margin:0 0 4px">Next 2 years${ui.scenario ? ' — scenario; yellow tick = baseline' : ''}</div>${probRows(p, base, b.state)}` : '<div class="note">No forecast for this building.</div>'}`;
+    <h2>Building details</h2><div class="sub">${esc(b.sector || 'Area not recorded')}</div><div class="sub" style="overflow-wrap:anywhere">${esc(b.id)}</div>
+    <dl class="kv"><dt>Recorded state</dt><dd>${esc(stateLabel(b.state))}<br>${esc(b.status_source || 'Source period unavailable')}</dd><dt>Use</dt><dd>${esc(b.use || 'Not recorded')}</dd>
+    <dt>Height</dt><dd>${b.h.toFixed(1)} m<br>${esc(heightEvidence(b))}</dd><dt>Floors</dt><dd>${b.floors ?? 'Not recorded'}</dd></dl><button class="building-result" data-focus-building="${esc(b.id)}">Centre this building</button>
+    ${p ? `<div class="sub" style="margin:0 0 4px">${esc(evidenceLabel(ui.scenario?.forecast ?? DATA.forecast))} · next 2 years${ui.scenario ? '; yellow tick = baseline' : ''}</div>${probRows(p, base, b.state)}` : '<div class="note">No forecast for this building.</div>'}`;
 }
 
 function kpiRows(horizon) {
   const find = (f, k) => f?.kpis.find((x) => x.kpi === k && x.year_offset === horizon);
-  const keys = [...new Set((DATA.forecast?.kpis ?? []).map((k) => k.kpi))];
-  return keys.map((k) => ({ k, base: find(DATA.forecast, k), scen: find(ui.scenario?.forecast, k) })).filter((r) => r.base);
+  const keys = [...new Set((baselineForecast()?.kpis ?? []).map((k) => k.kpi))];
+  return keys.map((k) => ({ k, base: find(baselineForecast(), k), scen: find(ui.scenario?.forecast, k) })).filter((r) => r.base);
+}
+function fmtChange(value, unit) {
+  const sign = value > 0 ? '+' : value < 0 ? '−' : '±';
+  return sign + (unit === 'ratio' ? `${(Math.abs(value) * 100).toFixed(1)} pp` : fmt(Math.abs(value), unit));
 }
 function renderDock() {
   const dock = $('dock');
-  if (!DATA.forecast) { dock.innerHTML = '<span class="empty">No forecast embedded — export with <code>--forecast</code> to see KPI bands.</span>'; return; }
-  const horizons = [...new Set(DATA.forecast.kpis.map((k) => k.year_offset))].sort((a, b) => a - b);
+  dock.hidden = ui.lens === 'observed' && $('p-kpis').hidden;
+  if (!baselineForecast()) { dock.innerHTML = '<span class="empty">Run a scenario to see its forecast and baseline comparison.</span>'; return; }
+  const horizons = [...new Set(baselineForecast().kpis.map((k) => k.year_offset))].sort((a, b) => a - b);
   if (!horizons.includes(ui.horizon)) ui.horizon = horizons[0];
   const rows = kpiRows(ui.horizon);
   const tiles = KPI_TILES.map((k) => rows.find((r) => r.k === k)).filter(Boolean).map(({ k, base, scen }) => {
@@ -1701,24 +2073,30 @@ function renderDock() {
     const dabs = base.unit === 'ratio' ? `${(Math.abs(delta) * 100).toFixed(1)} pts` : fmt(Math.abs(delta ?? 0), base.unit);
     const dtxt = delta === null ? '' : `<small>${Math.abs(delta) < 1e-9 ? '±0' : (delta > 0 ? '+' : '−') + dabs}</small>`;
     return `<div class="kpi" style="--kpi-rule:${KPI_RULE[k] || '#fff'}"><div class="l">${esc(KPI_LABELS[k] || k)}</div>
-      <div class="v">${fmt(shown.p50, base.unit)}${dtxt}</div><div class="r">${fmt(shown.p05, base.unit)} – ${fmt(shown.p95, base.unit)}</div></div>`;
+      <div class="v">${fmt(shown.p50, base.unit)}${dtxt}</div><div class="r" title="${esc(bandNote(ui.scenario?.forecast ?? DATA.forecast))}">${fmt(shown.p05, base.unit)} – ${fmt(shown.p95, base.unit)} · p05–p95</div></div>`;
   }).join('');
   dock.innerHTML = `<div class="seg" role="group" aria-label="Horizon">${horizons.map((h) => `<button data-h="${h}" aria-pressed="${h === ui.horizon}">+${h}y</button>`).join('')}</div>${tiles}
-    <button class="more" id="more">All KPIs</button>`;
+    <button class="more" id="more" title="${esc(evidenceLabel(ui.scenario?.forecast ?? DATA.forecast))}">Prediction details</button>`;
   renderKpiTable();
 }
 function renderKpiTable() {
   const el = $('p-kpis');
-  if (el.hidden || !DATA.forecast) return;
+  if (el.hidden) return;
+  if (!baselineForecast()) {
+    el.innerHTML = '<button class="close" aria-label="Close" data-close="kpis">✕</button><h2>Forecast comparison</h2><div class="note">Run a supported scenario to see its results.</div>';
+    return;
+  }
   const rows = kpiRows(ui.horizon);
-  const scen = !!ui.scenario;
+  const scen = !!ui.scenario?.forecast;
   el.innerHTML = `<button class="close" aria-label="Close" data-close="kpis">✕</button><h2>KPIs at +${ui.horizon} years</h2>
-    <div class="sub">Median with 90% band across Monte Carlo draws</div>
-    <table class="kpis"><thead><tr><th>KPI</th><th>Baseline</th>${scen ? '<th>Scenario</th>' : ''}</tr></thead><tbody>
+    <div class="sub">${esc(evidenceLabel(ui.scenario?.forecast ?? DATA.forecast))} · median · pp = percentage points<br>${esc(bandNote(ui.scenario?.forecast ?? DATA.forecast))}</div>
+    <div class="note">Range reflects sampled state transitions with fixed inputs and assumptions; it excludes uncertainty in model fitting, source data and effect sizes. Heights use recorded heights only. Gross floor area is footprint × recorded floors; missing floors contribute zero.</div>
+    <table class="kpis"><thead><tr><th>KPI</th><th>Baseline</th>${scen ? '<th>Scenario</th><th>Change</th>' : ''}</tr></thead><tbody>
     ${rows.map(({ k, base, scen: s }) => `<tr><td>${esc(KPI_LABELS[k] || k)}</td>
       <td>${fmt(base.p50, base.unit)}<br><span style="color:var(--ink-3)">${fmt(base.p05, base.unit)}–${fmt(base.p95, base.unit)}</span></td>
-      ${scen ? `<td>${s ? `${fmt(s.p50, base.unit)}<br><span style="color:var(--ink-3)">${fmt(s.p05, base.unit)}–${fmt(s.p95, base.unit)}</span>` : '—'}</td>` : ''}</tr>`).join('')}
-    </tbody></table>`;
+      ${scen ? `<td>${s ? `${fmt(s.p50, base.unit)}<br><span style="color:var(--ink-3)">${fmt(s.p05, base.unit)}–${fmt(s.p95, base.unit)}</span>` : '—'}</td><td>${s ? fmtChange(s.p50 - base.p50, base.unit) : '—'}</td>` : ''}</tr>`).join('')}
+    </tbody></table>
+    ${scen ? `<div class="note">${esc(ui.scenario.comparison?.uncertainty_note ?? 'Changes compare medians; the bands describe each forecast separately.')}</div>` : ''}`;
 }
 function renderInfo() {
   const el = $('p-info');
@@ -1729,7 +2107,11 @@ function renderInfo() {
     <dl class="kv"><dt>Snapshot</dt><dd>${esc(DATA.snapshot.id)}</dd><dt>As of</dt><dd>${esc(DATA.snapshot.as_of)}</dd>
     <dt>Data version</dt><dd>${esc(DATA.snapshot.data_version)}</dd><dt>Drawn</dt><dd>${DATA.coverage.drawn.toLocaleString()}</dd>
     <dt>No geometry</dt><dd>${DATA.coverage.missing_geometry.toLocaleString()}</dd><dt>Estimated height</dt><dd>${DATA.coverage.estimated_height.toLocaleString()}</dd>
-    ${f ? `<dt>Model</dt><dd>${esc(f.model_version)}</dd><dt>Out-of-distribution</dt><dd>${f.ood}</dd>${f.evidence_bundle_id ? `<dt>Evidence bundle</dt><dd>${esc(f.evidence_bundle_id)}</dd>` : ''}` : ''}</dl>
+    ${f ? `<dt>Model</dt><dd>${esc(f.model_version)}</dd><dt>Coverage heuristic</dt><dd>${f.ood}</dd>${f.evidence_bundle_id ? `<dt>Evidence bundle</dt><dd>${esc(f.evidence_bundle_id)}</dd>` : ''}` : ''}</dl>
+    <dl class="kv"><dt>Status sources</dt><dd>${Object.entries(DATA.evidence?.status_sources ?? {}).map(([source, n]) => `${esc(source)}: ${n.toLocaleString()}`).join('<br>') || 'Unavailable'}</dd>
+    <dt>KPI inputs</dt><dd>${DATA.evidence ? `${DATA.evidence.height_recorded.toLocaleString()} recorded heights · ${DATA.evidence.floors_recorded.toLocaleString()} recorded floor counts / ${DATA.evidence.objects.toLocaleString()} objects` : 'Coverage unavailable'}</dd>
+    ${f ? `<dt>Training periods</dt><dd>${esc(f.training_intervals?.join(', ') || 'Unavailable in saved result')}</dd>` : ''}</dl>
+    <div class="note">Snapshot date is the reference date, not a measurement date for every field. Map height estimates are for display only. Coverage heuristic measures unknown states and missing height/floors; it is not a calibrated confidence score.</div>
     ${f?.warnings?.length ? `<ul class="warn-list">${f.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
     <div class="note">Forecasts are observational transition probabilities, not causal predictions. Scenario levers carry assumed effect sizes and are labelled assumption-based. ${esc(DATA.attribution)}</div>`;
 }
@@ -1740,16 +2122,16 @@ function waterNote(s, h) {
     : '<div class="m">Flat water: no terrain loaded, so the depth is the same everywhere in reach</div>';
 }
 function roadCard(s) {
-  return s.traffic ? `<div class="lever"><div class="t">Roads</div>${roadSummary(s.traffic)}
+  return ui.trafficImpact && !ui.traffic ? `<div class="lever"><div class="t">Roads</div>${roadSummary(ui.trafficImpact)}
     ${ui.traffic ? '' : '<div class="m">Turn on Traffic to see the closures and detours.</div>'}</div>` : '';
 }
 function hazardCards(s) {
   return roadCard(s) + (s.forecast?.hazard_impacts ?? []).map((h) => `<div class="lever" data-hazard="${esc(h.hazard_id)}">
     <div class="t">${hazardIcon(h.kind, 'hz')}${esc(hazardLabel(h.kind))} · ${h.magnitude.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${esc(h.magnitude_unit)}</div>
-    <div class="m">${Math.round(h.destroyed.p50).toLocaleString()} destroyed (${Math.round(h.destroyed.p05)}–${Math.round(h.destroyed.p95)}) · ${Math.round(h.damaged.p50).toLocaleString()} damaged (${Math.round(h.damaged.p05)}–${Math.round(h.damaged.p95)})</div>
+    <div class="m">Illustrative estimate · ${Math.round(h.destroyed.p50).toLocaleString()} destroyed (${Math.round(h.destroyed.p05)}–${Math.round(h.destroyed.p95)}) · ${Math.round(h.damaged.p50).toLocaleString()} damaged (${Math.round(h.damaged.p05)}–${Math.round(h.damaged.p95)})</div>
     <div class="m">${h.exposed_buildings.toLocaleString()} buildings in reach · ${h.radius_m ? `${metres(h.radius_m)} radius` : 'citywide'} · strikes in years ${h.year_offset - 2}–${h.year_offset}</div>
     ${waterNote(s, h)}
-    <div class="m">Source: ${esc(h.effect_source)} · confidence ${esc(h.confidence_grade)}</div></div>`).join('');
+    <div class="m">Source: ${esc(h.effect_source)} · declared confidence ${esc(h.confidence_grade)}</div></div>`).join('');
 }
 function renderScenario() {
   const el = $('p-scenario');
@@ -1767,21 +2149,26 @@ function renderScenario() {
       <div class="note">Median of the Monte Carlo runs, 90% range in brackets. Damage curves are illustrative, not calibrated. On the map, the median number of buildings falls, taken from those each disaster hits hardest: one plausible picture, not a forecast for any single building. Drop another to add it; ✕ clears them all. Hover a disaster to see what it hits.</div>`;
     return;
   }
-  const allIssues = c.attempts.flatMap((a, i) => a.report.issues.map((x) => ({ ...x, attempt: i + 1 })));
+  const allIssues = (c.attempts.at(-1)?.report.issues ?? []);
   const accepted = !!c.scenario;
   const levers = accepted ? c.scenario.interventions : [];
   el.innerHTML = `<button class="close" aria-label="Clear scenario" data-close="scenario">✕</button>
     <h2>${accepted ? esc(c.scenario.scenario_id) : 'Scenario rejected'}</h2>
     <div class="sub">${esc(c.request_text)}</div>
     <div><span class="chip ${accepted ? 'ok' : 'hard'}">${accepted ? 'Validated' : 'Not runnable'}</span>
+      ${c.status === 'partial' ? '<span class="chip soft">Partially modeled</span>' : ''}
       <span class="chip">${c.attempts.length} attempt${c.attempts.length > 1 ? 's' : ''}</span>
       ${accepted ? `<span class="chip">${c.scenario.horizon_years}-year horizon</span>` : ''}</div>
     ${levers.map((l, i) => `<div class="lever" data-lever="${i}"><div class="t"><span class="sw" style="width:10px;height:10px;border-radius:3px;background:${STATES[l.target_state].color}"></span>${esc(l.intervention_id)}</div>
       <div class="m">→ ${esc(stateLabel(l.target_state))} · Δ log-odds ${l.log_odds_delta > 0 ? '+' : ''}${l.log_odds_delta} · step ${l.active_step} · ${l.object_ids.length.toLocaleString()} buildings</div>
-      <div class="m">Source: ${esc(l.effect_source)} · confidence ${esc(l.confidence_grade)}</div></div>`).join('')}
+      <div class="m">Source: ${esc(l.effect_source)} · declared confidence ${esc(l.confidence_grade)}</div></div>`).join('')}
+    ${(c.road_events ?? []).map((e) => `<div class="lever"><div class="t">${e.kind === 'crash' ? 'Crash' : 'Road closed'} · <bdi>${esc(e.street)}</bdi></div>
+      <div class="m">${e.kind === 'crash' ? 'On its busiest segment' : `${plural(e.roads.length, 'road segment')}`} · matched ${e.matched_names.slice(0, 3).map((n) => `<bdi>${esc(n)}</bdi>`).join(', ')}${e.matched_names.length > 3 ? '…' : ''}</div></div>`).join('')}
     ${hazardCards(s)}
-    ${allIssues.map((x) => `<div class="issue ${x.severity}"><code>${esc(x.code)}</code> ${esc(x.message)}${c.attempts.length > 1 ? ` <span style="color:var(--ink-3)">(attempt ${x.attempt})</span>` : ''}</div>`).join('')}
-    ${accepted ? '<div class="note">Hover a lever to highlight the buildings it acts on.</div>' : ''}`;
+    ${allIssues.map((x) => `<div class="issue ${x.severity}">${esc(x.message)}</div>`).join('')}
+    ${c.attempts.length > 1 ? `<details class="note"><summary>Earlier validation attempts</summary>${c.attempts.slice(0, -1).map((a, i) => `<div>Attempt ${i + 1}</div>${a.report.issues.map((x) => `<div>${esc(x.message)}</div>`).join('')}`).join('')}</details>` : ''}
+    ${accepted && s.forecast ? '<div class="note">Compare with business as usual in All KPIs. Scenario effects are assumptions, not causal estimates.</div>' : ''}
+    ${levers.length ? '<div class="note">Hover a lever to highlight the buildings it acts on.</div>' : ''}`;
 }
 
 const METRIC_UNIT = { change_probability: 'p', target_probability: 'p', height_m: 'm', floors: 'n', footprint_area_m2: 'm2' };
@@ -1805,7 +2192,7 @@ function renderAnswer() {
   el.innerHTML = `<button class="close" aria-label="Clear answer" data-close="answer">✕</button>
     <h2>${a ? 'Answer' : 'Question not answerable'}</h2><div class="sub">${esc(r.question)}</div>
     ${a ? `<p class="answer-text">${esc(a.text)}</p>` : ''}
-    <div><span class="chip ${a ? 'ok' : 'hard'}">${a ? 'Computed from the data' : 'Rejected'}</span>
+    <div><span class="chip ${a ? 'ok' : 'hard'}">${a ? (a.metric.endsWith('_probability') ? 'Model prediction · BAU' : 'Recorded data') : 'Rejected'}</span>
       ${a ? `<span class="chip">${a.matched.toLocaleString()} match${a.matched === 1 ? '' : 'es'}</span>` : ''}
       <span class="chip">${r.attempts.length} attempt${r.attempts.length > 1 ? 's' : ''}</span></div>
     ${rows}
@@ -1816,15 +2203,15 @@ function renderAnswer() {
 function setLens(lens) {
   ui.lens = lens;
   history.replaceState(null, '', `#lens=${lens}`);
-  document.querySelectorAll('.tab').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.lens === lens)));
-  renderLegend(); render();
+  document.querySelectorAll('.tab').forEach((t) => { t.setAttribute('aria-selected', String(t.dataset.lens === lens)); t.tabIndex = t.dataset.lens === lens ? 0 : -1; });
+  renderStatus(); renderLegend(); renderDock(); render();
 }
 function togglePanel(id, button, force) {
   const el = $(id);
   el.hidden = force === undefined ? !el.hidden : !force;
   if (button) button.setAttribute('aria-pressed', String(!el.hidden));
   if (id === 'p-legend') renderLegend();
-  if (id === 'p-kpis') renderKpiTable();
+  if (id === 'p-kpis') renderDock();
   if (id === 'p-info') renderInfo();
 }
 
@@ -1835,7 +2222,14 @@ async function runScenario(text) {
     const res = await fetch('/v1/viewer/scenario', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, hour: ui.hour }) });
     const body = await res.json();
     if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
-    ui.scenario = { compilation: body.compilation, forecast: body.forecast, hazards: body.hazards ?? [], traffic: body.traffic ?? null };
+    ui.scenario = { compilation: body.compilation, forecast: body.forecast, baseline: body.baseline, comparison: body.comparison, hazards: body.hazards ?? [] };
+    ui.trafficImpact = body.traffic ?? null;
+    // Typed closures and crashes join the road tools' own, so they can be cleared the same way.
+    const hadRoadEvents = ui.closedRoads.size || ui.crashes.size;
+    for (const i of body.road_events?.closed ?? []) ui.closedRoads.add(i);
+    for (const i of body.road_events?.crashes ?? []) ui.crashes.add(i);
+    if (hadRoadEvents) requestTraffic();
+    if ((body.road_events?.closed?.length || body.road_events?.crashes?.length) && DATA.traffic && !ui.traffic) setTraffic(true);
     prepareCars();
     ui.drops = [];
     updateDeltaScale();
@@ -1844,10 +2238,28 @@ async function runScenario(text) {
     // way God's Plan cuts to the strike); otherwise to the lever buildings.
     const struck = (body.hazards ?? []).filter((h) => h.ids.length);
     const kinds = [...new Set(struck.map((h) => h.kind.replace(/_/g, ' ')))].join(', ');
+    // Only road closures and crashes: the buildings are business as usual, so
+    // the scenario forecast (Monte Carlo noise around the baseline) is not
+    // shown as a change, and the camera goes to the roads instead.
+    const spec = body.compilation?.scenario;
+    const roads = [...(body.road_events?.closed ?? []), ...(body.road_events?.crashes ?? [])];
+    const roadsOnly = !!spec && !spec.interventions.length && !spec.hazards.length && roads.length > 0;
+    if (roadsOnly) { ui.scenario.forecast = null; updateDeltaScale(); }
     $('progress').textContent = !body.forecast ? 'The validator rejected the scenario — see why on the right.'
+      : roadsOnly ? 'Roads closed — the buildings are unchanged; see the road impact on the right.'
+      : body.compilation.status === 'partial' ? 'Partial forecast ready — see which requests were not modeled.'
       : struck.length ? `${kinds[0].toUpperCase()}${kinds.slice(1)} — flying to the hardest-hit buildings.` : 'Scenario forecast ready.';
-    document.querySelector('[data-lens="delta"]').hidden = !body.forecast;
-    if (body.forecast) {
+    document.querySelector('[data-lens="delta"]').hidden = !body.forecast || roadsOnly;
+    if (!body.forecast) {
+      if (ui.lens === 'delta') setLens('observed');
+      togglePanel('p-kpis', $('t-kpis'), false);
+    }
+    if (roadsOnly) {
+      if (ui.lens === 'delta') setLens('observed');
+      focusRoads(roads);
+    } else if (body.forecast) {
+      ui.horizon = body.compilation.scenario.horizon_years;
+      togglePanel('p-kpis', $('t-kpis'), true);
       setLens('delta');
       playFx(ui.scenario.hazards, ui.scenario.hazards.map((_, i) => i));
       if (struck.length === 1) focusStrike(struck[0]);
@@ -1973,7 +2385,10 @@ async function runDrop(drop) {
     const res = await fetch('/v1/viewer/hazard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hazards, hour: ui.hour }) });
     const body = await res.json();
     if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `HTTP ${res.status}`);
-    ui.scenario = { compilation: null, dropped: body.scenario, forecast: body.forecast, hazards: body.hazards, traffic: body.traffic ?? null };
+    ui.scenario = { compilation: null, dropped: body.scenario, forecast: body.forecast,
+      baseline: body.baseline, comparison: body.comparison, hazards: body.hazards };
+    ui.trafficImpact = body.traffic ?? null;
+    if (ui.closedRoads.size || ui.crashes.size) requestTraffic();
     prepareCars();
     // Hand the plane over mid-dive rather than restarting it.
     if (pending?.flyT0) drop.s0 = waitingProgress(performance.now() - pending.flyT0);
@@ -2020,15 +2435,146 @@ function syncPrompt() {
 }
 function renderAll() { renderTraffic(); renderStatus(); renderLegend(); renderDock(); renderInspector(); renderAnswer(); renderScenario(); renderInfo(); render(); }
 
+// Scenario input files deliberately contain no results or executable scenario spec.
+const INPUT_FORMAT = 'dynacity-scenario-input';
+const INPUT_STORAGE = 'dynacity.scenario-inputs.v1';
+let savedInputs = [];
+let savedLibraryReadable = true;
+function validateScenarioInput(value) {
+  const exact = (o, keys) => o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).sort().join(',') === keys.sort().join(',');
+  const str = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max;
+  if (!exact(value, ['format','schema_version','name','saved_at','context','input']) || value.format !== INPUT_FORMAT || value.schema_version !== 1
+      || !str(value.name, 80) || !str(value.saved_at, 40) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value.saved_at) || !Number.isFinite(Date.parse(value.saved_at))
+      || !exact(value.context, ['snapshot_id','data_version','model_version'])
+      || !str(value.context.snapshot_id, 256) || !str(value.context.data_version, 256)
+      || !(value.context.model_version === null || str(value.context.model_version, 256))
+      || !exact(value.input, ['text','hour']) || !str(value.input.text, 4000)
+      || !Number.isInteger(value.input.hour) || value.input.hour < 0 || value.input.hour > 23) {
+    throw new Error('Invalid scenario input file. Expected DynaCITY schema version 1 with a name, version context, prompt and hour.');
+  }
+  return value;
+}
+function inputContext() {
+  return {snapshot_id: DATA.snapshot.id, data_version: DATA.snapshot.data_version, model_version: DATA.forecast?.model_version ?? null};
+}
+function makeScenarioInput() {
+  if (ui.mode !== 'scenario') throw new Error('Switch to Scenario mode before saving a prompt.');
+  return validateScenarioInput({format: INPUT_FORMAT, schema_version: 1, name: $('scenario-name').value.trim() || 'Untitled scenario',
+    saved_at: new Date().toISOString(), context: inputContext(), input: {text: $('q').value.trim(), hour: ui.hour}});
+}
+function inputCompatibility(value) {
+  const now = inputContext();
+  const mismatches = Object.keys(now).filter((key) => now[key] !== value.context[key]);
+  if (now.model_version === null || value.context.model_version === null) mismatches.push('unknown model version');
+  return mismatches;
+}
+function libraryMessage(message) { $('library-message').textContent = message; }
+function readSavedInputs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(INPUT_STORAGE) ?? '[]');
+    if (!Array.isArray(raw) || raw.length > 50) throw new Error('Invalid saved library');
+    savedInputs = raw.map(validateScenarioInput);
+  } catch (error) { savedLibraryReadable = false; savedInputs = []; libraryMessage('Saved library could not be read. Import an exported input file or export your current prompt.'); }
+  renderSavedInputs();
+}
+function writeSavedInputs(next) {
+  // Update memory only after a successful durable write (quota/private mode can fail).
+  if (!savedLibraryReadable) throw new Error('The saved library is unreadable; export the current prompt instead. Existing storage has been preserved.');
+  localStorage.setItem(INPUT_STORAGE, JSON.stringify(next));
+  savedInputs = next; renderSavedInputs();
+}
+function renderSavedInputs() {
+  $('saved-inputs').innerHTML = savedInputs.length ? savedInputs.map((item, i) => `<div class="lever"><div class="t">${esc(item.name)}</div>
+    <div class="m">${esc(new Date(item.saved_at).toLocaleString())}</div><div class="library-actions">
+    <button data-load-input="${i}" ${ui.busy ? 'disabled' : ''}>Load prompt</button><button data-export-input="${i}">Export</button><button data-delete-input="${i}">Delete</button></div></div>`).join('') : '<p class="note">No saved prompts in this browser yet.</p>';
+}
+function downloadScenarioInput(value) {
+  validateScenarioInput(value);
+  const json = JSON.stringify(value, null, 2) + '\n';
+  $('json-export').hidden = false; $('json-export').open = true; $('json-export-text').value = json;
+  libraryMessage('Portable JSON ready below. A file download was requested; copy the JSON if your browser blocks downloads.');
+  const url = URL.createObjectURL(new Blob([json], {type: 'application/json'}));
+  const link = document.createElement('a'); link.href = url; link.download = 'dynacity-scenario-input.json'; document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function loadScenarioInput(value) {
+  validateScenarioInput(value);
+  if (ui.busy) throw new Error('Wait for the current request to finish before loading a prompt.');
+  const mismatches = inputCompatibility(value);
+  setMode('scenario'); $('q').value = value.input.text; $('scenario-name').value = value.name;
+  // The archived hour is context, not an implicit traffic mutation.
+  const notice = `${mismatches.length ? 'Version context differs (' + mismatches.join(', ') + '). ' : ''}Input loaded; no saved results restored. Saved hour: ${value.input.hour}:00. Current hour: ${ui.hour}:00. The map keeps its current results until you run again. Review the prompt; results may differ.`;
+  libraryMessage(notice); $('progress').textContent = `${mismatches.length ? 'Version context differs. ' : ''}Input loaded; no saved results restored. Review and run again.`; $('q').focus();
+}
+function openUsabilityPanel(id, button, field) {
+  const opening = $(id).hidden;
+  closeUsabilityPanel();
+  if (!opening) return;
+  // Keep these utility sheets readable on small screens.
+  for (const panel of document.querySelectorAll('.side > .panel')) panel.hidden = true;
+  for (const tool of ['t-legend','t-kpis','t-info']) $(tool).setAttribute('aria-pressed', 'false');
+  $(id).hidden = false; $(button).setAttribute('aria-pressed', 'true'); $(field).focus();
+}
+function closeUsabilityPanel() {
+  for (const [panel, button] of [['p-library','t-library'],['p-buildings','t-buildings']]) {
+    if (!$(panel).hidden && $(panel).contains(document.activeElement)) document.querySelector('#tool-menu summary').focus();
+    $(panel).hidden = true; $(button).setAttribute('aria-pressed', 'false');
+  }
+}
+function renderBuildingResults() {
+  const query = $('building-query').value.trim().toLocaleLowerCase();
+  const hits = DATA.buildings.filter((b) => [b.id,b.sector,b.use].some((v) => String(v ?? '').toLocaleLowerCase().includes(query)));
+  $('building-count').textContent = `${hits.length.toLocaleString()} matches${hits.length > 30 ? '; showing the first 30. Refine your search.' : ''}`;
+  $('building-results').innerHTML = hits.slice(0,30).map((b) => `<button class="building-result" data-select-building="${esc(b.id)}">${esc(b.sector || 'Area not recorded')} · ${esc(b.use || 'Use not recorded')}<br>${esc(b.id)} · ${esc(stateLabel(b.state))}</button>`).join('');
+}
+function wireUsability() {
+  $('t-library').onclick = () => { renderSavedInputs(); openUsabilityPanel('p-library','t-library','scenario-name'); };
+  $('t-buildings').onclick = () => { renderBuildingResults(); openUsabilityPanel('p-buildings','t-buildings','building-query'); };
+  $('building-query').oninput = renderBuildingResults;
+  const safe = (action) => { try { action(); } catch (error) { libraryMessage(error.message); } };
+  $('save-input').onclick = () => safe(() => {
+    if (savedInputs.length >= 50) throw new Error('Library is full (50 prompts). Export or delete an entry first.');
+    writeSavedInputs([...savedInputs, makeScenarioInput()]); libraryMessage('Prompt saved in this browser. Export JSON to keep a portable copy.');
+  });
+  $('export-input').onclick = () => safe(() => downloadScenarioInput(makeScenarioInput()));
+  $('import-input').onclick = () => $('scenario-file').click();
+  $('scenario-file').onchange = async (event) => {
+    const file = event.target.files[0]; if (!file) return;
+    try {
+      if (file.size > 32000) throw new Error('Input file is too large (maximum 32 KB).');
+      const value = validateScenarioInput(JSON.parse(await file.text()));
+      loadScenarioInput(value);
+    } catch (error) { libraryMessage(`Could not import: ${error.message}`); }
+    finally { event.target.value = ''; }
+  };
+  document.addEventListener('click', (event) => {
+    const target = event.target.closest('button'); if (!target) return;
+    if (['library','buildings'].includes(target.dataset.close)) closeUsabilityPanel();
+    if (target.dataset.loadInput !== undefined) safe(() => loadScenarioInput(savedInputs[Number(target.dataset.loadInput)]));
+    if (target.dataset.exportInput !== undefined) safe(() => downloadScenarioInput(savedInputs[Number(target.dataset.exportInput)]));
+    if (target.dataset.deleteInput !== undefined) safe(() => { writeSavedInputs(savedInputs.filter((_, i) => i !== Number(target.dataset.deleteInput))); libraryMessage('Saved prompt deleted.'); });
+    if (target.dataset.selectBuilding !== undefined) {
+      ui.selected = target.dataset.selectBuilding; closeUsabilityPanel(); renderInspector(); render(); focusOn([ui.selected]);
+      $('p-inspect').querySelector('.close').focus();
+    }
+    if (target.dataset.focusBuilding !== undefined) focusOn([target.dataset.focusBuilding]);
+  });
+  readSavedInputs();
+}
+
 function wire() {
+  wireUsability();
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => setLens(t.dataset.lens)));
   const tabs = [...document.querySelectorAll('.tab')];
   document.querySelector('.tabs').addEventListener('keydown', (e) => {
-    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault();
     const vis = tabs.filter((t) => !t.hidden), i = vis.indexOf(document.activeElement);
-    const next = vis[(i + (e.key === 'ArrowRight' ? 1 : vis.length - 1)) % vis.length];
+    const next = vis[e.key === 'Home' ? 0 : e.key === 'End' ? vis.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : vis.length - 1)) % vis.length];
     next.focus(); setLens(next.dataset.lens);
   });
+  $('tool-menu').addEventListener('click', (e) => { if (e.target.closest('button')) $('tool-menu').open = false; });
+  document.addEventListener('click', (e) => { if (!e.target.closest('#tool-menu')) $('tool-menu').open = false; });
   $('t-reset').onclick = () => { ui.topDown = false; $('t-2d').setAttribute('aria-pressed', 'false'); flyTo({}); };
   $('t-2d').onclick = () => { ui.topDown = !ui.topDown; $('t-2d').setAttribute('aria-pressed', String(ui.topDown)); flyTo(ui.topDown ? { pitch: 0, bearing: 0 } : {}); };
   $('t-sat').onclick = () => setSatellite(!ui.satellite);
@@ -2037,7 +2583,22 @@ function wire() {
   $('t-info').onclick = (e) => togglePanel('p-info', e.currentTarget);
   $('t-fx').onclick = (e) => togglePanel('tray', e.currentTarget);
   $('t-traffic').onclick = () => setTraffic(!ui.traffic);
-  $('p-traffic').addEventListener('input', (e) => { if (e.target.id === 'hour') setHour(Number(e.target.value)); });
+  $('p-traffic').addEventListener('input', (e) => {
+    if (e.target.id === 'hour') setHour(Number(e.target.value));
+    if (e.target.matches('[data-buses]')) { ui.buses = e.target.checked; renderTraffic(); render(); }
+  });
+  $('p-traffic').addEventListener('mouseover', (e) => {
+    const row = e.target.closest('[data-station]');
+    const next = row ? DATA.traffic.stations[Number(row.dataset.station)].roads : null;
+    if (next !== ui.roadHighlight && (next?.length || ui.roadHighlight)) { ui.roadHighlight = next?.length ? next : null; render(); }
+  });
+  $('p-traffic').addEventListener('click', (e) => {
+    const tool = e.target.closest('[data-road-tool]');
+    if (tool) { setRoadTool(tool.dataset.roadTool); return; }
+    if (e.target.closest('[data-road-clear]')) clearRoadEvents();
+  });
+  $('p-traffic').addEventListener('toggle', (e) => { if (e.target.matches('[data-stations]')) ui.stationsOpen = e.target.open; }, true);
+  $('p-traffic').addEventListener('mouseleave', () => { if (ui.roadHighlight) { ui.roadHighlight = null; render(); } });
   $('tiles').innerHTML = HAZARDS.map((h) => `<button class="tile" type="button" data-kind="${h.kind}" title="${h.label}: drag onto the city (or press to drop it mid-view)">${hazardIcon(h.kind)}<span>${h.label}</span></button>`).join('');
   $('tiles').addEventListener('pointerdown', startDrag);
   $('tiles').addEventListener('click', (e) => {
@@ -2069,7 +2630,8 @@ function wire() {
     if (which === 'traffic') setTraffic(false);
     if (which === 'answer') { ui.answer = null; ui.answerIds = null; ui.highlight = null; renderAnswer(); render(); }
     if (which === 'scenario') {
-      ui.scenario = null; ui.highlight = null; ui.drops = []; clearFx(); prepareCars();
+      ui.scenario = null; ui.highlight = null; ui.drops = []; clearFx();
+      ui.trafficImpact = null; requestTraffic(); prepareCars();
       document.querySelector('[data-lens="delta"]').hidden = true;
       if (ui.lens === 'delta') setLens('forecast');
       $('progress').textContent = ''; renderAll();
@@ -2106,7 +2668,9 @@ function wire() {
     if (ui.mode === 'ask') runAsk(t); else runScenario(t);
   });
   addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { $('tool-menu').open = false; closeUsabilityPanel(); }
     if (e.key === 'Escape' && pending?.steering) { cancelSteer(); return; }
+    if (e.key === 'Escape' && ui.roadTool) { setRoadTool(ui.roadTool); return; }
     if (e.key === 'Escape' && ui.selected) { ui.selected = null; renderInspector(); render(); }
   });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
@@ -2120,16 +2684,14 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
   $('attrib').textContent = attribution();
   if (GOOGLE) document.documentElement.toggleAttribute('data-satellite', true);
   if (!DATA.forecast) document.querySelectorAll('[data-lens="forecast"],[data-lens="change"]').forEach((t) => (t.hidden = true));
-  // On phones the legend starts collapsed so the city stays visible.
-  if (innerWidth < 760) togglePanel('p-legend', $('t-legend'), false);
-  // Dropping disasters needs the server; on phones the tray starts closed.
+  // Detail panels start collapsed so the city stays visible.
+  // Dropping disasters needs the server; the tray opens on demand.
   $('t-fx').hidden = !DATA.api;
   $('t-traffic').hidden = !DATA.traffic;
-  if (DATA.api && innerWidth >= 760) togglePanel('tray', $('t-fx'), true);
   wire(); syncPrompt(); initScene(); renderAll();
   const hashLens = new URLSearchParams(location.hash.slice(1)).get('lens');
   const tab = hashLens && document.querySelector(`.tab[data-lens="${CSS.escape(hashLens)}"]:not([hidden])`);
-  if (tab) setLens(hashLens);
+  setLens(tab ? hashLens : ui.lens);
 }
 </script>
 </body>

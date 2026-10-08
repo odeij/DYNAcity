@@ -28,6 +28,7 @@ import pandas as pd
 from shapely.geometry import shape
 
 from .bbed import resolved_object_ids
+from .coverage import morphology_lookup, present, geometry_issue
 from .status import canonicalize_status
 
 
@@ -49,7 +50,8 @@ def _number(value: object) -> float:
     try:
         if value is None or value == "":
             return np.nan
-        return float(value)
+        number = float(value)
+        return number if np.isfinite(number) and number >= 0 else np.nan
     except (TypeError, ValueError):
         return np.nan
 
@@ -92,16 +94,8 @@ class PanelBuilder:
         Rows are skipped when either endpoint's status is absent, since a
         transition needs both ends to exist. Raises if no interval survives.
         """
-        lidar_by_id: dict[str, dict] = {}
-        lidar_columns: list[str] = []
-        if lidar_features is not None and not lidar_features.empty:
-            if "object_id" not in lidar_features:
-                raise ValueError("lidar_features requires object_id")
-            lidar_columns = [column for column in lidar_features if column != "object_id"]
-            lidar_by_id = {
-                str(row["object_id"]): row.to_dict()
-                for _, row in lidar_features.iterrows()
-            }
+        lidar_by_id = morphology_lookup(lidar_features)
+        lidar_columns = [column for column in lidar_features if column != "object_id"] if lidar_features is not None else []
 
         rows: list[dict] = []
         features = collection.get("features", [])
@@ -112,7 +106,7 @@ class PanelBuilder:
             # polygon so buildings with a missing attribute still get a usable
             # footprint rather than NaN.
             geometry_area = np.nan
-            if feature.get("geometry"):
+            if geometry_issue(feature.get("geometry")) is None:
                 geometry_area = float(shape(feature["geometry"]).area)
             footprint_area = _number(props.get("Shape__Area"))
             if np.isnan(footprint_area):
@@ -120,7 +114,7 @@ class PanelBuilder:
             for start_year, target_year in self.intervals:
                 raw_current = props.get(STATUS_FIELDS[start_year])
                 raw_target = props.get(STATUS_FIELDS[target_year])
-                if raw_current is None or raw_target is None:
+                if not present(raw_current) or not present(raw_target):
                     continue
                 permit_year = _number(props.get("PermitYear"))
                 completed_year = _number(props.get("YearCompleted"))

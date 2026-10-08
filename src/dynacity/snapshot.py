@@ -20,6 +20,7 @@ import pandas as pd
 from shapely.geometry import shape
 
 from .bbed import resolved_object_ids
+from .coverage import morphology_lookup, present, geometry_issue
 from .contracts import UrbanObjectState, UrbanStateSnapshot
 from .status import canonicalize_status
 
@@ -36,7 +37,7 @@ def _optional_nonnegative(value: object) -> float | None:
         number = float(value)
     except (TypeError, ValueError):
         return None
-    if np.isnan(number) or number < 0:
+    if not np.isfinite(number) or number < 0:
         return None
     return number
 
@@ -60,12 +61,7 @@ def snapshot_from_bbed(
     post-acquisition data to leak into.
     """
 
-    lidar_lookup: dict[str, dict] = {}
-    if lidar_features is not None and not lidar_features.empty:
-        lidar_lookup = {
-            str(row["object_id"]): row.to_dict()
-            for _, row in lidar_features.iterrows()
-        }
+    lidar_lookup = morphology_lookup(lidar_features)
     objects = []
     bbed_features = collection.get("features", [])
     object_ids = resolved_object_ids(bbed_features)
@@ -73,7 +69,7 @@ def snapshot_from_bbed(
         props = feature.get("properties", {})
         geometry_area = 0.0
         centroid: tuple[float, float] | tuple[None, None] = (None, None)
-        if feature.get("geometry"):
+        if geometry_issue(feature.get("geometry")) is None:
             geometry = shape(feature["geometry"])
             geometry_area = max(float(geometry.area), 0.0)
             # Where hazards find the building. In the BBED CRS (UTM metres).
@@ -107,7 +103,10 @@ def snapshot_from_bbed(
         # Prefer the 2024 current-status column; fall back to 2022 where the
         # newest wave has no record for this building, so a stale-but-real state
         # is used rather than defaulting the object to unknown.
-        raw_state = props.get("F5__Current_status") or props.get("Status2022")
+        status_field = "F5__Current_status" if present(props.get("F5__Current_status")) else "Status2022"
+        raw_state = props.get(status_field)
+        status_period = 2024 if status_field == "F5__Current_status" else 2022
+        features["status_observation_year"] = status_period if present(raw_state) else None
         objects.append(
             UrbanObjectState(
                 object_id=object_id,
@@ -123,8 +122,8 @@ def snapshot_from_bbed(
                 centroid_x_m=centroid[0],
                 centroid_y_m=centroid[1],
                 provenance={
-                    "geometry": "BBED",
-                    "status": "BBED 2024 current status",
+                    "geometry": "BBED" if geometry_issue(feature.get("geometry")) is None else "BBED geometry unavailable or unusable",
+                    "status": f"BBED {status_period} {status_field}" if present(raw_state) else "BBED status unavailable",
                     "lidar": "AUB post-port-blast 2020" if object_id in lidar_lookup else "none",
                 },
             )
@@ -149,7 +148,7 @@ def attach_centroids(snapshot: UrbanStateSnapshot, collection: dict) -> UrbanSta
     features = collection.get("features", [])
     centroids = {}
     for feature, object_id in zip(features, resolved_object_ids(features), strict=True):
-        if feature.get("geometry"):
+        if geometry_issue(feature.get("geometry")) is None:
             geometry = shape(feature["geometry"])
             if not geometry.is_empty:
                 centroids[object_id] = (float(geometry.centroid.x), float(geometry.centroid.y))

@@ -7,10 +7,17 @@ from fastapi.testclient import TestClient
 from dynacity.contracts import HazardEvent, HazardKind, UrbanObjectState, UrbanStateSnapshot
 from dynacity.service import create_app
 from dynacity.traffic import (
+    COUNT_STATIONS,
     RoadDisruption,
+    CRASH_SLOWDOWN,
+    class_peak_volumes,
+    combine_disruptions,
+    estimated_flow,
+    match_stations,
     TrafficModel,
     build_traffic_model,
     road_disruption,
+    road_events,
     road_graph,
     traffic_impact,
     traffic_payload,
@@ -45,10 +52,22 @@ def way(way_id: int, nodes: list[int], highway: str = "secondary", **tags) -> di
 
 def overpass() -> dict:
     rows = [way(1 + r, [node_id(c, r) for c in range(3)]) for r in range(3)]
+    # Named like two of the CDR count stations, so volumes can be matched.
+    rows[0]["tags"]["name:en"] = "Saëb Salam Boulevard"
+    rows[1]["tags"].update({"highway": "trunk", "name": "Corniche Pierre Gemayel", "lanes": "6"})
+    rows[2]["tags"].update({"oneway": "yes", "lanes": "3", "name": "Rue Gouraud"})
     cols = [way(10 + c, [node_id(c, r) for r in range(3)], highway="residential") for c in range(3)]
     spur = [way(20, [node_id(2, 1), 999], highway="tertiary")]
     footpath = [{**way(30, [100, 104]), "tags": {"highway": "footway"}}]
     return {"elements": rows + cols + spur + footpath}
+
+
+def bus_overpass() -> dict:
+    # Members only, as the light query returns them: geometry comes from the roads.
+    return {"elements": [{
+        "type": "relation", "id": 7, "tags": {"route": "bus", "ref": "2", "operator": "LCC"},
+        "members": [{"type": "way", "ref": 1, "role": ""}, {"type": "way", "ref": 999999, "role": ""}],
+    }]}
 
 
 def write_velocities(path) -> None:
@@ -57,6 +76,7 @@ def write_velocities(path) -> None:
     for k in range(12):
         lines.append(f'"2016-05-0{1 + k % 5}","08:{k:02d}:00","35.5,33.9",90,10,"way/1"')
         lines.append(f'"2016-05-0{1 + k % 5}","03:{k:02d}:00","35.5,33.9",90,50,"way/1"')
+        lines.append(f'"2016-05-0{1 + k % 5}","09:{k:02d}:00","35.5,33.9",90,20,"way/1"')
         # Standing still: ignored, or the 3 a.m. median would collapse.
         lines.append(f'"2016-05-0{1 + k % 5}","03:{k:02d}:30","35.5,33.9",90,0,"way/1"')
     lines.append('"2016-05-01","09:00:00","35.5,33.9",90,40,"way/77"')  # outside the network
@@ -85,7 +105,7 @@ def snapshot() -> UrbanStateSnapshot:
 def model(tmp_path) -> TrafficModel:
     csv = tmp_path / "velocities.csv"
     write_velocities(csv)
-    return build_traffic_model(snapshot(), csv, overpass=overpass())
+    return build_traffic_model(snapshot(), csv, overpass=overpass(), bus_overpass=bus_overpass())
 
 
 def roads_of_way(model: TrafficModel, way_id: int) -> list[int]:
@@ -105,7 +125,7 @@ def test_hourly_speeds_use_moving_readings_and_fall_back_to_class(model):
     assert model.speed_kmh[own, 8] == pytest.approx(10)
     assert model.speed_kmh[own, 3] == pytest.approx(50)
     assert not model.estimated[own].any()
-    assert model.readings[own[0]] == 24  # the zero-speed readings are dropped
+    assert model.readings[own[0]] == 36  # the zero-speed readings are dropped
     other = roads_of_way(model, 2)
     assert model.estimated[other].all()
 
@@ -115,6 +135,7 @@ def test_model_round_trips(model, tmp_path):
     loaded = TrafficModel.load(tmp_path / "t.json")
     assert loaded.speed_kmh == pytest.approx(model.speed_kmh)
     assert list(loaded.u) == list(model.u) and loaded.highway == model.highway
+    assert loaded.name == model.name and loaded.class_hour_readings == model.class_hour_readings
 
 
 def test_flood_closes_roads_in_reach_only(model):
@@ -165,7 +186,8 @@ def test_impact_counts_cut_off_and_delayed_trips(model):
 def test_payload_is_aggregate_and_in_lonlat(model):
     payload = traffic_payload(model)
     road = payload["roads"][0]
-    assert set(road) == {"path", "len", "cls", "oneway", "speed", "free", "n", "est"}
+    assert set(road) == {"path", "len", "cls", "oneway", "u", "v", "speed", "free", "n", "est", "name", "lanes", "qf"}
+    assert (road["u"], road["v"]) == (int(model.u[0]), int(model.v[0]))
     assert len(road["speed"]) == 24
     lon, lat = road["path"][0]
     assert 35 < lon < 36 and 33 < lat < 35
@@ -201,3 +223,157 @@ def test_viewer_page_embeds_roads(model, bbed_collection):
     page = render_viewer(build_viewer_payload(bbed_collection, located, traffic=traffic_payload(model)))
     assert '"schema":"dynacity-roads/1"' in page
     assert 'id="t-traffic"' in page
+
+
+def test_count_stations_match_by_name_and_class(model):
+    stations = {st["label"]: st for st in match_stations(model)}
+    assert stations["Saeb Salem Road"]["class"] == "secondary"
+    assert stations["Saeb Salem Road"]["roads"] == roads_of_way(model, 1)
+    assert stations["Charles Helou Road"]["roads"] == []  # not on this map
+    both = [st for st in stations.values() if st["label"].startswith("Pierre Gemayel")]
+    assert all(st["class"] == "trunk" for st in both)
+    assert len(stations) == len(COUNT_STATIONS)
+
+
+def test_class_volumes_and_daily_flow(model):
+    volumes = class_peak_volumes(model)
+    assert volumes["secondary"]["vph"] == pytest.approx((2284 + 2378) / 2, abs=1)
+    trunk = np.median([(2366 + 1744) / 2, (2852 + 3033) / 2])
+    assert volumes["trunk"]["vph"] == pytest.approx(trunk, abs=1)
+    assert volumes["primary"]["interpolated"]
+    flow = estimated_flow(model)
+    own = roads_of_way(model, 1)
+    # Readings on secondary roads: 12 at 03:00, 12 at 09:00, 12 at 08:00.
+    assert flow[own[0], 9] == pytest.approx(volumes["secondary"]["vph"])
+    assert flow[own[0], 3] == pytest.approx(volumes["secondary"]["vph"])
+    assert flow[own[0], 12] == 0
+    assert np.isnan(flow[roads_of_way(model, 10)[0]]).all()  # residential: not counted
+
+
+def test_impact_names_the_busiest_closed_counted_road(model):
+    closed = np.zeros(len(model), bool)
+    closed[roads_of_way(model, 1)[0]] = True
+    out = traffic_impact(model, RoadDisruption(closed=closed, speed_factor=np.ones(len(model)),
+                                               reason=["cordon" if c else None for c in closed]),
+                         hour=9, origins=6, per_origin=6)
+    assert out["busiest_closed_vph"] == round(class_peak_volumes(model)["secondary"]["vph"], -1)
+
+
+def test_hand_closures_and_crashes(model):
+    spur = roads_of_way(model, 20)[0]
+    crash = roads_of_way(model, 2)[0]
+    out = road_events(model, closed=[spur], crashes=[crash])
+    assert out.reason[spur] == "manual" and out.reason[crash] == "crash"
+    assert out.closed.sum() == 2
+    # The queue: roads touching the crash slow down, the far corner does not.
+    assert out.speed_factor.min() == pytest.approx(CRASH_SLOWDOWN, abs=0.05)
+    assert (out.speed_factor < 1).sum() > 1
+    with pytest.raises(ValueError):
+        road_events(model, closed=[len(model)])
+
+
+def test_disruptions_combine(model):
+    rain = road_disruption([HazardEvent(hazard_id="r", kind=HazardKind.RAIN, citywide=True)], snapshot(), model)
+    spur = roads_of_way(model, 20)[0]
+    both = combine_disruptions(rain, road_events(model, closed=[spur]))
+    assert both.closed.sum() == 1 and both.reason[spur] == "manual"
+    assert both.speed_factor.max() == pytest.approx(0.85)
+
+
+def test_traffic_endpoint_measures_roads_without_a_forecast(model):
+    client = TestClient(create_app(engine_fixture(), viewer_snapshot=snapshot(), viewer_traffic=model))
+    spur = roads_of_way(model, 20)[0]
+    crash = roads_of_way(model, 2)[0]
+    body = client.post("/v1/viewer/traffic", json={"closed": [spur], "crashes": [crash], "hour": 3}).json()
+    assert body["traffic"]["hour"] == 3
+    assert body["traffic"]["closed_by"]["manual"] == 1 and body["traffic"]["closed_by"]["crash"] == 1
+    flood = {"hazard_id": "f", "kind": "flood", "magnitude": 1.0, "center_x_m": X0, "center_y_m": Y0, "radius_m": 150}
+    with_flood = client.post("/v1/viewer/traffic", json={"hazards": [flood], "closed": [spur]}).json()["traffic"]
+    assert with_flood["closed_by"]["water"] > 0 and with_flood["closed_by"]["manual"] == 1
+    assert client.post("/v1/viewer/traffic", json={}).json()["traffic"] is None
+    assert client.post("/v1/viewer/traffic", json={"closed": [10_000]}).status_code == 422
+
+
+def test_traffic_endpoint_needs_a_traffic_model():
+    client = TestClient(create_app(engine_fixture(), viewer_snapshot=snapshot()))
+    assert client.post("/v1/viewer/traffic", json={"closed": [0]}).status_code == 404
+
+
+def test_lanes_come_from_osm_per_direction(model):
+    from dynacity.traffic import lanes_of
+
+    lanes = lanes_of(model)
+    assert lanes[roads_of_way(model, 2)[0]] == 3       # two-way "6" → 3 each way
+    assert lanes[roads_of_way(model, 3)[0]] == 3       # one-way "3"
+    assert lanes[roads_of_way(model, 1)[0]] == 2       # untagged secondary: class default
+    assert lanes[roads_of_way(model, 10)[0]] == 1      # untagged residential
+
+
+def test_pm_count_anchors_the_afternoon():
+    from dynacity.traffic import _pm_correction
+
+    shape = np.ones(24)
+    corr = _pm_correction(shape, am=1000, pm=1500)
+    assert corr[9] == 1 and corr[16] == pytest.approx(1.5) and corr[20] == pytest.approx(1.5)
+    assert 1 < corr[12] < 1.5
+
+
+def test_bus_routes_take_geometry_from_the_roads_and_report_cuts(model):
+    assert len(model.bus_routes) == 1
+    route = model.bus_routes[0]
+    assert route["label"] == "2" and route["ways"] == [1]  # the way outside the map is dropped
+    closed = np.zeros(len(model), bool)
+    closed[roads_of_way(model, 1)[0]] = True
+    out = traffic_impact(model, RoadDisruption(closed=closed, speed_factor=np.ones(len(model)),
+                                               reason=["manual" if c else None for c in closed]),
+                         origins=6, per_origin=6)
+    assert [b["label"] for b in out["bus_routes_hit"]] == ["2"]
+    assert traffic_payload(model)["bus_routes"][0]["paths"]
+
+
+def test_detour_congestion_only_adds_delay(model):
+    closed = np.zeros(len(model), bool)
+    closed[roads_of_way(model, 2)] = True  # the middle row: its traffic must detour
+    disruption = RoadDisruption(closed=closed, speed_factor=np.ones(len(model)),
+                                reason=["manual" if c else None for c in closed])
+    plain = traffic_impact(model, disruption, hour=9, origins=6, per_origin=8, congestion=False)
+    jammed = traffic_impact(model, disruption, hour=9, origins=6, per_origin=8)
+    assert jammed["diverted_vph"] > 0 and jammed["vph_per_trip"] > 0
+    assert jammed["delay_min"]["mean"] >= plain["delay_min"]["mean"]
+    assert jammed["delay_min_uncongested"] == plain["delay_min"]
+    assert plain["jammed"] == [] and plain["jammed_km"] == 0
+
+
+def test_typed_road_events_close_the_named_street(model):
+    from dynacity.scenario_compiler import DraftRoadEvent, ScenarioDraft
+
+    from test_scenario_compiler import FakeClient
+
+    draft = ScenarioDraft(scenario_id="close-it", horizon_years=2, road_events=[
+        DraftRoadEvent(event_id="c1", kind="closure", street="Saeb Salam"),
+        DraftRoadEvent(event_id="x1", kind="crash", street="Pierre Gemayel"),
+    ])
+    client = TestClient(create_app(engine_fixture(), scenario_client=FakeClient(draft),
+                                   viewer_snapshot=snapshot(), viewer_traffic=model))
+    body = client.post("/v1/viewer/scenario", json={
+        "text": "Close Saeb Salam and put a crash on Pierre Gemayel", "hour": 9,
+    }).json()
+    assert body["compilation"]["scenario"] is not None
+    events = {e["event_id"]: e for e in body["compilation"]["road_events"]}
+    assert events["c1"]["roads"] == roads_of_way(model, 1)
+    assert body["road_events"]["closed"] == roads_of_way(model, 1)
+    assert len(body["road_events"]["crashes"]) == 1
+    assert body["traffic"]["closed_by"]["manual"] == 2 and body["traffic"]["closed_by"]["crash"] == 1
+
+
+def test_several_samples_report_their_range(model):
+    closed = np.zeros(len(model), bool)
+    closed[roads_of_way(model, 2)] = True
+    disruption = RoadDisruption(closed=closed, speed_factor=np.ones(len(model)),
+                                reason=["manual" if c else None for c in closed])
+    out = traffic_impact(model, disruption, hour=9, origins=6, per_origin=8, samples=3)
+    assert out["samples"] == 3
+    lo, hi = out["ranges"]["delay_p50"]
+    assert lo <= out["delay_min"]["p50"] <= hi
+    assert set(out["ranges"]) == {"affected", "cut_off", "delay_p50", "delay_p90", "diverted_vph", "spillover_trips"}
+    assert traffic_impact(model, disruption, origins=6, per_origin=8)["samples"] == 1

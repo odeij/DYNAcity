@@ -112,7 +112,7 @@ def test_gemini_does_not_fall_back_on_bad_requests():
     def bad_request(**kwargs):
         raise errors.ClientError(400, {"error": {"code": 400, "message": "bad schema", "status": "INVALID_ARGUMENT"}})
     fake.models.generate_content = bad_request
-    with pytest.raises(errors.ClientError):
+    with pytest.raises(RuntimeError, match="configured model"):
         compile_scenario(REQUEST, snapshot(), provider=GeminiProvider(fake, "gemini-a", fallback_models=("gemini-b",)))
 
 

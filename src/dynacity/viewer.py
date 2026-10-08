@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .coverage import coverage_report, geometry_issue
 from .bbed import resolved_object_ids
 from .contracts import ForecastResult, HazardEvent, UrbanStateSnapshot
 from .hazards import PROFILES, _exposure, flood_level, hazard_shock, magnitude_of, radius_of
@@ -222,7 +223,7 @@ def build_viewer_payload(
     rings_by_id = {
         object_id: [
             [[round(v, 7) for v in utm_to_lonlat(x, y, zone, north)] for x, y, *_ in ring]
-            for ring in _outer_rings(geometry)
+            for ring in (_outer_rings(geometry) if geometry_issue(geometry) is None else [])
         ]
         for object_id, geometry in geometry_by_id.items()
     }
@@ -231,7 +232,10 @@ def build_viewer_payload(
     if not lons:
         raise ValueError("BBED collection contains no polygon geometry")
 
+    properties_by_id = dict(zip(resolved_object_ids(features),
+                                (f.get("properties", {}) for f in features), strict=True))
     buildings, missing_geometry, estimated = [], 0, 0
+    status_sources: dict[str, int] = {}
     for item in snapshot.objects:
         rings = rings_by_id.get(item.object_id)
         if not rings:
@@ -243,12 +247,29 @@ def build_viewer_payload(
             height, is_estimate = item.floors * STOREY_HEIGHT_M, True
         else:
             height, is_estimate = FALLBACK_HEIGHT_M, True
+        height_source = (
+            "Recorded height" if not is_estimate else
+            f"Estimated from floors × {STOREY_HEIGHT_M:g} m" if item.floors else
+            f"Illustrative fallback ({FALLBACK_HEIGHT_M:g} m)"
+        )
+        # Identify the source wave only when the raw record matches the snapshot.
+        # Older snapshots can incorrectly label a 2022 fallback as 2024.
+        props = properties_by_id.get(item.object_id, {})
+        raw = props.get("F5__Current_status") or props.get("Status2022")
+        status_source = item.provenance.get("status", "Source period unavailable")
+        if item.state == CanonicalState.UNKNOWN:
+            status_source = "Unknown / unmapped status"
+        elif raw and raw == item.raw_state:
+            status_source = "BBED 2024" if props.get("F5__Current_status") else "BBED 2022 fallback"
+        status_sources[status_source] = status_sources.get(status_source, 0) + 1
         estimated += is_estimate
         record: dict[str, Any] = {
             "id": item.object_id,
             "rings": rings,
             "h": round(height, 2),
             "est": is_estimate,
+            "height_source": height_source,
+            "status_source": status_source,
             "state": item.state.value,
             "sector": item.sector,
             "use": item.building_use,
@@ -273,6 +294,13 @@ def build_viewer_payload(
             "drawn": len(buildings),
             "missing_geometry": missing_geometry,
             "estimated_height": estimated,
+            "quality": coverage_report(collection, snapshot=snapshot),
+        },
+        "evidence": {
+            "status_sources": status_sources,
+            "height_recorded": sum(o.height_m is not None for o in snapshot.objects),
+            "floors_recorded": sum(o.floors is not None for o in snapshot.objects),
+            "objects": len(snapshot.objects),
         },
         "forecast": None if forecast is None else forecast_summary(forecast),
         "api": api,
@@ -287,6 +315,9 @@ def forecast_summary(forecast: ForecastResult) -> dict[str, Any]:
 
     return {
         "scenario_id": forecast.scenario_id,
+        "baseline_as_of": forecast.baseline_as_of.isoformat() if forecast.baseline_as_of else None,
+        "training_intervals": forecast.training_intervals,
+        "monte_carlo_draws": forecast.monte_carlo_draws,
         "model_version": forecast.model_version,
         "evidence_level": forecast.evidence_level.value,
         "evidence_bundle_id": forecast.evidence_bundle_id,
@@ -390,4 +421,5 @@ def render_viewer(payload: dict[str, Any], *, title: str = "DynaCITY · Beirut")
     data = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).replace("</", "<\\/")
     if _PLACEHOLDER not in template:
         raise RuntimeError("viewer template is missing its data placeholder")
-    return template.replace(_PLACEHOLDER, data).replace("__DYNACITY_TITLE__", title)
+    car_models = files("dynacity").joinpath("assets/cars/meshes.json").read_text(encoding="utf-8") if payload.get("traffic") else "{}"
+    return template.replace(_PLACEHOLDER, data).replace("__DYNACITY_CARS__", car_models).replace("__DYNACITY_TITLE__", title)

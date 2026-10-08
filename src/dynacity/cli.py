@@ -32,12 +32,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import hashlib
+import shutil
+import tempfile
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
 
 from .bbed import BBEDClient, write_snapshot
+from .coverage import coverage_report
 from .contracts import ForecastRequest, ForecastResult, ScenarioSpec, UrbanStateSnapshot
 from .engine import ForecastEngine
 from .evidence import EvidenceBundle, EvidenceRegistry, freeze_bundle, verify_bundle
@@ -73,6 +77,77 @@ def _write_json(path: str | Path, payload: dict) -> None:
     destination.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _private_destination(path: str | Path) -> Path:
+    destination = Path(path).resolve()
+    if any(((parent / ".git" / "HEAD").is_file() or (parent / ".git").is_file()) for parent in (destination, *destination.parents) if parent != Path("/")):
+        raise ValueError("Data outputs must be outside Git checkouts")
+    return destination
+
+
+def command_audit_coverage(args: argparse.Namespace) -> None:
+    report = coverage_report(
+        _json(args.bbed), manifest=_json(args.manifest) if args.manifest else None,
+        snapshot=UrbanStateSnapshot.model_validate(_json(args.snapshot)) if args.snapshot else None,
+        morphology=pd.read_csv(args.lidar_features) if args.lidar_features else None,
+        previous=_json(args.previous) if args.previous else None,
+        panel=pd.read_csv(args.panel) if args.panel else None,
+    )
+    _write_json(_private_destination(args.output), report)
+    print(f"coverage -> {args.output}; {len(report['errors'])} errors, {len(report['warnings'])} warnings")
+    if not report['passed']:
+        raise SystemExit(2)
+
+
+def command_stage_update(args: argparse.Namespace) -> None:
+    """Publish only a checked, immutable candidate; never replace active files."""
+    destination = _private_destination(args.output_dir)
+    if destination.exists():
+        raise ValueError("Candidate directory already exists; choose a new version")
+    collection, manifest = _json(args.bbed), _json(args.manifest)
+    morphology = pd.read_csv(args.lidar_features) if args.lidar_features else None
+    previous = _json(args.previous) if args.previous else None
+    report = coverage_report(collection, manifest=manifest, morphology=morphology, previous=previous)
+    if report['errors']:
+        raise ValueError("Candidate failed checks: " + "; ".join(report['errors']))
+    if report.get('update', {}).get('removed') and not args.acknowledge_removals:
+        raise ValueError("Candidate removes IDs; inspect audit report and use --acknowledge-removals")
+    snapshot = snapshot_from_bbed(collection, snapshot_id=args.snapshot_id,
+                                  as_of=date.fromisoformat(args.as_of), data_version=args.data_version,
+                                  lidar_features=morphology)
+    report = coverage_report(collection, manifest=manifest, snapshot=snapshot,
+                             morphology=morphology, previous=previous)
+    if not report['passed']:
+        raise ValueError("Derived snapshot failed checks: " + "; ".join(report['errors']))
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=".dynacity-candidate-", dir=destination.parent))
+    try:
+        write_snapshot(collection, manifest, stage / "bbed.geojson")
+        _write_json(stage / "snapshot.json", snapshot.model_dump(mode="json"))
+        _write_json(stage / "coverage.json", report)
+        panel = PanelBuilder().build(collection, morphology)
+        assert_no_temporal_leakage(panel)
+        panel.to_csv(stage / "panel.csv", index=False)
+        if args.lidar_features:
+            shutil.copyfile(args.lidar_features, stage / "morphology.csv")
+        _write_json(stage / "update.json", {
+            "schema": "dynacity-update/1", "source_sha256": report['source_sha256'],
+            "snapshot_id": args.snapshot_id, "data_version": args.data_version,
+            "as_of": args.as_of, "status_periods": [2018, 2022, 2024],
+            "morphology_acquisition_year": 2020 if morphology is not None else None,
+            "removals_acknowledged": args.acknowledge_removals,
+            "previous_sha256": report.get('update', {}).get('previous_sha256'),
+            "activation": "manual; retrain and regenerate forecast before serving",
+            "artifact_sha256": {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in stage.iterdir()},
+        })
+        # An exclusive mkdir reserves the destination against concurrent writers.
+        destination.mkdir()
+        stage.rename(destination / "data")
+    finally:
+        if stage.exists():
+            shutil.rmtree(stage)
+    print(f"checked candidate -> {destination}; active data unchanged")
+
+
 def command_inspect_las(args: argparse.Namespace) -> None:
     payload = LASHeader.read(args.path).as_dict()
     if args.sample_classes:
@@ -96,7 +171,10 @@ def command_fetch_bbed(args: argparse.Namespace) -> None:
         bbox=tuple(args.bbox) if args.bbox else None,
     )
     output, manifest = write_snapshot(
-        collection, client.snapshot_manifest(collection), args.output
+        collection, {**client.snapshot_manifest(collection),
+                     "query": {"where": args.where, "bbox": args.bbox},
+                     "status_periods": [2018, 2022, 2024],
+                     "completeness": "returned pages; citywide completeness unverified"}, args.output
     )
     print(f"wrote {len(collection['features'])} features to {output}")
     print(f"wrote provenance manifest to {manifest}")
@@ -213,9 +291,20 @@ def command_train(args: argparse.Namespace) -> None:
 def command_forecast(args: argparse.Namespace) -> None:
     bundle = ModelBundle.load(args.model)
     request = ForecastRequest.model_validate(_json(args.request))
-    result = ForecastEngine(bundle).forecast(request)
+    engine = ForecastEngine(bundle)
+    comparison = None
+    if args.comparison_output:
+        from .comparison import compare_forecast
+
+        comparison = compare_forecast(engine, request)
+    result = comparison["forecast"] if comparison else engine.forecast(request)
     _write_json(args.output, result.model_dump(mode="json"))
     print(f"forecast -> {args.output}")
+    if comparison is not None:
+        comparison["forecast"] = comparison["forecast"].model_dump(mode="json")
+        comparison["baseline"] = comparison["baseline"].model_dump(mode="json")
+        _write_json(args.comparison_output, comparison)
+        print(f"baseline comparison -> {args.comparison_output}")
 
 
 def command_freeze_evidence(args: argparse.Namespace) -> None:
@@ -298,13 +387,15 @@ def command_build_traffic(args: argparse.Namespace) -> None:
     model = build_traffic_model(
         snapshot, args.velocities, overpass=_json(args.roads) if args.roads else None,
         margin_m=args.margin_m, velocity_unit=args.velocity_unit,
+        bus_overpass=_json(args.bus_routes) if args.bus_routes else None,
     )
     destination = Path(args.output)
     destination.parent.mkdir(parents=True, exist_ok=True)
     model.save(destination)
     observed = int((~model.estimated).sum())
     print(f"traffic -> {args.output} ({len(model)} roads, {model.length_m.sum() / 1000:.0f} km; "
-          f"{observed} with their own speeds, {len(model) - observed} from their road class)")
+          f"{observed} with their own speeds, {len(model) - observed} from their road class; "
+          f"{len(model.bus_routes)} bus and van routes)")
 
 
 def _business_as_usual(engine: ForecastEngine, snapshot: UrbanStateSnapshot) -> ForecastResult:
@@ -381,6 +472,28 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dynacity")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    audit = subparsers.add_parser("audit-coverage")
+    audit.add_argument("--bbed", required=True)
+    audit.add_argument("--manifest")
+    audit.add_argument("--snapshot")
+    audit.add_argument("--lidar-features")
+    audit.add_argument("--previous")
+    audit.add_argument("--panel")
+    audit.add_argument("--output", required=True)
+    audit.set_defaults(func=command_audit_coverage)
+
+    update = subparsers.add_parser("stage-update")
+    update.add_argument("--bbed", required=True)
+    update.add_argument("--manifest", required=True)
+    update.add_argument("--previous")
+    update.add_argument("--lidar-features")
+    update.add_argument("--output-dir", required=True)
+    update.add_argument("--snapshot-id", required=True)
+    update.add_argument("--data-version", required=True)
+    update.add_argument("--as-of", required=True)
+    update.add_argument("--acknowledge-removals", action="store_true")
+    update.set_defaults(func=command_stage_update)
+
     inspect_las = subparsers.add_parser("inspect-las")
     inspect_las.add_argument("path")
     inspect_las.add_argument("--sample-classes", type=int, default=0)
@@ -441,6 +554,7 @@ def build_parser() -> argparse.ArgumentParser:
     traffic.add_argument("--snapshot", required=True, help="snapshot with building centroids; sets the extent")
     traffic.add_argument("--velocities", required=True, help="Tari'ak velocities.csv")
     traffic.add_argument("--roads", help="saved Overpass JSON of the roads; fetched from Overpass when omitted")
+    traffic.add_argument("--bus-routes", help="saved Overpass JSON of bus route relations; fetched when --roads is omitted")
     traffic.add_argument("--output", required=True)
     traffic.add_argument("--margin-m", type=float, default=800.0)
     traffic.add_argument("--velocity-unit", choices=["kmh", "ms"], default="kmh")
@@ -475,6 +589,7 @@ def build_parser() -> argparse.ArgumentParser:
     forecast.add_argument("--model", required=True)
     forecast.add_argument("--request", required=True)
     forecast.add_argument("--output", required=True)
+    forecast.add_argument("--comparison-output", help="matching business-as-usual forecast and median changes")
     forecast.set_defaults(func=command_forecast)
 
     plan_parser = subparsers.add_parser("plan")

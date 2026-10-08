@@ -349,5 +349,8 @@ class ForecastEngine:
             warnings=warnings,
             evidence_bundle_id=request.scenario.evidence_bundle_id,
             hazard_impacts=impacts,
+            baseline_as_of=request.snapshot.as_of,
+            training_intervals=self.bundle.training_intervals,
+            monte_carlo_draws=request.draws,
         )
 

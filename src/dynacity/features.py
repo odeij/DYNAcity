@@ -24,6 +24,7 @@ import pandas as pd
 from shapely import contains_xy
 from shapely.geometry import shape
 
+from .coverage import geometry_issue
 from .bbed import resolved_object_ids
 from .las import iter_point_chunks
 
@@ -164,7 +165,7 @@ def extract_building_features(
     features = bbed_collection.get("features", [])
     object_ids = resolved_object_ids(features, preferred_field=id_field)
     for feature, object_id in zip(features, object_ids, strict=True):
-        if not feature.get("geometry"):
+        if geometry_issue(feature.get("geometry")) is not None:
             continue
         # Two-stage point-in-polygon: cheap bounding-box filter first, exact
         # containment only on the survivors. Testing every point against every
