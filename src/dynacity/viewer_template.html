@@ -1163,7 +1163,7 @@ function renderTraffic() {
   // The header and slider are built once, so dragging the slider is never
   // interrupted by the panel redrawing underneath it.
   if (!$('hour')) {
-    el.innerHTML = `<button class="close" aria-label="Close" data-close="traffic">✕</button><h2>Traffic</h2>
+    el.innerHTML = `<button class="close" aria-label="Hide traffic controls" data-close="traffic">✕</button><h2>Traffic</h2>
       <div class="sub">Historical speeds, ${esc(DATA.traffic.period)} · ${CAR_SPEEDUP}× playback; pauses while buffering</div>
       <div class="sev"><div class="row"><label for="hour">Hour</label><b id="hour-label"></b></div>
         <input id="hour" type="range" min="0" max="23" step="1" value="${ui.hour}"></div>
@@ -2582,7 +2582,12 @@ function wire() {
   $('t-kpis').onclick = (e) => togglePanel('p-kpis', e.currentTarget);
   $('t-info').onclick = (e) => togglePanel('p-info', e.currentTarget);
   $('t-fx').onclick = (e) => togglePanel('tray', e.currentTarget);
-  $('t-traffic').onclick = () => setTraffic(!ui.traffic);
+  $('t-traffic').onclick = () => {
+    if (ui.traffic && $('p-traffic').hidden) {
+      $('p-traffic').hidden = false;
+      renderTraffic();
+    } else setTraffic(!ui.traffic);
+  };
   $('p-traffic').addEventListener('input', (e) => {
     if (e.target.id === 'hour') setHour(Number(e.target.value));
     if (e.target.matches('[data-buses]')) { ui.buses = e.target.checked; renderTraffic(); render(); }
@@ -2627,7 +2632,7 @@ function wire() {
     if (which === 'inspect') { ui.selected = null; renderInspector(); render(); }
     if (which === 'kpis') togglePanel('p-kpis', $('t-kpis'), false);
     if (which === 'info') togglePanel('p-info', $('t-info'), false);
-    if (which === 'traffic') setTraffic(false);
+    if (which === 'traffic') $('p-traffic').hidden = true;
     if (which === 'answer') { ui.answer = null; ui.answerIds = null; ui.highlight = null; renderAnswer(); render(); }
     if (which === 'scenario') {
       ui.scenario = null; ui.highlight = null; ui.drops = []; clearFx();
