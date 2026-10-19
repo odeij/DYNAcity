@@ -31,6 +31,36 @@ def assert_accounting(frame):
     assert m['total']==m['active']+m['pending']+m['arrived']
     assert len(frame['vehicles'])==m['active']
 
+
+@pytest.mark.parametrize('oneway', [1, -1, 0])
+@pytest.mark.parametrize('lanes', [1, 2, 3])
+def test_simulated_lanes_fit_the_rendered_carriageway(network, tmp_path, oneway, lanes):
+    """A one-way way is its carriageway centre, not its left-hand boundary."""
+    from dataclasses import replace
+    from dynacity.traffic import traffic_payload
+    from dynacity.traffic_sumo import export_network
+    try:
+        _, _, converter = runtime()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+    import sumolib
+    model = replace(network, oneway=np.full(len(network), oneway),
+                    lanes=np.full(len(network), lanes))
+    net = sumolib.net.readNet(str(export_network(model, tmp_path, converter)))
+    offset = net.getLocationOffset()
+    width = traffic_payload(model)['roads'][0]['width_m']
+    lateral = []
+    for direction in (1, -1):
+        if oneway == -direction:
+            continue
+        for lane in net.getEdge(f'0:{direction}').getLanes():
+            x, y = sumolib.geomhelper.positionAtShapeOffset(lane.getShape(), lane.getLength() / 2)
+            distance = y - offset[1] - model.geometry[0][0][1]
+            lateral.append(distance)
+            # The lane's outer boundary, not just its centre, must fit.
+            assert abs(distance) + lane.getWidth() / 2 <= width / 2 + 0.01
+    assert np.mean(lateral) == pytest.approx(0, abs=0.01)
+
 def test_closed_destination_retains_fleet_and_reopen_completes(simulation,network):
     closed=road_events(network,closed=[5]); opened=road_events(network)
     result=simulation.advance(closed,10)

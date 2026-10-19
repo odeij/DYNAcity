@@ -60,6 +60,7 @@ from .planning import PlanningRequest, plan
 from .providers import resolve_provider
 from .scenario_compiler import compile_scenario
 from .service import create_app
+from .flood_pilot import PilotBundle, require_documented_pilot
 from .snapshot import snapshot_from_bbed
 from .terrain import GroundModel, attach_ground_elevation, fetch_ground_model
 from .traffic import TrafficModel, build_traffic_model, traffic_payload
@@ -155,6 +156,20 @@ def command_inspect_las(args: argparse.Namespace) -> None:
             args.path, args.sample_classes
         )
     print(json.dumps(payload, indent=2))
+
+
+def command_las_surface(args: argparse.Namespace) -> None:
+    from .las_surface import export_las_surface
+    report = export_las_surface(args.path, args.output, cell_m=args.cell_m,
+                                horizontal_crs=args.crs, crs_evidence=args.crs_evidence,
+                                max_points=args.max_points)
+    print(json.dumps(report, indent=2))
+
+
+def command_export_point_cloud(args: argparse.Namespace) -> None:
+    from .point_cloud import export_point_cloud
+    print(json.dumps(export_point_cloud(args.path, args.output_dir, crs=args.crs,
+                      crs_evidence=args.crs_evidence, max_points=args.max_points), indent=2))
 
 
 def command_fetch_bbed(args: argparse.Namespace) -> None:
@@ -409,7 +424,25 @@ def _business_as_usual(engine: ForecastEngine, snapshot: UrbanStateSnapshot) -> 
 def command_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
+    flood_context = None
+    if args.flood_context:
+        from .flood_context import load_flood_context
+        if args.host not in {"127.0.0.1", "::1", "localhost"}:
+            raise SystemExit("The survey package has unverified reuse terms; --flood-context requires a loopback host for local research.")
+        flood_context = load_flood_context(args.flood_context)
+    flood_jobs = None
+    if args.flood_runs:
+        from .flood_jobs import FloodJobs
+        if args.host not in {"127.0.0.1", "::1", "localhost"}:
+            raise SystemExit("--flood-runs requires a loopback host for local execution.")
+        flood_jobs = FloodJobs(args.flood_runs)
     engine = ForecastEngine(ModelBundle.load(args.model))
+    point_cloud = None
+    if args.point_cloud_dir:
+        if args.host not in {"127.0.0.1", "::1", "localhost"}:
+            raise SystemExit("--point-cloud-dir requires a loopback host for private local viewing")
+        from .point_cloud import PointCloudView
+        point_cloud = PointCloudView.load(args.point_cloud_dir)
     viewer_html = snapshot = baseline = tiles = None
     if args.basemap == "google":
         tiles = GoogleTilesProxy(sessions=RequestBudget(
@@ -426,7 +459,7 @@ def command_serve(args: argparse.Namespace) -> None:
         if ground is not None:
             # Ground levels only steer floods; the transition model never sees them.
             snapshot = attach_ground_elevation(snapshot, ground)
-            print("floods follow terrain from " + args.terrain)
+            print("viewer terrain loaded from " + args.terrain + "; hydraulic runs require their own documented mesh")
     if args.bbed:
         if snapshot is None:
             raise SystemExit("--bbed needs --snapshot so footprints can be joined to states")
@@ -462,15 +495,93 @@ def command_serve(args: argparse.Namespace) -> None:
         ),
         tiles_proxy=tiles,
         viewer_traffic=traffic,
+        flood_pilot=PilotBundle.model_validate(_json(args.flood_pilot)) if args.flood_pilot else None,
+        flood_context=flood_context,
+        flood_jobs=flood_jobs,
+        point_cloud=point_cloud,
     )
     print(f"language-model requests capped at {args.llm_request_limit} per run, "
           f"{args.llm_requests_per_minute} a minute")
     uvicorn.run(app, host=args.host, port=args.port)
 
 
+def command_flood_validate(args: argparse.Namespace) -> None:
+    from .flood_validation import load_validation_inputs, evaluate_flood
+    cube, observations = load_validation_inputs(args.input)
+    _write_json(_private_destination(args.output), evaluate_flood(cube, observations))
+    print(f"flood observation report -> {args.output}; no calibration performed")
+
+
+def command_flood_import(args: argparse.Namespace) -> None:
+    from .flood_pilot import from_hydraulic_outputs, validate_rainfall, attach_terrain_evidence
+    from .flood_surface import load_hydraulic_output
+    manifest_path = Path(args.manifest).resolve()
+    manifest = _json(manifest_path)
+    outputs = {kind: load_hydraulic_output(manifest_path.parent / path)
+               for kind, path in manifest["outputs"].items()}
+    bundle = from_hydraulic_outputs(outputs=outputs, rainfall=validate_rainfall(manifest["rainfall"]),
+        rainfall_source=manifest["rainfall_source"], label=manifest["label"],
+        source_resolution_m=manifest["source_resolution_m"],
+        capacity_assumptions=manifest["capacity_assumptions"],
+        assets=manifest.get("assets", []))
+    if manifest.get("terrain"):
+        from .flood_terrain import TerrainGrid
+        bundle = attach_terrain_evidence(bundle, TerrainGrid.load(manifest_path.parent / manifest["terrain"]))
+    require_documented_pilot(bundle)
+    _write_json(_private_destination(args.output), bundle.model_dump(mode="json"))
+    print(f"validated flood outputs -> {args.output} ({bundle.evidence})")
+
+
+def command_flood_drainage_demo(args: argparse.Namespace) -> None:
+    raise ValueError("Invented drainage demos are disabled; documented real network inputs are required.")
+
+
+def command_flood_pilot(args: argparse.Namespace) -> None:
+    bundle = require_documented_pilot(PilotBundle.model_validate(_json(args.input)))
+    destination = _private_destination(args.output)
+    _write_json(destination, bundle.model_dump(mode="json"))
+    print(f"flood pilot -> {destination} ({bundle.evidence}; no Beirut calibration)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dynacity")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    surface = subparsers.add_parser("flood-run", help="run ANUGA on explicit documented mesh/forcing inputs")
+    surface.add_argument("--manifest", required=True)
+    surface.add_argument("--output-dir", required=True, help="new private directory outside Git")
+    def execute_surface(args):
+        from .flood_solver import run_surface
+        print(run_surface(args.manifest, args.output_dir))
+    surface.set_defaults(func=execute_surface)
+
+    package = subparsers.add_parser("flood-package", help="package existing documented solver inputs for the city UI")
+    package.add_argument("--manifest", required=True)
+    package.add_argument("--output", required=True, help="new ZIP outside Git")
+    def execute_flood_package(args):
+        from .flood_jobs import package_inputs
+        print(package_inputs(args.manifest, args.output))
+    package.set_defaults(func=execute_flood_package)
+
+    flood_validate = subparsers.add_parser("flood-validate")
+    flood_validate.add_argument("--input", required=True, help="private event depth/observation JSON")
+    flood_validate.add_argument("--output", required=True, help="private report path outside Git")
+    flood_validate.set_defaults(func=command_flood_validate)
+
+    flood_import = subparsers.add_parser("flood-import")
+    flood_import.add_argument("--manifest", required=True, help="private JSON manifest with three hydraulic NPZ output paths")
+    flood_import.add_argument("--output", required=True, help="private pilot bundle JSON outside Git")
+    flood_import.set_defaults(func=command_flood_import)
+
+    drainage_demo = subparsers.add_parser("flood-drainage-demo")
+    drainage_demo.add_argument("--output-dir", required=True, help="new private directory outside Git")
+    drainage_demo.add_argument("--swmm", help="EPA SWMM executable path")
+    drainage_demo.set_defaults(func=command_flood_drainage_demo)
+
+    pilot = subparsers.add_parser("flood-pilot")
+    pilot.add_argument("--input", required=True, help="documented private hydraulic-output bundle JSON")
+    pilot.add_argument("--output", required=True, help="output JSON outside Git")
+    pilot.set_defaults(func=command_flood_pilot)
 
     audit = subparsers.add_parser("audit-coverage")
     audit.add_argument("--bbed", required=True)
@@ -498,6 +609,43 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_las.add_argument("path")
     inspect_las.add_argument("--sample-classes", type=int, default=0)
     inspect_las.set_defaults(func=command_inspect_las)
+
+    surface = subparsers.add_parser("las-surface", help="observed LAS surface for review; not verified flood terrain")
+    surface.add_argument("path")
+    surface.add_argument("--output", required=True)
+    surface.add_argument("--cell-m", type=float, required=True)
+    surface.add_argument("--crs", required=True)
+    surface.add_argument("--crs-evidence", required=True)
+    surface.add_argument("--max-points", type=int, default=10_000_000)
+    surface.set_defaults(func=command_las_surface)
+
+    ground = subparsers.add_parser("las-ground-review", help="extract supported ground candidates from explicit review footprints")
+    ground.add_argument("path")
+    ground.add_argument("--footprints", required=True)
+    ground.add_argument("--output", required=True)
+    ground.add_argument("--cell-m", type=float, required=True)
+    ground.add_argument("--crs", required=True)
+    ground.add_argument("--crs-evidence", required=True)
+    ground.add_argument("--exclusion-buffer-m", type=float, required=True)
+    ground.add_argument("--min-points", type=int, required=True)
+    ground.add_argument("--max-spread-m", type=float, required=True)
+    ground.add_argument("--max-points", type=int, default=10_000_000)
+    def execute_ground_review(args):
+        from .las_ground_review import review_ground
+        result = review_ground(args.path, args.footprints, args.output, cell_m=args.cell_m,
+            horizontal_crs=args.crs, crs_evidence=args.crs_evidence,
+            exclusion_buffer_m=args.exclusion_buffer_m, min_points=args.min_points,
+            max_spread_m=args.max_spread_m, max_points=args.max_points)
+        print(json.dumps(result, indent=2))
+    ground.set_defaults(func=execute_ground_review)
+
+    cloud = subparsers.add_parser("export-point-cloud", help="all LAS positions and source RGB for the local map")
+    cloud.add_argument("path")
+    cloud.add_argument("--output-dir", required=True)
+    cloud.add_argument("--crs", required=True)
+    cloud.add_argument("--crs-evidence", required=True)
+    cloud.add_argument("--max-points", type=int, default=10_000_000)
+    cloud.set_defaults(func=command_export_point_cloud)
 
     fetch = subparsers.add_parser("fetch-bbed")
     fetch.add_argument("--output", required=True)
@@ -614,6 +762,10 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--forecast")
     serve.add_argument("--evidence")
     serve.add_argument("--terrain", help="ground model from fetch-terrain; floods then follow it")
+    serve.add_argument("--point-cloud-dir", help="private export-point-cloud directory for local RGB point viewing")
+    serve.add_argument("--flood-pilot", help="private neighborhood model-output bundle JSON; separate from illustrative hazards")
+    serve.add_argument("--flood-context", help="verified private real-input-handoff.json for local survey mapping")
+    serve.add_argument("--flood-runs", help="private directory outside Git for local ANUGA input packages and runs")
     serve.add_argument("--traffic", help="traffic model from build-traffic; disasters then close roads")
     serve.add_argument("--basemap", choices=["carto", "google", "none"], default="carto")
     serve.add_argument("--provider", choices=["anthropic", "gemini"])

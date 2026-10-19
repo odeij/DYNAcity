@@ -1,0 +1,401 @@
+{
+  "$defs": {
+    "Boundary": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "reflective",
+            "transmissive",
+            "stage_momentum"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "items": {
+                "maxItems": 3,
+                "minItems": 3,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Values"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "Boundary",
+      "type": "object"
+    },
+    "Coupling": {
+      "additionalProperties": false,
+      "properties": {
+        "engine": {
+          "const": "swmm-5.2.4",
+          "title": "Engine",
+          "type": "string"
+        },
+        "network": {
+          "minLength": 1,
+          "title": "Network",
+          "type": "string"
+        },
+        "vertical_datum": {
+          "minLength": 1,
+          "title": "Vertical Datum",
+          "type": "string"
+        },
+        "crs": {
+          "minLength": 1,
+          "title": "Crs",
+          "type": "string"
+        },
+        "step_s": {
+          "maximum": 60,
+          "minimum": 0.001,
+          "title": "Step S",
+          "type": "number"
+        },
+        "inlets": {
+          "items": {
+            "$ref": "#/$defs/Inlet"
+          },
+          "maxItems": 3000,
+          "minItems": 1,
+          "title": "Inlets",
+          "type": "array"
+        },
+        "overflow_cells": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Overflow Cells",
+          "type": "object"
+        },
+        "mass_absolute_tolerance_m3": {
+          "exclusiveMinimum": 0,
+          "title": "Mass Absolute Tolerance M3",
+          "type": "number"
+        },
+        "mass_relative_tolerance": {
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0,
+          "title": "Mass Relative Tolerance",
+          "type": "number"
+        }
+      },
+      "required": [
+        "engine",
+        "network",
+        "vertical_datum",
+        "crs",
+        "step_s",
+        "inlets",
+        "overflow_cells",
+        "mass_absolute_tolerance_m3",
+        "mass_relative_tolerance"
+      ],
+      "title": "Coupling",
+      "type": "object"
+    },
+    "Inlet": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "node": {
+          "minLength": 1,
+          "title": "Node",
+          "type": "string"
+        },
+        "cell": {
+          "minimum": 0,
+          "title": "Cell",
+          "type": "integer"
+        },
+        "x_m": {
+          "title": "X M",
+          "type": "number"
+        },
+        "y_m": {
+          "title": "Y M",
+          "type": "number"
+        },
+        "rim_m": {
+          "title": "Rim M",
+          "type": "number"
+        },
+        "opening_area_m2": {
+          "exclusiveMinimum": 0,
+          "title": "Opening Area M2",
+          "type": "number"
+        },
+        "weir_width_m": {
+          "exclusiveMinimum": 0,
+          "title": "Weir Width M",
+          "type": "number"
+        },
+        "weir_coefficient_m_half_s": {
+          "exclusiveMinimum": 0,
+          "title": "Weir Coefficient M Half S",
+          "type": "number"
+        },
+        "orifice_coefficient": {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Orifice Coefficient",
+          "type": "number"
+        },
+        "blockage_fraction": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Blockage Fraction",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "node",
+        "cell",
+        "x_m",
+        "y_m",
+        "rim_m",
+        "opening_area_m2",
+        "weir_width_m",
+        "weir_coefficient_m_half_s",
+        "orifice_coefficient",
+        "blockage_fraction"
+      ],
+      "title": "Inlet",
+      "type": "object"
+    },
+    "Numerics": {
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "enum": [
+            "DE0",
+            "DE1",
+            "DE2"
+          ],
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "cfl": {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Cfl",
+          "type": "number"
+        },
+        "max_timestep_s": {
+          "exclusiveMinimum": 0,
+          "title": "Max Timestep S",
+          "type": "number"
+        },
+        "minimum_depth_m": {
+          "exclusiveMinimum": 0,
+          "title": "Minimum Depth M",
+          "type": "number"
+        },
+        "mass_absolute_tolerance_m3": {
+          "exclusiveMinimum": 0,
+          "title": "Mass Absolute Tolerance M3",
+          "type": "number"
+        },
+        "mass_relative_tolerance": {
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0,
+          "title": "Mass Relative Tolerance",
+          "type": "number"
+        }
+      },
+      "required": [
+        "algorithm",
+        "cfl",
+        "max_timestep_s",
+        "minimum_depth_m",
+        "mass_absolute_tolerance_m3",
+        "mass_relative_tolerance"
+      ],
+      "title": "Numerics",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "minLength": 1,
+          "title": "Path",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "evidence": {
+          "enum": [
+            "measured",
+            "derived",
+            "analytical_benchmark"
+          ],
+          "title": "Evidence",
+          "type": "string"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "sha256",
+        "evidence",
+        "description"
+      ],
+      "title": "Source",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "run_id": {
+      "pattern": "^[a-zA-Z0-9_-]+$",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "purpose": {
+      "enum": [
+        "real_data",
+        "numerical_benchmark"
+      ],
+      "title": "Purpose",
+      "type": "string"
+    },
+    "start": {
+      "format": "date-time",
+      "title": "Start",
+      "type": "string"
+    },
+    "crs": {
+      "minLength": 1,
+      "title": "Crs",
+      "type": "string"
+    },
+    "vertical_datum": {
+      "minLength": 1,
+      "title": "Vertical Datum",
+      "type": "string"
+    },
+    "mesh": {
+      "minLength": 1,
+      "title": "Mesh",
+      "type": "string"
+    },
+    "forcing": {
+      "minLength": 1,
+      "title": "Forcing",
+      "type": "string"
+    },
+    "boundary_edges": {
+      "items": {
+        "maxItems": 3,
+        "minItems": 3,
+        "prefixItems": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "type": "array"
+      },
+      "minItems": 1,
+      "title": "Boundary Edges",
+      "type": "array"
+    },
+    "boundaries": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Boundary"
+      },
+      "title": "Boundaries",
+      "type": "object"
+    },
+    "sources": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Source"
+      },
+      "title": "Sources",
+      "type": "object"
+    },
+    "scope": {
+      "minLength": 1,
+      "title": "Scope",
+      "type": "string"
+    },
+    "numerics": {
+      "$ref": "#/$defs/Numerics"
+    },
+    "drainage": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Coupling"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "schema_version",
+    "run_id",
+    "purpose",
+    "start",
+    "crs",
+    "vertical_datum",
+    "mesh",
+    "forcing",
+    "boundary_edges",
+    "boundaries",
+    "sources",
+    "scope",
+    "numerics"
+  ],
+  "title": "RunManifest",
+  "type": "object"
+}

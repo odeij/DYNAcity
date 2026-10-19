@@ -34,6 +34,10 @@ gemini = [
 terrain = [
   "rasterio>=1.4,<2",
 ]
+flood = [
+  "anuga==3.3.7",
+  "pyproj>=3.6,<4",
+]
 graph = [
   "torch>=2.5,<3",
 ]

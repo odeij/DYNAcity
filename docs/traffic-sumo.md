@@ -4,6 +4,8 @@ The traffic adapter (`src/dynacity/traffic_sumo.py`) exports the existing road g
 
 This integration follows the inspected God's Plan reference at commit `23997b0482f8ad2cd94386b622f029ca5842c8c1`: its `frontend/src/babylon/traffic.ts` draws TraCI tracks and `backend/cityshift/live/network.py` updates lane permissions, reroutes to the existing destination and retains vehicles without detours. No reference source was copied.
 
+Road geometry uses a shared 3.2 m assumed lane width and the same rounded lane counts in SUMO and the viewer. One-way carriageways are centred on their OSM way; two-way ways put each direction to the right of the shared centreline. The viewer receives the full carriageway width, replacing fixed road-class widths that could leave simulated cars outside the coloured road. These widths are simulation assumptions, not surveyed kerb boundaries.
+
 ## Runtime
 
 Install the optional runtime in the environment that runs the DynaCITY server:

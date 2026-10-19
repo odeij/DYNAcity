@@ -78,11 +78,10 @@ def test_flood_water_cells_sit_only_below_the_water_level():
     assert focus["water"]["cells"] == water["cells"]
 
 
-def test_dropped_flood_takes_a_chosen_reach_and_returns_its_water():
+def test_illustrative_flood_drop_is_disabled_without_real_hydraulic_outputs():
     terrain = attach_ground_elevation(city(), slope())
     client = TestClient(create_app(engine_fixture(), viewer_snapshot=terrain, viewer_ground=slope()))
     drop = {"kind": "flood", "points": [lonlat(0, 0)], "severity": "severe", "radius_m": 250}
-    body = client.post("/v1/viewer/hazard", json={"hazards": [drop]}).json()
-    [focus] = body["hazards"]
-    assert focus["radius_m"] == 250 and focus["water"]["cells"]
-    assert body["forecast"]["hazard_impacts"][0]["radius_m"] == 250
+    response = client.post("/v1/viewer/hazard", json={"hazards": [drop]})
+    assert response.status_code == 422
+    assert "documented hydraulic" in response.json()["detail"]

@@ -143,6 +143,12 @@ button { cursor: pointer; touch-action: manipulation; }
 .hz { width: 14px; height: 14px; flex: none; }
 .ghost[hidden] { display: none; }
 
+/* Flood planning stays inside the city workspace; closing preserves map state. */
+#flood-workspace { width:min(1280px,96vw); height:94vh; max-width:96vw; max-height:94vh; padding:0; border:1px solid #b5ced0; border-radius:18px; background:#eef3f3; color:#173c47; }
+#flood-workspace::backdrop { background:#0d2e4b80; backdrop-filter:blur(5px); }
+.flood-workspace-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 18px; font-size:14px; }
+.flood-workspace-bar button { padding:8px 12px; border:1px solid #9db7be; border-radius:9px; background:white; color:#173c47; }
+#flood-frame { display:block; border:0; width:100%; height:calc(100% - 62px); }
 /* right column */
 .side { position: absolute; top: calc(var(--edge) + 54px); right: var(--edge); bottom: 190px; width: min(320px, calc(100vw - 2 * var(--edge))); display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
 .side > .panel { pointer-events: auto; }
@@ -279,6 +285,60 @@ button:focus-visible, summary:focus-visible, input:focus-visible { outline: 3px 
   .side { bottom: 90px; }
   .leftcol { bottom: 90px; }
 }
+
+/* A compact, readable flood controller with one clear starting action. */
+#p-flood-playback { background:#f7fafbeF; color:#173b4c; border-color:#d6e4eb; box-shadow:0 12px 35px #173b4c25; padding:18px; }
+#p-flood-playback h2 { font-size:18px; letter-spacing:-.3px; }
+#p-flood-playback .close { color:#456373; }
+.flood-intro,.flood-help { font-size:12px; line-height:1.5; color:#4b6574; margin:6px 0 12px; }
+.flood-evidence { color:#72551d; background:#fff1ce; border:1px solid #ead8a8; border-radius:8px; font-size:11px; line-height:1.45; padding:8px 10px; margin:12px 0; }
+#p-flood-playback button { font-family:inherit; font-size:12px; }
+.flood-primary,.flood-secondary { border:0; border-radius:10px; min-height:42px; padding:10px 13px; font-weight:600; }
+.flood-primary { background:#176783; color:white; }
+.flood-primary:hover { background:#10526b; }
+#flood-map-demo { width:100%; margin:0 0 6px; }
+.flood-secondary { background:#e7eff3; color:#254c60; }
+.flood-secondary:hover { background:#d8e7ef; }
+#p-flood-playback button:disabled { opacity:.55; cursor:wait; }
+.flood-label { display:block; margin:14px 0 7px; font-size:12px; font-weight:600; }
+.flood-cases { display:flex; gap:3px; background:#e5edf2; padding:3px; border-radius:10px; }
+.flood-cases button { flex:1; padding:9px 3px; border:0; border-radius:8px; background:transparent; color:#426073; }
+.flood-cases button[aria-pressed=true] { color:#144d68; background:white; box-shadow:0 1px 4px #183a501f; font-weight:650; }
+.flood-readout { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px; }
+.flood-readout strong { display:block; font-size:24px; font-weight:600; letter-spacing:-.6px; }
+.flood-readout span { display:block; font-size:11px; color:#526d7c; margin-top:3px; }
+#flood-map-time { width:100%; margin:6px 0; accent-color:#176783; cursor:pointer; }
+.flood-time-ends { display:flex; justify-content:space-between; font-size:10px; color:#617986; }
+.flood-transport { display:flex; gap:8px; margin:14px 0; }
+.flood-transport button { flex:1; }
+.flood-map-toggle { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; align-items:center; font-size:11px; color:#4b6574; }
+.flood-map-toggle label { display:flex; gap:6px; align-items:center; }
+.flood-map-toggle input { accent-color:#176783; }
+.flood-map-toggle span { font-size:10px; }
+.flood-map-toggle i { display:inline-block; width:8px; height:8px; border-radius:2px; background:#2089c3; margin-right:3px; }
+.flood-link { border:0; background:none; padding:14px 0 4px; color:#176783; text-align:left; width:100%; }
+.flood-details { border-top:1px solid #dbe5eb; padding-top:12px; margin-top:12px; font-size:11px; color:#526d7c; }
+.flood-details summary { cursor:pointer; }
+.flood-error { color:#9a302b; font-size:12px; line-height:1.5; }
+.flood-error:empty { display:none; }
+.flood-survey { border-top:1px solid #dbe5eb; padding-top:14px; margin-top:14px; }
+.flood-survey h3 { font-size:14px; margin:0 0 8px; }
+.flood-survey select { width:100%; font:inherit; padding:8px; border:1px solid #bdced7; border-radius:8px; background:white; color:#254c60; }
+.flood-survey label { display:flex; gap:7px; align-items:center; font-size:12px; margin:9px 0; }
+.flood-survey input { accent-color:#176783; }
+.flood-survey-legend { display:flex; flex-wrap:wrap; gap:6px 12px; margin:10px 0; font-size:11px; color:#526d7c; }
+.flood-survey-legend span::before { content:''; display:inline-block; width:9px; height:9px; border-radius:3px; background:var(--swatch); margin-right:5px; }
+.flood-survey a { color:#176783; }
+@media(max-width:760px) {
+  .side:has(> #p-flood-playback:not([hidden])) { left:var(--edge); top:auto; bottom:150px; max-height:min(64vh,540px); }
+  #p-flood-playback { padding:15px; border-radius:18px; }
+  .flood-readout { margin-top:8px; }
+}
+
+.cloud-control { position:absolute; top:108px; right:var(--edge); max-width:255px; padding:10px 12px; border-radius:14px; pointer-events:auto; font-size:12px; }
+.cloud-control label { display:flex; align-items:center; gap:7px; font-weight:600; }
+.cloud-control button { border:1px solid var(--line); background:var(--control); color:var(--ink); border-radius:8px; padding:5px 9px; margin-top:7px; font:inherit; }
+.cloud-control p { margin:6px 0 0; color:var(--ink-2); font-size:11px; line-height:1.4; }
 </style>
 </head>
 <body>
@@ -291,6 +351,10 @@ button:focus-visible, summary:focus-visible, input:focus-visible { outline: 3px 
 
 <div class="draw" id="draw" hidden aria-label="Drag to steer the disaster"></div>
 
+<dialog id="flood-workspace" aria-label="Flood planning workspace">
+  <div class="flood-workspace-bar"><strong>Flood planning · Beirut neighborhood pilot</strong><button id="close-flood-pilot" type="button">Return to city</button></div>
+  <iframe id="flood-frame" title="Flood comparison and budget planning" data-src="/flood?embedded=1"></iframe>
+</dialog>
 <div class="chrome">
   <div class="brand">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5c2.6 2.7 3.9 5.9 3.9 9.5s-1.3 6.8-3.9 9.5c-2.6-2.7-3.9-5.9-3.9-9.5s1.3-6.8 3.9-9.5z"/></svg>
@@ -305,6 +369,11 @@ button:focus-visible, summary:focus-visible, input:focus-visible { outline: 3px 
   </div>
 
   <div class="status" id="status"></div>
+  <div id="cloud-control" class="cloud-control glass" hidden>
+    <label><input id="cloud-visible" type="checkbox"> LAS point cloud</label>
+    <p id="cloud-note" role="status"></p>
+    <button id="cloud-focus" type="button">Centre tile</button>
+  </div>
 
   <div class="leftcol">
   <nav class="rail glass" aria-label="View tools">
@@ -326,16 +395,74 @@ button:focus-visible, summary:focus-visible, input:focus-visible { outline: 3px 
   </nav>
   <section class="tray glass" id="tray" aria-label="Disasters" hidden>
     <h2>Disasters</h2>
+    <p class="sub">Illustrative disaster effects · not calibrated predictions.</p>
     <div class="sub">Drag one onto the city</div>
     <div class="sev"><div class="row"><label for="sev">Severity</label><b id="sev-label">Moderate</b></div>
       <input id="sev" type="range" min="0" max="3" step="1" value="1" aria-valuetext="Moderate"></div>
-    <div class="sev"><div class="row"><label for="reach">Flood reach</label><b id="reach-label">600 m</b></div>
-      <input id="reach" type="range" min="200" max="2000" step="100" value="600" aria-valuetext="600 m"></div>
     <div class="tiles" id="tiles"></div>
   </section>
   </div>
 
   <aside class="side" aria-label="Map details">
+    <section class="panel glass" id="p-flood-playback" hidden aria-label="Flood controls">
+      <button class="close" id="close-flood-playback" aria-label="Back to disasters" title="Back to disasters">✕</button>
+      <h2>Flooding</h2><p class="flood-intro">Load documented storm inputs and calculate water flow with ANUGA.</p>
+      <section aria-label="Run flood simulation">
+        <p class="flood-help" id="flood-run-status" role="status">Checking the hydraulic engine…</p>
+        <input id="flood-run-file" type="file" accept=".zip,application/zip" hidden>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="flood-secondary" id="flood-run-load" type="button">Load simulation inputs</button><button class="flood-primary" id="flood-run-start" type="button" disabled>Run flood</button><button class="flood-secondary" id="flood-run-cancel" type="button" hidden>Cancel run</button></div>
+        <progress id="flood-run-progress" hidden style="width:100%;margin-top:10px"></progress>
+        <p class="flood-error" id="flood-run-error" role="alert"></p>
+        <details class="flood-details"><summary>Required inputs &amp; current gaps</summary><p class="flood-help">Select a ZIP containing the run manifest, mesh, storm forcing and referenced source files. Inputs are checked before Run flood becomes available. Physical values are never filled automatically.</p><div class="flood-help" id="flood-run-requirements"></div></details>
+        <div id="flood-native-controls" hidden>
+          <p class="flood-help" id="flood-native-note"></p>
+          <div class="flood-readout"><div><strong id="flood-native-depth">—</strong><span>Computed peak depth</span></div><div><strong id="flood-native-time">—</strong><span>Simulation time</span></div></div>
+          <label class="flood-label" for="flood-native-slider">Computed output time</label><input id="flood-native-slider" type="range" min="0" max="0" value="0" style="width:100%">
+          <p class="flood-help" id="flood-native-timestamp"></p>
+          <div style="display:flex;gap:8px"><button class="flood-primary" id="flood-native-play" type="button">Play results</button><button class="flood-secondary" id="flood-native-focus" type="button">Find flood</button></div>
+          <label class="flood-help"><input id="flood-native-visible" type="checkbox" checked> Show computed depth colors</label>
+        </div>
+      </section>
+      <div class="flood-evidence" id="flood-map-status" role="status" hidden>No imported comparison loaded</div>
+      <div id="flood-map-welcome" hidden>
+      </div>
+      <details class="flood-survey" aria-labelledby="flood-survey-title"><summary>Historical survey records</summary>
+        <h3 id="flood-survey-title">Recorded street conditions</h3>
+        <p class="flood-help" id="flood-survey-status" role="status">Survey records not loaded.</p>
+        <div id="flood-survey-controls" hidden>
+          <label><input id="flood-survey-visible" type="checkbox"> Show survey records on map</label>
+          <label for="flood-survey-neighborhood">Neighborhood</label><select id="flood-survey-neighborhood"><option value="">All surveyed neighborhoods</option></select>
+          <label for="flood-survey-condition">Street condition</label><select id="flood-survey-condition"><option value="">All recorded conditions</option><option value="blocked">Blocked drains</option><option value="functional">Functional drains</option><option value="no_drains">No drains</option><option value="unknown">Unknown</option></select>
+          <label><input id="flood-survey-ponding" type="checkbox" checked> Include recorded ponding points</label>
+          <p class="flood-help" id="flood-survey-counts"></p>
+          <div class="flood-survey-legend"><span style="--swatch:#c65347">Blocked</span><span style="--swatch:#29836f">Functional</span><span style="--swatch:#b1863a">No drains</span><span style="--swatch:#858d98">Unknown</span><span style="--swatch:#5261bb">Ponding</span></div>
+          <button class="flood-secondary" id="flood-survey-focus" type="button">Find selected records</button>
+          <p class="flood-help">Historical observations, not present-day drain status. Lines describe street segments; points mark reported ponding, not individual drains. Hover a record for its source fields.</p>
+          <details class="flood-details"><summary>Sources &amp; missing model inputs</summary><div id="flood-survey-sources" class="flood-help"></div><div id="flood-survey-inputs" class="flood-help"></div></details>
+        </div>
+      </details>
+      <p class="flood-error" id="flood-map-error" role="alert"></p>
+      <input id="flood-map-file" type="file" accept="application/json,.json" hidden>
+      <div id="flood-map-controls" hidden>
+        <label class="flood-label" id="flood-case-label">Compare drainage</label>
+        <div class="flood-cases" role="group" aria-labelledby="flood-case-label">
+          <button type="button" data-flood-case="existing" aria-pressed="true">Existing</button>
+          <button type="button" data-flood-case="blocked" aria-pressed="false">Blocked</button>
+          <button type="button" data-flood-case="improved" aria-pressed="false">Improved</button>
+        </div><p class="flood-help" id="flood-case-description"></p>
+        <div class="flood-readout"><div><strong id="flood-depth-value">—</strong><span>Deepest water now</span></div><div><strong id="flood-elapsed">0 min</strong><span>Elapsed in event</span></div></div>
+        <label class="flood-label" for="flood-map-time">Move through time</label><input id="flood-map-time" type="range" min="0" max="0" value="0">
+        <div class="flood-time-ends"><span>Start</span><span id="flood-duration">End</span></div>
+        <div class="flood-transport"><button class="flood-primary" id="flood-map-play" type="button">▶ Play</button><button class="flood-secondary" id="flood-map-focus" type="button" title="Centre the map on the flood area">⌖ Find water</button></div>
+        <div class="flood-map-toggle"><label><input id="flood-map-visible" type="checkbox" checked> Show water</label><span><i></i> Deeper blue = deeper water</span></div>
+        <button id="flood-map-planning" class="flood-link" type="button">Compare impacts &amp; budgets →</button>
+      </div>
+      <details class="flood-details"><summary>Your data &amp; model details</summary>
+        <p class="flood-help">Have model results? Import a validated flood-output JSON bundle.</p><button id="flood-map-import" class="flood-secondary" type="button">Import flood data</button>
+        <p id="flood-map-timestamp" class="flood-help"></p><p id="flood-map-metrics" class="flood-help"></p>
+        <p class="flood-help">Invented flood data is disabled. Hydraulic calculations run separately using documented inputs. Imported outputs retain their source evidence. Water uses actual depth metres above schematic map ground, without exaggeration. Grey cells are missing; dry cells stay clear. Flow and missing velocity are not inferred.</p>
+      </details>
+    </section>
     <section class="panel glass" id="p-buildings" hidden aria-label="Find a building">
       <button class="close" data-close="buildings" aria-label="Close building finder">✕</button><h2>Find a building</h2>
       <label class="library-field" for="building-query">Building ID, area or use</label>
@@ -420,7 +547,7 @@ const KPI_RULE = {
 const HAZARDS = [
   { kind: 'tornado', label: 'Tornado', path: true, icon: '<path d="M3 5h18M5 9h13M8 13h9M10 17h5M11 21h2"/>' },
   { kind: 'storm', label: 'Storm', icon: '<path d="M3 8h10a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h7"/>' },
-  { kind: 'rain', label: 'Rain', icon: '<path d="M7 14a4 4 0 1 1 .9-7.9A5.5 5.5 0 0 1 18 8a3 3 0 0 1-1 6z"/><path d="m8 17.5-1 3M12 17.5l-1 3M16 17.5l-1 3"/>' },
+  { kind: 'rain', label: 'Rain sketch', icon: '<path d="M7 14a4 4 0 1 1 .9-7.9A5.5 5.5 0 0 1 18 8a3 3 0 0 1-1 6z"/><path d="m8 17.5-1 3M12 17.5l-1 3M16 17.5l-1 3"/>' },
   { kind: 'flood', label: 'Flood', icon: '<path d="M2 9c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2M2 14c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2M2 19c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2"/>' },
   { kind: 'fire', label: 'Fire', icon: '<path d="M12 3c.8 3.2 5 5.2 5 10a5 5 0 0 1-10 0c0-2.2 1.1-3.8 2.3-4.8 0 2 .9 3.3 2.2 3.3 0-3-1.3-5.3.5-8.5z"/>' },
   { kind: 'heat', label: 'Heat', icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/>' },
@@ -656,8 +783,96 @@ function tilesUnavailable(msg) {
   render();
 }
 
+// Actual source points; this visual layer never supplies hydraulic ground.
+const pointCloud = { metadata: null, data: null, visible: false, loading: null };
+function cloudActive() { return pointCloud.visible && !!pointCloud.data; }
+function cloudOverlaps(ring) {
+  if (!cloudActive()) return false;
+  const [w,s,e,n] = ringBox(ring), [[cw,cs],[ce,cn]] = pointCloud.metadata.bounds;
+  return w <= ce && e >= cw && s <= cn && n >= cs;
+}
+function pointCloudLayers() {
+  if (!cloudActive()) return [];
+  return [new deck.PointCloudLayer({
+    id: 'las-source-points', data: pointCloud.data,
+    coordinateSystem: deck.COORDINATE_SYSTEM.LNGLAT,
+    pointSize: 2, material: false, pickable: false,
+  }), new deck.PathLayer({
+    id: 'las-tile-boundary', data: [pointCloud.metadata.footprint],
+    getPath: d => d, getColor: [17,153,174,230], widthMinPixels: 2,
+    parameters: { depthCompare: 'always', depthWriteEnabled: false },
+  })];
+}
+function cloudNote() {
+  const m = pointCloud.metadata;
+  if (m) $('cloud-note').textContent = m.display_alignment
+    ? `${m.point_count.toLocaleString()} source points · original RGB. Road-aligned for display (${m.display_alignment.translation_z_m.toFixed(2)} m shift). Survey datum unverified; not flood terrain.`
+    : `${m.point_count.toLocaleString()} source points · original RGB. Display heights relative to tile minimum (${m.display_z_offset.toFixed(2)} source units); datum unverified. Not flood terrain.`;
+}
+async function setPointCloudVisible(visible) {
+  pointCloud.visible = visible;
+  $('cloud-visible').checked = visible;
+  const params = new URLSearchParams(location.hash.slice(1));
+  if (visible) params.set('cloud', '1'); else params.delete('cloud');
+  history.replaceState(null, '', `#${params}`);
+  try {
+    if (visible && !pointCloud.data) {
+      $('cloud-note').textContent = 'Loading measured LAS points…';
+      if (!pointCloud.loading) pointCloud.loading = (async () => {
+        const responses = await Promise.all(['positions','colors'].map(name => fetch(`/v1/point-cloud/${name}`)));
+        if (responses.some(r => !r.ok)) throw new Error('Point-cloud download failed');
+        const [xyz,rgb] = await Promise.all(responses.map(r => r.arrayBuffer()));
+        const n = pointCloud.metadata.point_count;
+        if (xyz.byteLength !== n * 24 || rgb.byteLength !== n * 3) throw new Error('Point-cloud buffer size mismatch');
+        const positions = new Float64Array(xyz);
+        const dz = pointCloud.metadata.display_alignment?.translation_z_m ?? 0;
+        if (!Number.isFinite(dz)) throw new Error('Invalid point-cloud display alignment');
+        // Rigid display translation only. The exported buffers and original LAS
+        // retain their source elevations; no flattening/warping or datum claim.
+        if (dz) for (let i=2;i<positions.length;i+=3) positions[i]+=dz;
+        pointCloud.data = { length:n, attributes: {
+          getPosition:{ value:positions, size:3 },
+          getColor:{ value:new Uint8Array(rgb), size:3 },
+        }};
+      })();
+      await pointCloud.loading;
+    }
+    cloudNote();
+  } catch (error) {
+    pointCloud.loading = null; pointCloud.visible = false;
+    $('cloud-visible').checked = false;
+    $('cloud-note').textContent = error.message;
+  }
+  render(); $('attrib').textContent = attribution();
+}
+function focusPointCloud() {
+  if (!pointCloud.metadata) return;
+  const [[w,s],[e,n]] = pointCloud.metadata.bounds;
+  const params = new URLSearchParams(location.hash.slice(1));
+  params.set('lat', String((s+n)/2)); params.set('lon', String((w+e)/2));
+  params.set('zoom', '18.1'); params.set('pitch', '50');
+  history.replaceState(null, '', `#${params}`);
+  if (map) map.easeTo({ center:[(w+e)/2,(s+n)/2], zoom:18.1, pitch:50, bearing:0, duration:700 });
+  else flyTo({ longitude:(w+e)/2, latitude:(s+n)/2, zoom:18.1, pitch:50, bearing:0 });
+}
+async function wirePointCloud() {
+  if (!DATA.api) return;
+  try {
+    const response = await fetch('/v1/point-cloud');
+    if (!response.ok) return;
+    const result = await response.json();
+    if (!result.available) return;
+    pointCloud.metadata = result.metadata;
+    $('cloud-control').hidden = false;
+    $('cloud-visible').onchange = event => setPointCloudVisible(event.target.checked);
+    $('cloud-focus').onclick = focusPointCloud;
+    cloudNote();
+    if (new URLSearchParams(location.hash.slice(1)).get('cloud') === '1') await setPointCloudVisible(true);
+  } catch (error) { console.warn('Point-cloud availability check failed', error); }
+}
+
 function layers() {
-  if (photoreal()) return googleLayers();
+  if (photoreal() && !cloudActive()) return [...googleLayers(), ...floodPlaybackLayers(), ...floodSurveyLayers(), ...floodNativeLayers()];
   const out = [];
   if (!map) {
     // No basemap: a plain ground slab under the survey extent.
@@ -672,7 +887,7 @@ function layers() {
       loadOptions: { mvt: { layers: ['building'] } },
       renderSubLayers: (props) => new deck.GeoJsonLayer({
         ...props,
-        data: contextBuildings(props.data || [], props.tile),
+        data: contextBuildings(props.data || [], props.tile).filter(f => !cloudOverlaps(f.geometry.coordinates[0].map(tileToLngLat(props.tile.bbox)))),
         extruded: true, stroked: false, filled: true, pickable: false,
         getElevation: (f) => Math.max(Number(f.properties?.render_height) || 6, 3),
         getFillColor: isDark() ? [92, 104, 116, 235] : [...CONTEXT_RGB, 235], material: MATERIAL,
@@ -680,9 +895,12 @@ function layers() {
     }));
   }
   if (ui.traffic) out.push(...roadLayers());
+  out.push(...floodPlaybackLayers());
+  out.push(...floodSurveyLayers());
+  out.push(...floodNativeLayers());
   out.push(new deck.SolidPolygonLayer({
     id: 'buildings',
-    data: mainRings(),
+    data: mainRings().filter(d => !cloudOverlaps(d.ring)),
     getPolygon: (d) => d.ring, extruded: true, getElevation: (d) => elevation(d.b), getFillColor: (d) => fill(d.b),
     // While a road tool is on, clicks go through buildings to the roads.
     pickable: !ui.roadTool, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL,
@@ -690,12 +908,14 @@ function layers() {
     // previous lens's colours, and a data view must never show stale values.
     updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario], getElevation: [ui.lens] },
   }));
+  out.push(...pointCloudLayers());
   return out;
 }
 function attribution() {
-  if (GOOGLE) return [DATA.attribution, photoreal() && ['Google', ...credits].join(' · ')].filter(Boolean).join(' ');
+  const survey = floodSurvey.visible && floodSurvey.data ? 'Street/ponding survey: UN-Habitat · historical records · local research.' : null;
+  if (GOOGLE) return [DATA.attribution, photoreal() && ['Google', ...credits].join(' · '), survey].filter(Boolean).join(' ');
   const terrain = fx.find((f) => f.water)?.water.source;
-  return [DATA.attribution, DATA.basemap?.attribution, ui.satellite && DATA.basemap?.satellite_attribution, terrain, ui.traffic && DATA.traffic?.source, ui.traffic && DATA.traffic?.stations?.length && DATA.traffic.volume_source].filter(Boolean).join(' ');
+  return [DATA.attribution, DATA.basemap?.attribution, ui.satellite && DATA.basemap?.satellite_attribution, terrain, ui.traffic && DATA.traffic?.source, ui.traffic && DATA.traffic?.stations?.length && DATA.traffic.volume_source, survey, cloudActive() && `Point cloud: ${pointCloud.metadata.name} · source RGB · display Z offset; datum unverified.`].filter(Boolean).join(' ');
 }
 // Colour imagery goes over every road, water, and flat building fill of the
 // basemap but under its trailing label layers, so place names stay readable.
@@ -850,8 +1070,14 @@ function nearestAlong(path, c) {
 // busy a road is. After a disaster, closed roads empty,
 // slowed roads crawl, and the roads that take the detours fill up.
 const CAR_SPEEDUP = 1, LANE_M = 2.4;
-// Carriageway widths in metres, so roads read at street level and thin out from afar.
+// SUMO can take longer than wall time to advance the full Beirut fleet. Match
+// playback to the measured server throughput (with headroom) so the two-second
+// frame buffer drains smoothly instead of repeatedly freezing at its edge.
+const TRAFFIC_INITIAL_RATE = 0.25, TRAFFIC_MIN_RATE = 0.05, TRAFFIC_RATE_HEADROOM = 0.75;
+// Class widths are a fallback for older saved payloads. Live payload widths
+// use the same rounded lane counts and lane width as the SUMO network.
 const ROAD_WIDTH = { motorway: 14, trunk: 12, primary: 10, secondary: 8, tertiary: 7 };
+const roadWidth = (r) => Number.isFinite(r.width_m) && r.width_m > 0 ? r.width_m : (ROAD_WIDTH[r.cls.replace('_link', '')] ?? 5);
 const FLOW = [hex(STATES.empty_or_parking.color), hex(STATES.active_construction.color), hex(STATES.demolished.color)];
 const CLOSED_RGB = [120, 20, 24], DETOUR_RGB = hex('#8a63e8');
 // The current road impact: from the last disaster, scenario, or road event.
@@ -909,7 +1135,7 @@ function roadLayers() {
   const drape = photoreal() ? { extensions: [new deck._TerrainExtension()] } : {};
   const out = [new deck.PathLayer({
     id: 'roads', data: roads, getPath: (d) => d.r.path, widthUnits: 'meters', widthMinPixels: 1.2, capRounded: true, jointRounded: true,
-    getWidth: (d) => ROAD_WIDTH[d.r.cls.replace('_link', '')] ?? 5,
+    getWidth: (d) => roadWidth(d.r),
     getColor: (d) => roadClosed(d.i, impact) ? [...CLOSED_RGB, 235] : [...flowColor(flowRatio(d.i, impact)), 210],
     updateTriggers: { getColor: [ui.hour, impact, closed.join(',')] }, parameters: SOFT, pickable: true, ...drape,
   })];
@@ -947,15 +1173,17 @@ function roadLayers() {
   if (closed.length) {
     out.push(new deck.PathLayer({
       id: 'roads-closed', data: closed, getPath: (i) => DATA.traffic.roads[i].path, widthUnits: 'meters', widthMinPixels: 2.5,
-      getWidth: 12, getColor: [...CLOSED_RGB, 255], capRounded: true, parameters: SOFT, ...drape,
+      getWidth: (i) => roadWidth(DATA.traffic.roads[i]), getColor: [...CLOSED_RGB, 255], capRounded: true, parameters: SOFT, ...drape,
     }));
   }
   return out;
 }
 // Authoritative SUMO replay; each displayed position comes from TraCI.
-// The clock advances at 1× and pauses at the buffer edge while fetching.
+// The clock adapts to measured delivery throughput and eases near the buffer
+// edge; it never extrapolates a vehicle beyond a position SUMO supplied.
 let trafficSession = null, trafficFrames = [], trafficClock = null, trafficFetch = false;
 let trafficGeneration = 0, trafficMetrics = null, trafficError = null, trafficRevision = '', trafficNetwork = null, trafficMetricSecond = -1;
+let trafficPlaybackRate = TRAFFIC_INITIAL_RATE, trafficEffectiveRate = TRAFFIC_INITIAL_RATE;
 function simulationRequest() {
   return {hour:ui.hour, seconds:2, closed:[...ui.closedRoads], crashes:[...ui.crashes], hazards:currentHazards()};
 }
@@ -965,6 +1193,8 @@ function simulationRevision() {
 function closeTrafficSession() {
   if (trafficSession) fetch(`/v1/viewer/traffic/simulation/${trafficSession}`, {method:'DELETE'}).catch(() => {});
   trafficSession = null; trafficFrames = []; trafficClock = null; trafficMetrics = null; trafficMetricSecond = -1;
+  trafficRevision = ''; trafficNetwork = null; trafficError = null; carTime = null;
+  trafficPlaybackRate = TRAFFIC_INITIAL_RATE; trafficEffectiveRate = TRAFFIC_INITIAL_RATE;
   trafficGeneration++; trafficFetch = false;
 }
 function prepareCars() {
@@ -978,9 +1208,11 @@ async function fetchTrafficFrames() {
   if (trafficFetch || !ui.traffic || trafficError) return;
   trafficFetch = true;
   const generation = trafficGeneration, revision = simulationRevision();
+  const continuing = !!trafficSession, startedAt = performance.now();
+  const request = simulationRequest();
   const url = '/v1/viewer/traffic/simulation' + (trafficSession ? `/${trafficSession}` : '');
   try {
-    const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(simulationRequest())});
+    const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(request)});
     const body = await res.json();
     if (!res.ok) throw new Error(body.detail ?? `Traffic simulation: ${res.status}`);
     if (generation !== trafficGeneration) {
@@ -988,21 +1220,42 @@ async function fetchTrafficFrames() {
       return;
     }
     if (body.session) trafficSession = body.session;
+    const previousEnd = trafficFrames.at(-1)?.time_s;
+    // Validate before appending: an empty/invalid response must leave the last
+    // authoritative buffer intact, never initialize the clock to NaN.
+    if (!Array.isArray(body.frames) || !body.frames.length || body.frames.some((frame, i) =>
+      !Number.isFinite(frame.time_s) || !Array.isArray(frame.vehicles) ||
+      (i > 0 && frame.time_s <= body.frames[i - 1].time_s))) throw new Error('Invalid SUMO frame batch');
+    const deliveredEnd = body.frames.at(-1).time_s;
+    if (previousEnd !== undefined && deliveredEnd <= previousEnd + 0.00001) throw new Error('SUMO frame batch did not advance');
+    if (continuing && previousEnd !== undefined) {
+      const deliveredPerSecond = (deliveredEnd - previousEnd) / Math.max(0.05, (performance.now() - startedAt) / 1000);
+      const measuredRate = Math.max(TRAFFIC_MIN_RATE, Math.min(CAR_SPEEDUP, deliveredPerSecond * TRAFFIC_RATE_HEADROOM));
+      // Dampen one unusually fast or slow response; the fleet shrinks over the
+      // run, so this naturally returns toward real time as SUMO gets cheaper.
+      trafficPlaybackRate = trafficPlaybackRate * 0.35 + measuredRate * 0.65;
+    }
     trafficRevision = revision; trafficNetwork = body.network ?? null;
     for (const frame of body.frames) {
       if (!trafficFrames.length || frame.time_s > trafficFrames.at(-1).time_s + 0.00001) trafficFrames.push(frame);
     }
-    if (trafficClock === null) trafficClock = trafficFrames[0].time_s;
+    if (trafficClock === null) { trafficClock = trafficFrames[0].time_s; carTime = null; }
     renderTraffic(); render();
   } catch (err) {
     if (generation === trafficGeneration) { trafficError = String(err.message); renderTraffic(); }
   } finally { if (generation === trafficGeneration) trafficFetch = false; }
 }
 function advanceCars(now) {
-  const dt = carTime === null ? 0 : Math.max(0, Math.min((now-carTime)/1000, 0.25)) * CAR_SPEEDUP;
+  const wallDt = carTime === null ? 0 : Math.max(0, Math.min((now-carTime)/1000, 0.25));
   carTime = now;
-  if (!trafficFrames.length) return;
-  trafficClock = Math.min(trafficClock + dt, trafficFrames.at(-1).time_s);
+  if (!trafficFrames.length) { trafficEffectiveRate = 0; return; }
+  const buffered = Math.max(0, trafficFrames.at(-1).time_s - trafficClock);
+  // Ease down near the edge while a new batch is in flight. This keeps cars
+  // visibly moving through a slow response instead of racing to a hard stop.
+  const edge = trafficFetch && buffered < 0.8 ? Math.max(0.2, buffered / 0.8) : 1;
+  const rate = Math.max(TRAFFIC_MIN_RATE, Math.min(CAR_SPEEDUP, trafficPlaybackRate * edge));
+  trafficEffectiveRate = wallDt > 0 ? Math.min(rate, buffered / wallDt) : (buffered > 0 ? rate : 0);
+  trafficClock = Math.min(trafficClock + wallDt * trafficEffectiveRate, trafficFrames.at(-1).time_s);
   while (trafficFrames.length > 1 && trafficFrames[1].time_s <= trafficClock) trafficFrames.shift();
   const a = trafficFrames[0], b = trafficFrames[1] ?? a;
   const f = b.time_s > a.time_s ? clamp01((trafficClock-a.time_s)/(b.time_s-a.time_s)) : 0;
@@ -1060,6 +1313,9 @@ function carLayers(now) {
     $('scene').dataset.trafficCars = cars.length;
     $('scene').dataset.trafficDetailed = buckets.sedan.length + buckets.suv.length;
     $('scene').dataset.trafficZoom = zoom.toFixed(2);
+    $('scene').dataset.trafficRate = trafficEffectiveRate.toFixed(3);
+    $('scene').dataset.trafficClock = (trafficClock ?? 0).toFixed(3);
+    $('scene').dataset.trafficBuffer = trafficFrames.length ? Math.max(0, trafficFrames.at(-1).time_s - trafficClock).toFixed(3) : '0';
   }
   return Object.entries(buckets).filter(([, data]) => data.length).map(([kind, data]) => new deck.SimpleMeshLayer({
     id: `cars-${kind}`, data, mesh: kind === 'simple' ? mesh('car', carMesh) : importedCarMesh(kind),
@@ -1164,11 +1420,12 @@ function renderTraffic() {
   // interrupted by the panel redrawing underneath it.
   if (!$('hour')) {
     el.innerHTML = `<button class="close" aria-label="Hide traffic controls" data-close="traffic">✕</button><h2>Traffic</h2>
-      <div class="sub">Historical speeds, ${esc(DATA.traffic.period)} · ${CAR_SPEEDUP}× playback; pauses while buffering</div>
+      <div class="sub">Historical speeds, ${esc(DATA.traffic.period)} · <span id="traffic-playback-rate"></span></div>
       <div class="sev"><div class="row"><label for="hour">Hour</label><b id="hour-label"></b></div>
         <input id="hour" type="range" min="0" max="23" step="1" value="${ui.hour}"></div>
       <div id="traffic-body"></div>`;
   }
+  $('traffic-playback-rate').textContent = `adaptive ${trafficPlaybackRate.toFixed(2)}× playback; slows or pauses while buffering`;
   $('hour').value = ui.hour;
   $('hour').setAttribute('aria-valuetext', hourLabel(ui.hour));
   $('hour-label').textContent = hourLabel(ui.hour);
@@ -1777,7 +2034,7 @@ function fxLayers(now) {
     const id = `fx-${i}`, r = f.radius_m ?? 0, hue = tone(TONE[f.kind] ?? 'strike');
     const ms = calm.matches ? Infinity : now - f.t0, sinceImpact = ms - f.impactMs;
     const t = clamp01(sinceImpact / FX_MS);
-    if (f.kind === 'flood') out.push(...waterLayers(id, f, ms));
+    if (f.kind === 'flood' && !floodPlayback.visible) out.push(...waterLayers(id, f, ms));
     if (f.kind === 'storm') out.push(...cloudDeck(id, f, ms, true), ...rainLayers(id, f, ms, true), ...lightning(id, f, ms));
     if (f.kind === 'rain') out.push(...cloudDeck(id, f, ms, false), ...rainLayers(id, f, ms, false));
     if (f.kind === 'heat') out.push(...heatLayers(id, f, ms, now));
@@ -1854,12 +2111,23 @@ const deckProps = () => ({
   onHover: showTip,
   // Roads are thin; a few pixels of slack makes them clickable.
   pickingRadius: 6,
-  onClick: ({ object, coordinate }) => { if (object?.bus) return; if (object?.r) { if (ui.roadTool) toggleRoadEvent(object.i, coordinate); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
+  onClick: ({ object, coordinate }) => { if (object?.bus || object?.survey) return; if (object?.r) { if (ui.roadTool) toggleRoadEvent(object.i, coordinate); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
 });
+
+function linkedMapCamera() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  if (!p.has('lat') || !p.has('lon')) return null;
+  const lat = Number(p.get('lat')), lon = Number(p.get('lon'));
+  if (!p.get('lat').trim() || !p.get('lon').trim() || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 85 || Math.abs(lon) > 180) return null;
+  const zoom = p.has('zoom') ? Number(p.get('zoom')) : 18;
+  const pitch = p.has('pitch') ? Number(p.get('pitch')) : 35;
+  return { longitude: lon, latitude: lat, zoom: Number.isFinite(zoom) ? Math.min(20, Math.max(1, zoom)) : 18, pitch: Number.isFinite(pitch) ? Math.min(75, Math.max(0, pitch)) : 35, bearing: 0 };
+}
 
 function initScene() {
   indexFootprints();
   const bounds = homeBounds();
+  const linkedCamera = linkedMapCamera();
   const style = DATA.basemap && (isDark() ? DATA.basemap.style_dark : DATA.basemap.style_light);
   if (style && window.maplibregl) {
     // Beirut's labels are largely Arabic; without this plugin MapLibre draws
@@ -1870,6 +2138,7 @@ function initScene() {
       container: 'scene', style, bounds, fitBoundsOptions: { padding: 40 },
       pitch: 74, bearing: -20, maxPitch: 85, attributionControl: false, canvasContextAttributes: { antialias: true },
     });
+    if (linkedCamera) map.jumpTo({ center: [linkedCamera.longitude, linkedCamera.latitude], zoom: linkedCamera.zoom, pitch: linkedCamera.pitch, bearing: linkedCamera.bearing });
     map.on('style.load', () => {
       const dark = isDark();
       try {
@@ -1891,7 +2160,7 @@ function initScene() {
     home = { longitude: (w + e) / 2, latitude: (s + n) / 2, zoom: 15.6, pitch: 62, bearing: -20 };
     deckgl = new deck.Deck({
       parent: $('scene'), views: new deck.MapView({ repeat: false }),
-      initialViewState: { ...home, maxPitch: 75 }, controller: { dragRotate: true, touchRotate: true, inertia: 250 },
+      initialViewState: { ...home, ...linkedCamera, maxPitch: 75 }, controller: { dragRotate: true, touchRotate: true, inertia: 250 },
       parameters: { clearColor: [0, 0, 0, 0] }, ...deckProps(),
     });
   }
@@ -1966,6 +2235,7 @@ function roadTip(tip, { r, i }, x, y) {
 function showTip({ object, x, y }) {
   const tip = $('tip');
   if (!object) { tip.hidden = true; return; }
+  if (object.survey) { floodSurveyTip(tip, object.survey, x, y); return; }
   if (object.r) { roadTip(tip, object, x, y); return; }
   if (object.bus) {
     const b = object.bus, hit = indexImpact(roadImpact())?.busHit.has(b.id);
@@ -2202,7 +2472,9 @@ function renderAnswer() {
 
 function setLens(lens) {
   ui.lens = lens;
-  history.replaceState(null, '', `#lens=${lens}`);
+  const viewParams = new URLSearchParams(location.hash.slice(1));
+  viewParams.set('lens', lens);
+  history.replaceState(null, '', `#${viewParams}`);
   document.querySelectorAll('.tab').forEach((t) => { t.setAttribute('aria-selected', String(t.dataset.lens === lens)); t.tabIndex = t.dataset.lens === lens ? 0 : -1; });
   renderStatus(); renderLegend(); renderDock(); render();
 }
@@ -2215,11 +2487,21 @@ function togglePanel(id, button, force) {
   if (id === 'p-info') renderInfo();
 }
 
+function isFloodRequest(text) {
+  return /\bflood(?:s|ing|ed)?\b|فيضان|فيضانات/i.test(text);
+}
 async function runScenario(text) {
+  if (isFloodRequest(text)) {
+    dropAt('flood');
+    $('progress').textContent = 'Flood simulation is not running. Load verified terrain, rainfall and drainage inputs in the Flooding panel first.';
+    return;
+  }
   ui.busy = true; syncPrompt();
+  const requestController = new AbortController();
+  const requestTimer = setTimeout(() => requestController.abort(), 60000);
   $('progress').textContent = 'The model drafts the scenario · the validator checks it · the engine forecasts…';
   try {
-    const res = await fetch('/v1/viewer/scenario', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, hour: ui.hour }) });
+    const res = await fetch('/v1/viewer/scenario', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, hour: ui.hour }), signal:requestController.signal });
     const body = await res.json();
     if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
     ui.scenario = { compilation: body.compilation, forecast: body.forecast, baseline: body.baseline, comparison: body.comparison, hazards: body.hazards ?? [] };
@@ -2266,8 +2548,9 @@ async function runScenario(text) {
       else focusOn(struck.length ? struck.flatMap((h) => h.ids) : body.compilation.scenario.interventions.flatMap((l) => l.object_ids));
     }
   } catch (err) {
-    $('progress').textContent = `Could not run scenario: ${err.message}`;
+    $('progress').textContent = err.name === 'AbortError' ? 'Scenario request timed out. No new result was applied. You can retry.' : `Could not run scenario: ${err.message}`;
   } finally {
+    clearTimeout(requestTimer);
     ui.busy = false; syncPrompt(); renderAll();
   }
 }
@@ -2304,6 +2587,7 @@ let drag = null, swallowClick = false;
 function startDrag(e) {
   const tile = e.target.closest('.tile');
   if (!tile || tile.disabled || e.button > 0) return;
+  if (tile.dataset.kind === 'flood') return;
   drag = { kind: tile.dataset.kind, x0: e.clientX, y0: e.clientY, moved: false };
   tile.setPointerCapture(e.pointerId);
   const ghost = $('ghost');
@@ -2325,6 +2609,11 @@ function startDrag(e) {
   tile.addEventListener('pointermove', move); tile.addEventListener('pointerup', end); tile.addEventListener('pointercancel', end);
 }
 function dropAt(kind, x, y) {
+  if (kind === 'flood') {
+    $('p-flood-playback').hidden = false;
+    togglePanel('tray', $('t-fx'), false);
+    return;
+  }
   const at = toLngLat(x, y);
   if (!at || ui.busy) return;
   if (pending?.steering) cancelSteer();
@@ -2339,7 +2628,7 @@ function dropAt(kind, x, y) {
     animate();
     return;
   }
-  runDrop({ kind, points: [at], severity: SEVERITIES[$('sev').value], ...(kind === 'flood' && { radius_m: Number($('reach').value) }) });
+  runDrop({ kind, points: [at], severity: SEVERITIES[$('sev').value] });
 }
 function steerStart(e) {
   if (!pending?.steering) return;
@@ -2562,7 +2851,268 @@ function wireUsability() {
   readSavedInputs();
 }
 
+// Actual ANUGA jobs and native-mesh result playback.
+let floodRun={job:null,geometry:null,frame:null,visible:true,poll:null,play:null,playVersion:0,frameRequest:0};
+function floodNativeLayers() {
+  if(!floodRun.visible||!floodRun.geometry||!floodRun.frame)return [];
+  const data=floodRun.frame.depth_m.map((depth,i)=>({polygon:floodRun.geometry.polygons[i],depth})).filter(d=>d.depth===null||d.depth>0);
+  const drape=photoreal()?{extensions:[new deck._TerrainExtension()]}:{};
+  return data.length?[new deck.SolidPolygonLayer({id:'flood-computed-depth',data,getPolygon:d=>d.polygon,
+    extruded:false,getFillColor:d=>d.depth===null?[140,146,155,150]:[32,160-Math.min(d.depth,1)*80,215,190],
+    pickable:false,parameters:ON_TOP,...drape})]:[];
+}
+async function floodRunRequest(url,options) {
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),options?.method==='POST'?60000:15000);
+  try {
+    const response=await fetch(url,{...options,signal:controller.signal}),value=await response.json();
+    if(!response.ok){const d=value.detail,error=new Error(typeof d==='string'?d:d?.issues?[d.message,...d.issues].join('\n'):JSON.stringify(d||value));error.status=response.status;throw error}
+    return value;
+  } catch(error) {
+    if(error.name==='AbortError')throw new Error('Flood service did not respond in time. Check that the local server is running, then retry. A timed-out request does not confirm a simulation started or stopped.');
+    if(error instanceof TypeError)throw new Error('Cannot reach the local flood server. Restart the local server and reload this page.');
+    throw error;
+  } finally {clearTimeout(timer)}
+}
+function pauseFloodNative() {floodRun.playVersion++;if(floodRun.play!==null)clearTimeout(floodRun.play);floodRun.play=null;$('flood-native-play').textContent='Play results'}
+function renderFloodJob(job) {
+  floodRun.job=job;
+  $('flood-run-start').disabled=job.status!=='ready';$('flood-run-load').disabled=job.status==='running';$('flood-run-cancel').hidden=job.status!=='running';
+  const progress=$('flood-run-progress');progress.hidden=job.status!=='running';
+  if(job.progress){progress.max=job.progress.total_frames;progress.value=job.progress.completed_frames}else progress.removeAttribute('value');
+  const message={ready:`Inputs checked: ${job.triangles} mesh cells, ${job.frames} output times. Ready to run ANUGA.`,
+    running:job.progress?`ANUGA running · simulated ${job.progress.simulation_time_s.toFixed(1)} of ${job.duration_s} seconds · output ${job.progress.completed_frames}/${job.frames}.`:'ANUGA starting…',
+    complete:'Calculation complete. Showing computed water depths.',failed:'Calculation failed. No new results accepted.',cancelled:'Calculation cancelled. No new results accepted.'};
+  $('flood-run-status').textContent=message[job.status]||job.status;
+  if(job.error)$('flood-run-error').textContent=job.error;
+}
+async function loadFloodNativeFrame(index) {
+  const request=++floodRun.frameRequest,jobId=floodRun.job.job_id;
+  const frame=await floodRunRequest(`/v1/flood/solver/jobs/${jobId}/frames/${index}`);
+  if(request!==floodRun.frameRequest||jobId!==floodRun.job?.job_id)return;
+  floodRun.frame=frame;$('flood-native-slider').value=index;
+  const values=frame.depth_m.filter(v=>v!==null);
+  $('flood-native-depth').textContent=values.length?`${Math.max(...values).toFixed(2)} m`:'Unknown';
+  $('flood-native-time').textContent=`${frame.time_s.toFixed(1)} s`;
+  $('flood-native-timestamp').textContent=`${floodRun.geometry.timestamps[index]} · stored surface water ${floodRun.geometry.volumes_m3[index].toFixed(1)} m³`;
+  render();
+}
+async function showFloodNativeResults() {
+  const jobId=floodRun.job.job_id,geometry=await floodRunRequest(`/v1/flood/solver/jobs/${jobId}/geometry`);
+  if(jobId!==floodRun.job?.job_id)return;
+  floodRun.geometry=geometry;floodRun.visible=true;$('flood-native-visible').checked=true;
+  pauseFloodPlayback();floodPlayback.visible=false;$('flood-map-visible').checked=false;
+  $('flood-native-slider').max=geometry.timestamps.length-1;
+  $('flood-native-note').textContent=`${geometry.engine} ${geometry.version} · ${floodRun.job.run_id}. ${geometry.scope} Numerical water balance residual: ${geometry.mass_residual_m3.toExponential(2)} m³. Depth is shown as color on native cells, with no vertical exaggeration or inferred absolute water elevation. Independent calibration is not established.`;
+  $('flood-native-controls').hidden=false;
+  const peakStorageFrame=geometry.volumes_m3.indexOf(Math.max(...geometry.volumes_m3));
+  await loadFloodNativeFrame(peakStorageFrame);if(jobId===floodRun.job?.job_id)focusPoints(geometry.polygons.flat());
+}
+async function pollFloodJob() {
+  floodRun.poll=null;
+  try {
+    const job=await floodRunRequest(`/v1/flood/solver/jobs/${floodRun.job.job_id}`);renderFloodJob(job);
+    if(job.status==='running')floodRun.poll=setTimeout(pollFloodJob,1000);
+    else if(job.status==='complete')await showFloodNativeResults();
+  }catch(error){$('flood-run-error').textContent=error.message;if(floodRun.job?.status==='running'){
+    if(error.status===404||error.status===503)renderFloodJob({...floodRun.job,status:'failed',error:'The run is no longer available in this server session.'});
+    else floodRun.poll=setTimeout(pollFloodJob,3000);
+  }}
+}
+async function toggleFloodNative() {
+  if(floodRun.play!==null){pauseFloodNative();return}
+  if(!floodRun.geometry)return;
+  const playVersion=++floodRun.playVersion;
+  const last=floodRun.geometry.timestamps.length-1;
+  if(floodRun.frame.index>=last)await loadFloodNativeFrame(0);
+  const step=async()=>{try{await loadFloodNativeFrame(floodRun.frame.index+1);if(playVersion!==floodRun.playVersion)return;if(floodRun.frame.index>=last){pauseFloodNative();return}floodRun.play=setTimeout(step,700)}catch(error){pauseFloodNative();$('flood-run-error').textContent=error.message}};
+  $('flood-native-play').textContent='Pause playback';floodRun.play=setTimeout(step,700);
+}
+async function wireFloodRun() {
+  $('flood-run-load').onclick=()=>$('flood-run-file').click();
+  $('flood-run-file').onchange=async event=>{
+    const file=event.target.files[0];if(!file)return;
+    $('flood-run-error').textContent='';$('flood-run-load').disabled=true;$('flood-run-start').disabled=true;
+    try {
+      if(file.size>50*1024*1024)throw new Error('Input package exceeds 50 MB.');
+      pauseFloodNative();floodRun.frameRequest++;floodRun.geometry=null;floodRun.frame=null;floodRun.job=null;
+      $('flood-native-controls').hidden=true;render();$('flood-run-status').textContent='Checking source files, geometry and storm inputs…';
+      const job=await floodRunRequest('/v1/flood/solver/packages',{method:'POST',headers:{'Content-Type':'application/zip'},body:file});
+      renderFloodJob(job);try{sessionStorage.setItem('dynacity-flood-job',job.job_id)}catch{}
+    }catch(error){$('flood-run-status').textContent='Input package was not accepted.';$('flood-run-error').textContent=error.message}
+    finally{$('flood-run-load').disabled=false;event.target.value=''}
+  };
+  $('flood-run-start').onclick=async()=>{
+    if(!floodRun.job)return;$('flood-run-start').disabled=true;$('flood-run-error').textContent='';
+    try{renderFloodJob(await floodRunRequest(`/v1/flood/solver/jobs/${floodRun.job.job_id}/start`,{method:'POST'}));await pollFloodJob()}
+    catch(error){$('flood-run-error').textContent=error.message;renderFloodJob(floodRun.job)}
+  };
+  $('flood-run-cancel').onclick=async()=>{try{if(floodRun.poll!==null)clearTimeout(floodRun.poll);const job=await floodRunRequest(`/v1/flood/solver/jobs/${floodRun.job.job_id}/cancel`,{method:'POST'});renderFloodJob(job);if(job.status==='complete')await showFloodNativeResults()}catch(error){$('flood-run-error').textContent=error.message;if(floodRun.job?.status==='running')floodRun.poll=setTimeout(pollFloodJob,3000)}};
+  $('flood-native-slider').oninput=async event=>{pauseFloodNative();try{await loadFloodNativeFrame(Number(event.target.value))}catch(error){$('flood-run-error').textContent=error.message}};
+  $('flood-native-play').onclick=()=>toggleFloodNative().catch(error=>{$('flood-run-error').textContent=error.message});
+  $('flood-native-focus').onclick=()=>{if(floodRun.geometry)focusPoints(floodRun.geometry.polygons.flat())};
+  $('flood-native-visible').onchange=e=>{floodRun.visible=e.target.checked;render()};
+  if(!DATA.api){$('flood-run-status').textContent='Open the local city server to run the hydraulic engine.';$('flood-run-load').disabled=true;return}
+  try {
+    const info=await floodRunRequest('/v1/flood/solver/inputs');
+    $('flood-run-status').textContent=info.execution_enabled?'Load a documented input package to check it, then select Run flood. No Beirut simulation package is supplied.':'Run storage is not enabled for this server.';
+    $('flood-run-load').disabled=!info.execution_enabled;
+    const box=$('flood-run-requirements');box.replaceChildren();
+    const gaps=Object.entries(info.missing_inputs),required=['terrain','mesh','roughness','initial_conditions','rainfall','infiltration','drainage_exchange','boundaries','structures'];
+    (gaps.length?gaps:required.map(name=>[name,'required in input package'])).forEach(([name,status])=>{const p=document.createElement('p');p.textContent=`${name.replaceAll('_',' ')}: ${status.replaceAll('_',' ')}`;box.append(p)});
+    let saved;try{saved=sessionStorage.getItem('dynacity-flood-job')}catch{}
+    if(saved&&info.execution_enabled){try{const job=await floodRunRequest(`/v1/flood/solver/jobs/${saved}`);renderFloodJob(job);if(job.status==='running')await pollFloodJob();else if(job.status==='complete')await showFloodNativeResults()}catch{try{sessionStorage.removeItem('dynacity-flood-job')}catch{}}}
+  }catch(error){$('flood-run-status').textContent='Flood execution service is unavailable.';$('flood-run-error').textContent=error.message;$('flood-run-load').disabled=true}
+}
+
+// Historical survey context stays independent of simulated water and road closures.
+let floodSurvey = { data:null, visible:false, neighborhood:'', condition:'', ponding:true };
+const FLOOD_SURVEY_COLORS = {blocked:[198,83,71,240],functional:[41,131,111,240],no_drains:[177,134,58,240],unknown:[133,141,152,240],ponding:[82,97,187,240]};
+const FLOOD_SURVEY_LABELS = {blocked:'Blocked drains',functional:'Functional drains',no_drains:'No drains',unknown:'Condition unknown',ponding:'Recorded water ponding'};
+function floodSurveyRows() {
+  if(!floodSurvey.data)return {streets:[],points:[]};
+  const neighborhood=r=>!floodSurvey.neighborhood||r.neighborhood===floodSurvey.neighborhood;
+  return {streets:floodSurvey.data.streets.filter(r=>neighborhood(r)&&(!floodSurvey.condition||r.condition===floodSurvey.condition)),
+    points:floodSurvey.ponding?floodSurvey.data.points.filter(neighborhood):[]};
+}
+function floodSurveyLayers() {
+  if(!floodSurvey.visible||!floodSurvey.data)return [];
+  const rows=floodSurveyRows(),drape=photoreal()?{extensions:[new deck._TerrainExtension()]}:{};
+  const out=[];
+  if(rows.streets.length)out.push(new deck.PathLayer({id:'flood-survey-streets',
+    data:rows.streets.flatMap(survey=>survey.paths.map(path=>({survey,path}))),getPath:d=>d.path,
+    getColor:d=>FLOOD_SURVEY_COLORS[d.survey.condition]||FLOOD_SURVEY_COLORS.unknown,
+    getWidth:4,widthUnits:'pixels',pickable:true,parameters:ON_TOP,...drape}));
+  if(rows.points.length)out.push(new deck.ScatterplotLayer({id:'flood-survey-ponding',
+    data:rows.points.map(survey=>({survey})),getPosition:d=>d.survey.position,
+    getFillColor:FLOOD_SURVEY_COLORS.ponding,getRadius:5,radiusUnits:'pixels',stroked:true,
+    getLineColor:[255,255,255,240],getLineWidth:1,lineWidthUnits:'pixels',pickable:true,parameters:ON_TOP,...drape}));
+  return out;
+}
+function floodSurveyTip(tip, record, x, y) {
+  const lines=[FLOOD_SURVEY_LABELS[record.condition]||'Survey observation',
+    record.neighborhood||'Neighborhood unavailable',`Survey year: ${record.survey_year||'unavailable'}`,
+    ...(record.road_id?[`Source road ID: ${record.road_id}`]:[]),
+    ...(record.source_condition?[`Source condition: ${record.source_condition}`]:[]),
+    'UN-Habitat neighborhood survey · historical record',
+    record.condition==='ponding'?'No event date or measured flood depth supplied.':'Street observation; individual drain position and capacity unavailable.'];
+  tip.replaceChildren();lines.forEach((text,i)=>{const line=document.createElement('div');line.className=i?'s':'h';line.textContent=text;tip.append(line)});
+  tip.hidden=false;tip.style.left=`${Math.min(x+16,innerWidth-tip.offsetWidth-10)}px`;tip.style.top=`${Math.min(y+16,innerHeight-tip.offsetHeight-10)}px`;
+}
+function updateFloodSurvey() {
+  const rows=floodSurveyRows(),counts={};rows.streets.forEach(r=>{counts[r.condition]=(counts[r.condition]||0)+1});
+  $('flood-survey-counts').textContent=`${rows.streets.length} street records · ${rows.points.length} independent ponding points. `+
+    Object.entries(counts).map(([kind,n])=>`${n} ${FLOOD_SURVEY_LABELS[kind]?.toLowerCase()||kind}`).join(' · ');
+  $('attrib').textContent=attribution();render();
+}
+async function loadFloodSurvey() {
+  try {
+    const response=await fetch('/v1/flood/context');
+    if(!response.ok)throw new Error('Survey service unavailable; restart with --flood-context to load the verified package.');
+    const value=await response.json();
+    if(value.status!=='available'){$('flood-survey-status').textContent=value.reason;return}
+    floodSurvey.data=value;
+    $('flood-survey-status').textContent=`UN-Habitat survey records · ${value.survey_years.join(', ')||'dates unavailable'}. Historical coverage of ${value.neighborhoods.length} neighborhoods; not a current drainage inventory.`;
+    const select=$('flood-survey-neighborhood');
+    value.neighborhoods.forEach(name=>{const option=document.createElement('option');option.value=name;option.textContent=name;select.append(option)});
+    const sourceBox=$('flood-survey-sources');sourceBox.replaceChildren();
+    value.sources.forEach(source=>{const p=document.createElement('p'),link=document.createElement('a');link.href=source.url;link.target='_blank';link.rel='noopener noreferrer';link.textContent=source.id==='ponding'?'Ponding source layer':'Street-condition source layer';p.append(link);const note=document.createElement('span');note.textContent=` · Retrieved ${source.retrieved_utc?new Date(source.retrieved_utc).toISOString().slice(0,10):'date unavailable'}. Reuse terms ${source.reuse_license||'unverified; local research only'}.`;p.append(note);sourceBox.append(p)});
+    const inputBox=$('flood-survey-inputs');inputBox.replaceChildren();
+    Object.entries(value.model_inputs).forEach(([name,status])=>{const p=document.createElement('p');p.textContent=`${name.replaceAll('_',' ')}: ${status.replaceAll('_',' ')}`;inputBox.append(p)});
+    $('flood-survey-controls').hidden=false;updateFloodSurvey();
+  } catch(error){$('flood-survey-status').textContent=error.message}
+}
+function wireFloodSurvey() {
+  $('flood-survey-visible').onchange=e=>{floodSurvey.visible=e.target.checked;$('attrib').textContent=attribution();render()};
+  $('flood-survey-neighborhood').onchange=e=>{floodSurvey.neighborhood=e.target.value;updateFloodSurvey()};
+  $('flood-survey-condition').onchange=e=>{floodSurvey.condition=e.target.value;updateFloodSurvey()};
+  $('flood-survey-ponding').onchange=e=>{floodSurvey.ponding=e.target.checked;updateFloodSurvey()};
+  $('flood-survey-focus').onclick=()=>{const rows=floodSurveyRows(),points=[...rows.points.map(r=>r.position),...rows.streets.flatMap(r=>r.paths.flat())];if(points.length){floodSurvey.visible=true;$('flood-survey-visible').checked=true;$('attrib').textContent=attribution();render();focusPoints(points)}};
+  if(DATA.api)loadFloodSurvey();
+}
+
+// Timestamped model outputs: discrete playback, no inferred flow/velocity.
+let floodPlayback = { bundle:null, geometry:null, summary:null, scenario:0, frame:0, visible:false, timer:null };
+function floodPlaybackRows() {
+  if (!floodPlayback.bundle || !floodPlayback.visible) return [];
+  const frame = floodPlayback.bundle.scenarios[floodPlayback.scenario].frames[floodPlayback.frame];
+  return frame.depth_m.map((depth,i)=>({polygon:floodPlayback.geometry.polygons[i],depth})).filter(d=>d.depth===null || d.depth>0);
+}
+function floodPlaybackLayers() {
+  // Absolute terrain altitude is not supplied for Google's real mesh.
+  if (photoreal()) return [];
+  const data = floodPlaybackRows();
+  return data.length ? [new deck.SolidPolygonLayer({id:'flood-model-output',data,
+    getPolygon:d=>d.polygon,extruded:true,getElevation:d=>d.depth===null?0:d.depth,
+    getFillColor:d=>d.depth===null?[145,151,158,150]:[32,137-Math.min(d.depth,1)*45,195,185],
+    pickable:false,material:false})] : [];
+}
+function pauseFloodPlayback() {
+  if(floodPlayback.timer!==null)clearInterval(floodPlayback.timer);
+  floodPlayback.timer=null;$('flood-map-play').textContent=floodPlayback.bundle && floodPlayback.frame===floodPlayback.bundle.scenarios[0].frames.length-1?'↻ Replay':'▶ Play';
+}
+function renderFloodPlayback() {
+  if(!floodPlayback.bundle)return;
+  const scenario=floodPlayback.bundle.scenarios[floodPlayback.scenario],frame=scenario.frames[floodPlayback.frame];
+  $('flood-map-timestamp').textContent=new Date(frame.timestamp).toISOString();
+  $('flood-map-time').value=floodPlayback.frame;
+  const elapsed=(Date.parse(frame.timestamp)-Date.parse(scenario.frames[0].timestamp))/60000;
+  const duration=(Date.parse(scenario.frames.at(-1).timestamp)-Date.parse(scenario.frames[0].timestamp))/60000;
+  $('flood-elapsed').textContent=`${Math.round(elapsed*10)/10} min`;
+  $('flood-duration').textContent=`${Math.round(duration*10)/10} min`;
+  $('flood-map-time').setAttribute('aria-valuetext',`${Math.round(elapsed*10)/10} minutes into the event`);
+  document.querySelectorAll('[data-flood-case]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.floodCase===scenario.kind)));
+  $('flood-case-description').textContent=`${scenario.label} · same rainfall.`;
+  const valid=frame.depth_m.filter(d=>d!==null),speeds=frame.velocity_m_s?.filter(v=>v!==null);
+  $('flood-depth-value').textContent=valid.length?`${Math.round(Math.max(...valid)*100)} cm`:'Unknown';
+  $('flood-map-metrics').textContent=`Current peak: ${valid.length?Math.max(...valid).toFixed(2)+' m':'unavailable'} · Velocity: ${speeds?.length?Math.max(...speeds).toFixed(2)+' m/s':'unavailable'} · ${frame.depth_m.length-valid.length} missing cells. Output interval ${frame.duration_s} s.`;
+  render();
+}
+async function loadFloodPlayback(bundle) {
+  const result=await floodRunRequest('/v1/flood/pilot/map',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bundle)});
+  pauseFloodNative();floodRun.visible=false;$('flood-native-visible').checked=false;$('flood-map-status').hidden=false;
+  $('flood-map-error').textContent='';
+  pauseFloodPlayback();floodPlayback={...floodPlayback,bundle:result.bundle,geometry:result.map,summary:result.summary,scenario:0,frame:0,visible:true};
+  $('flood-map-welcome').hidden=true;
+  $('flood-map-time').max=result.bundle.scenarios[0].frames.length-1;$('flood-map-visible').checked=true;$('flood-map-controls').hidden=false;
+  $('flood-map-status').textContent=('Imported model results · not independently validated. ')+(photoreal()?'Depth display unavailable on photorealistic mesh without matched ground elevations. ':'')+'';
+  renderFloodPlayback();focusPoints(result.map.polygons.flat());
+}
+function toggleFloodPlayback() {
+  if(floodPlayback.timer!==null){pauseFloodPlayback();return}
+  if(!floodPlayback.bundle)return;
+  if(floodPlayback.frame>=floodPlayback.bundle.scenarios[0].frames.length-1)floodPlayback.frame=0;
+  renderFloodPlayback();$('flood-map-play').textContent='Ⅱ Pause';
+  floodPlayback.timer=setInterval(()=>{
+    const last=floodPlayback.bundle.scenarios[0].frames.length-1;
+    if(floodPlayback.frame>=last){pauseFloodPlayback();return}
+    floodPlayback.frame++;renderFloodPlayback();if(floodPlayback.frame===last)pauseFloodPlayback();
+  },900);
+}
+function wireFloodWorkspace() {
+  wireFloodRun();
+  wireFloodSurvey();
+  const dialog=$('flood-workspace'),frame=$('flood-frame');
+  const openPlanning=()=>{if(!frame.getAttribute('src'))frame.src=frame.dataset.src;dialog.showModal()};
+  $('close-flood-playback').onclick=()=>{pauseFloodPlayback();pauseFloodNative();$('p-flood-playback').hidden=true;togglePanel('tray',$('t-fx'),true)};
+  $('flood-map-planning').onclick=openPlanning;$('close-flood-pilot').onclick=()=>dialog.close();
+  addEventListener('message',event=>{if(event.origin===location.origin&&event.source===frame.contentWindow&&event.data?.type==='dynacity-close-flood')dialog.close()});
+  const failed=error=>{$('flood-map-error').textContent=`Load failed: ${error.message}. ${floodPlayback.bundle?'Previous '+floodPlayback.bundle.evidence+' outputs remain loaded.':'No simulation outputs loaded.'}`};
+  $('flood-map-import').onclick=()=>$('flood-map-file').click();
+  $('flood-map-file').onchange=async event=>{try{const file=event.target.files[0];if(!file)return;if(file.size>15000000)throw new Error('Output bundle exceeds 15 MB');await loadFloodPlayback(JSON.parse(await file.text()))}catch(e){failed(e)}finally{event.target.value=''}};
+  document.querySelectorAll('[data-flood-case]').forEach(button=>button.onclick=()=>{if(!floodPlayback.bundle)return;pauseFloodPlayback();floodPlayback.scenario=floodPlayback.bundle.scenarios.findIndex(s=>s.kind===button.dataset.floodCase);renderFloodPlayback()});
+  $('flood-map-time').oninput=()=>{pauseFloodPlayback();floodPlayback.frame=Number($('flood-map-time').value);renderFloodPlayback()};
+  $('flood-map-visible').onchange=()=>{floodPlayback.visible=$('flood-map-visible').checked;render()};
+  $('flood-map-focus').onclick=()=>{if(floodPlayback.geometry)focusPoints(floodPlayback.geometry.polygons.flat())};
+  $('flood-map-play').onclick=toggleFloodPlayback;
+  if(DATA.api)floodRunRequest('/v1/flood/pilot').then(value=>{
+    if(value.bundle)return loadFloodPlayback(value.bundle);
+    $('flood-map-status').textContent='No flood simulation results are loaded. Verified terrain, storm and drainage inputs are required before running.';
+  }).catch(failed);
+}
+
 function wire() {
+  wireFloodWorkspace();
   wireUsability();
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => setLens(t.dataset.lens)));
   const tabs = [...document.querySelectorAll('.tab')];
@@ -2604,16 +3154,14 @@ function wire() {
   });
   $('p-traffic').addEventListener('toggle', (e) => { if (e.target.matches('[data-stations]')) ui.stationsOpen = e.target.open; }, true);
   $('p-traffic').addEventListener('mouseleave', () => { if (ui.roadHighlight) { ui.roadHighlight = null; render(); } });
-  $('tiles').innerHTML = HAZARDS.map((h) => `<button class="tile" type="button" data-kind="${h.kind}" title="${h.label}: drag onto the city (or press to drop it mid-view)">${hazardIcon(h.kind)}<span>${h.label}</span></button>`).join('');
+  $('tiles').innerHTML = HAZARDS.map((h) => `<button class="tile" type="button" data-kind="${h.kind}" title="${h.kind==='flood'?'Open recorded street conditions and documented flood outputs':h.label+': drag onto the city (or press to drop it mid-view)'}">${hazardIcon(h.kind)}<span>${h.label}</span></button>`).join('');
   $('tiles').addEventListener('pointerdown', startDrag);
   $('tiles').addEventListener('click', (e) => {
     const tile = e.target.closest('.tile');
     if (swallowClick) { swallowClick = false; return; }
-    if (tile && !tile.disabled) dropAt(tile.dataset.kind, innerWidth / 2, innerHeight / 2);
-  });
-  $('reach').addEventListener('input', (e) => {
-    const label = metres(Number(e.target.value));
-    $('reach-label').textContent = label; e.target.setAttribute('aria-valuetext', label);
+    if (tile && !tile.disabled) {
+      dropAt(tile.dataset.kind, innerWidth / 2, innerHeight / 2);
+    }
   });
   $('sev').addEventListener('input', (e) => {
     const label = cap(SEVERITIES[e.target.value]);
@@ -2693,7 +3241,7 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
   // Dropping disasters needs the server; the tray opens on demand.
   $('t-fx').hidden = !DATA.api;
   $('t-traffic').hidden = !DATA.traffic;
-  wire(); syncPrompt(); initScene(); renderAll();
+  wire(); syncPrompt(); initScene(); renderAll(); wirePointCloud();
   const hashLens = new URLSearchParams(location.hash.slice(1)).get('lens');
   const tab = hashLens && document.querySelector(`.tab[data-lens="${CSS.escape(hashLens)}"]:not([hidden])`);
   setLens(tab ? hashLens : ui.lens);

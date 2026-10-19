@@ -21,7 +21,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .contracts import HazardEvent
-from .traffic import TrafficModel, RoadDisruption, background_flow, lanes_of
+from .traffic import TrafficModel, RoadDisruption, background_flow, lane_counts, LANE_WIDTH_M
 from .viewer import _utm_zone, utm_to_lonlat
 
 ASSUMPTIONS = (
@@ -58,7 +58,7 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, hour: 
     for node, (x, y) in coordinates.items():
         ET.SubElement(nodes, 'node', id=str(node), x=str(x), y=str(y),
                       type='traffic_light' if degree[node] >= 4 else 'priority')
-    lanes = lanes_of(model)
+    lanes = lane_counts(model)
     for i, points in enumerate(model.geometry):
         for direction in (1, -1):
             if model.oneway[i] == -direction:
@@ -67,10 +67,13 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, hour: 
             ET.SubElement(edges, 'edge', id=f'{i}:{direction}',
                           **{'from': str(int(model.u[i] if direction == 1 else model.v[i])),
                              'to': str(int(model.v[i] if direction == 1 else model.u[i]))},
-                          numLanes=str(max(1, round(float(lanes[i])))),
+                          numLanes=str(int(lanes[i])), width=str(LANE_WIDTH_M),
                           speed=str(max(1, float(model.free_kmh[i] if hour is None else model.speed_kmh[i, hour]) / 3.6)),
                           shape=' '.join(f'{x},{y}' for x, y in shape), allow='passenger',
-                          spreadType='right')
+                          # An undivided two-way way describes the shared centre
+                          # line: each direction belongs on its right. A one-way
+                          # way already describes its whole carriageway centre.
+                          spreadType='right' if model.oneway[i] == 0 else 'center')
     for name, root in (('nodes', nodes), ('edges', edges)):
         ET.ElementTree(root).write(directory / f'{name}.xml')
     net = directory / 'network.net.xml'

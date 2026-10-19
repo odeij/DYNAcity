@@ -186,7 +186,8 @@ def test_impact_counts_cut_off_and_delayed_trips(model):
 def test_payload_is_aggregate_and_in_lonlat(model):
     payload = traffic_payload(model)
     road = payload["roads"][0]
-    assert set(road) == {"path", "len", "cls", "oneway", "u", "v", "speed", "free", "n", "est", "name", "lanes", "qf"}
+    assert set(road) == {"path", "len", "cls", "oneway", "u", "v", "speed", "free", "n", "est", "name", "lanes", "width_m", "qf"}
+    assert road["width_m"] > 0
     assert (road["u"], road["v"]) == (int(model.u[0]), int(model.v[0]))
     assert len(road["speed"]) == 24
     lon, lat = road["path"][0]
@@ -194,7 +195,7 @@ def test_payload_is_aggregate_and_in_lonlat(model):
     assert "Tari'ak" in payload["source"]
 
 
-def test_dropped_hazard_reports_road_impact(model):
+def test_illustrative_flood_drop_cannot_invent_road_closures(model):
     located = snapshot()
     client = TestClient(create_app(engine_fixture(), viewer_snapshot=located, viewer_traffic=model))
     lon, lat = utm_to_lonlat(X0 + 100, Y0, 36, True)
@@ -202,10 +203,8 @@ def test_dropped_hazard_reports_road_impact(model):
         "hazards": [{"kind": "flood", "points": [[lon, lat]], "severity": "severe", "radius_m": 150}],
         "hour": 3,
     })
-    assert response.status_code == 200
-    traffic = response.json()["traffic"]
-    assert traffic["hour"] == 3 and traffic["closed_roads"] > 0
-    assert traffic["closed_by"]["water"] == traffic["closed_roads"]
+    assert response.status_code == 422
+    assert "documented hydraulic" in response.json()["detail"]
 
 
 def test_dropped_hazard_without_traffic_has_none():

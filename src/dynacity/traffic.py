@@ -84,6 +84,8 @@ ROAD_CLASSES: dict[str, float] = {
 }
 # A way needs this many readings in an hour before its own median is used.
 MIN_READINGS = 10
+# Shared by the SUMO exporter and the viewer's carriageway width.
+LANE_WIDTH_M = 3.2
 # Readings below this are phones standing still (parked, or the app left on
 # indoors): at 4 a.m. they would drag an empty road's median to zero. Slow
 # traffic still counts, so congestion shows. Readings above the cap are GPS noise.
@@ -637,6 +639,19 @@ def lanes_of(model: TrafficModel) -> np.ndarray:
     return np.where(tagged > 0, tagged, default)
 
 
+def lane_counts(model: TrafficModel) -> np.ndarray:
+    """The integer lane counts actually exported to the simulator."""
+
+    return np.maximum(1, np.rint(lanes_of(model))).astype(np.int64)
+
+
+def road_widths(model: TrafficModel) -> np.ndarray:
+    """Full carriageway around the OSM centreline, in metres."""
+
+    directions = np.where(model.oneway == 0, 2, 1)
+    return lane_counts(model) * directions * LANE_WIDTH_M
+
+
 def capacity_of(model: TrafficModel) -> np.ndarray:
     """Vehicles per hour per direction each road can carry (lanes × an assumed per-lane capacity)."""
 
@@ -1171,6 +1186,7 @@ def traffic_payload(model: TrafficModel) -> dict[str, Any]:
 
     zone, north = _utm_zone(model.crs)
     lanes = lanes_of(model)
+    widths = road_widths(model)
     factor = lane_factor(model)
     roads = []
     for i, line in enumerate(model.geometry):
@@ -1186,6 +1202,7 @@ def traffic_payload(model: TrafficModel) -> dict[str, Any]:
             "est": bool(model.estimated[i]),
             "name": model.name[i] if model.name else "",
             "lanes": float(lanes[i]),
+            "width_m": float(widths[i]),
             # Multiplier on the class flow for this road's lanes (counted classes).
             "qf": round(float(factor[i]), 2),
         })

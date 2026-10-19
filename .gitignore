@@ -19,11 +19,19 @@ models/
 *.joblib
 
 # Local presentation decks, inspection dumps, and rendered slide exports.
+/outputs/
+/tmp/
+*.ppt
 *.pptx
+*.pptm
+*.key
 *.pptx.inspect.ndjson
 DynaCITY-T5.1-Data-Acquisition-and-Results/
 
 # Local configuration and secrets.
 .env
+.env.*
+!.env.example
+!.env.sample
 config.local.json
 

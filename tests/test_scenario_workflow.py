@@ -13,6 +13,20 @@ from test_models_engine_api import engine_fixture
 from test_scenario_compiler import REQUEST, FakeClient, draft, snapshot
 
 
+@pytest.mark.parametrize('text',['run flood','simulate flooding here','flood this area','فيضان'])
+def test_flood_prompt_refused_before_model_or_budget_spend(text):
+    from dynacity.limits import RequestBudget
+    budget=RequestBudget(total=1)
+    class NeverCall:
+        def draft(self,*args,**kwargs):raise AssertionError('Flood must not call the language model')
+    client=TestClient(create_app(engine_fixture(),viewer_snapshot=snapshot(),
+                                 scenario_provider=NeverCall(),llm_budget=budget))
+    response=client.post('/v1/viewer/scenario',json={'text':text})
+    assert response.status_code==422
+    assert 'Flood simulation is not running' in response.json()['detail']
+    assert budget.take() is None
+
+
 def test_compile_forecast_compare_matches_all_rollout_settings():
     engine = engine_fixture()
     city = snapshot()

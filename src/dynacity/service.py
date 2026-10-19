@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Any, Literal
+import re
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, Response
@@ -22,6 +23,10 @@ from .contracts import ForecastRequest, ForecastResult, HazardEvent, HazardKind,
 from .comparison import compare_forecast
 from .engine import ForecastEngine
 from .hazards import PROFILES
+from .flood_pilot import (
+    PilotBundle, PlanningRunBundle, summarize_pilot, require_documented_pilot,
+    evaluate_planning_bundle, evaluate_observation_payload, pilot_map_geometry,
+)
 from .evidence import EvidenceBundle, verify_bundle
 from .google_tiles import GoogleTilesProxy, TilesError
 from .limits import RequestBudget
@@ -105,6 +110,10 @@ def create_app(
     llm_budget: RequestBudget | None = None,
     tiles_proxy: GoogleTilesProxy | None = None,
     viewer_traffic: TrafficModel | None = None,
+    flood_pilot: PilotBundle | None = None,
+    flood_context: dict | None = None,
+    flood_jobs: Any | None = None,
+    point_cloud: Any | None = None,
 ) -> FastAPI:
     def spend_llm_call() -> None:
         # Checked before any model call; a refused request costs nothing.
@@ -161,6 +170,137 @@ def create_app(
             "assumption-based and are not causal recommendations."
         ),
     )
+
+    @app.get("/flood", response_class=HTMLResponse, include_in_schema=False)
+    def flood_page() -> str:
+        from importlib.resources import files
+        return files("dynacity").joinpath("flood_pilot_template.html").read_text(encoding="utf-8")
+
+    def pilot_response(bundle: PilotBundle) -> dict:
+        try:
+            require_documented_pilot(bundle)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"bundle": bundle.model_dump(mode="json"), "summary": summarize_pilot(bundle)}
+
+    @app.get("/v1/flood/pilot")
+    def flood_status() -> dict:
+        if flood_pilot is None:
+            return {"status": "unavailable", "mode": "model_output_pilot", "bundle": None,
+                    "reason": "No documented neighborhood comparison outputs loaded."}
+        return pilot_response(flood_pilot)
+
+    @app.get("/v1/flood/context")
+    def flood_survey_context(request: Request) -> dict:
+        if flood_context is None:
+            return {"status": "unavailable", "mode": "survey_context", "simulation_ready": False,
+                    "reason": "No verified survey package configured. Load it with serve --flood-context."}
+        if request.client is None or request.client.host not in {"127.0.0.1", "::1", "testclient"}:
+            raise HTTPException(status_code=403, detail="Survey package is configured for local research only.")
+        return flood_context
+
+    @app.post("/v1/flood/validation")
+    def flood_validation(payload: dict) -> dict:
+        try:
+            return evaluate_observation_payload(payload)
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/flood/planning/compare")
+    def flood_planning_compare(bundle: PlanningRunBundle) -> dict:
+        try:
+            return evaluate_planning_bundle(bundle)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/v1/flood/runtime")
+    def flood_runtime() -> dict:
+        from .flood_surface import solver_runtime_status
+        from .flood_drainage import detect_swmm
+        return {"surface": solver_runtime_status(), "drainage": {"available": detect_swmm() is not None},
+                "coupling": {"available": False, "reason": "Surveyed inlet geometry and a surface coupling runner are unavailable."}}
+
+    def local_flood_jobs(request: Request):
+        if request.client is None or request.client.host not in {"127.0.0.1", "::1", "testclient"}:
+            raise HTTPException(status_code=403, detail="Flood execution is available only in the local session.")
+        if flood_jobs is None:
+            raise HTTPException(status_code=503, detail="Flood execution storage is not configured for this server.")
+        return flood_jobs
+
+    @app.get("/v1/flood/solver/inputs")
+    def flood_input_status() -> dict:
+        from .flood_solver import RunManifest
+        from .flood_coupling import runtime_status
+        return {"execution_enabled": flood_jobs is not None, "package_loaded": False,
+                "dynamic_drainage":runtime_status(),
+                "schema": RunManifest.model_json_schema(),
+                "missing_inputs": (flood_context or {}).get("model_inputs", {}),
+                "description": "ZIP containing manifest.json, numerical mesh/forcing arrays and all referenced source files. No physical values are supplied automatically."}
+
+    @app.post("/v1/flood/solver/packages")
+    async def flood_package(request: Request) -> dict:
+        from .flood_jobs import MAX_UPLOAD_BYTES
+        jobs = local_flood_jobs(request)
+        payload = bytearray()
+        async for chunk in request.stream():
+            payload.extend(chunk)
+            if len(payload) > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="Input package exceeds 50 MB.")
+        from starlette.concurrency import run_in_threadpool
+        try:
+            return await run_in_threadpool(jobs.prepare, bytes(payload))
+        except Exception as exc:
+            import zipfile
+            if isinstance(exc, ValidationError):
+                messages = [f"{'.'.join(map(str,e['loc']))}: {e['msg']}" for e in exc.errors()]
+                raise HTTPException(status_code=422, detail={"message":"Input manifest is incomplete or invalid.", "issues":messages}) from exc
+            if isinstance(exc, (ValueError, KeyError, OSError, zipfile.BadZipFile, ImportError, RuntimeError)):
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise
+
+    def flood_job_call(request: Request, method: str, job_id: str, *args):
+        jobs = local_flood_jobs(request)
+        try:
+            return getattr(jobs, method)(job_id, *args)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Flood run not found in this session.") from exc
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/v1/flood/solver/jobs/{job_id}/start")
+    def flood_start(job_id: str, request: Request):
+        return flood_job_call(request, "start", job_id)
+
+    @app.get("/v1/flood/solver/jobs/{job_id}")
+    def flood_job_status(job_id: str, request: Request):
+        return flood_job_call(request, "status", job_id)
+
+    @app.post("/v1/flood/solver/jobs/{job_id}/cancel")
+    def flood_cancel(job_id: str, request: Request):
+        return flood_job_call(request, "cancel", job_id)
+
+    @app.get("/v1/flood/solver/jobs/{job_id}/geometry")
+    def flood_geometry(job_id: str, request: Request):
+        return flood_job_call(request, "geometry", job_id)
+
+    @app.get("/v1/flood/solver/jobs/{job_id}/frames/{index}")
+    def flood_frame(job_id: str, index: int, request: Request):
+        return flood_job_call(request, "frame", job_id, index)
+
+    if flood_jobs is not None:
+        app.router.add_event_handler("shutdown", flood_jobs.close)
+
+    @app.get("/v1/flood/pilot/demo")
+    def flood_demo() -> dict:
+        raise HTTPException(status_code=410, detail="Invented flood demos are disabled. Documented real inputs required.")
+
+    @app.post("/v1/flood/pilot/map")
+    def flood_map(bundle: PilotBundle) -> dict:
+        return {**pilot_response(bundle), "map": pilot_map_geometry(bundle)}
+
+    @app.post("/v1/flood/pilot/compare")
+    def flood_compare(bundle: PilotBundle) -> dict:
+        return pilot_response(bundle)
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -225,6 +365,18 @@ def create_app(
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         return result.model_dump(mode="json")
 
+    @app.get("/v1/point-cloud")
+    def point_cloud_metadata():
+        return {"available": point_cloud is not None,
+                "metadata": point_cloud.metadata if point_cloud is not None else None}
+
+    @app.get("/v1/point-cloud/{buffer}")
+    def point_cloud_buffer(buffer: str):
+        if point_cloud is None or buffer not in {"positions", "colors"}:
+            raise HTTPException(status_code=404, detail="Point-cloud buffer unavailable")
+        return Response(content=getattr(point_cloud, buffer), media_type="application/octet-stream",
+                        headers={"Cache-Control": "private, no-store"})
+
     # Viewer mode: the 3D page is served from the same origin as the API, and
     # scenarios run against the snapshot held here. The browser only ever sends
     # prose, so per-object features never round-trip through the page.
@@ -236,6 +388,8 @@ def create_app(
     if viewer_snapshot is not None:
         @app.post("/v1/viewer/scenario")
         def viewer_scenario(request: ViewerScenarioRequest) -> dict:
+            if re.search(r'\bflood(?:s|ing|ed)?\b|فيضان|فيضانات',request.text,re.IGNORECASE):
+                raise HTTPException(status_code=422,detail='Flood simulation is not running. Use the Flooding panel with a documented terrain, storm and drainage input package. Scenario prompts cannot supply missing hydraulic inputs.')
             spend_llm_call()
             try:
                 compilation = compile_scenario(
@@ -251,6 +405,8 @@ def create_app(
             hazards: list[dict] = []
             traffic = None
             if compilation.scenario is not None:
+                if any(h.kind is HazardKind.FLOOD for h in compilation.scenario.hazards):
+                    raise HTTPException(status_code=422, detail="Illustrative flood calculations are disabled; documented hydraulic outputs are required.")
                 try:
                     compared = compare_forecast(engine, ForecastRequest(
                         snapshot=viewer_snapshot, scenario=compilation.scenario, draws=viewer_draws
@@ -270,6 +426,7 @@ def create_app(
                 "compilation": compilation.model_dump(mode="json"), "forecast": forecast, "hazards": hazards,
                 "baseline": baseline, "comparison": comparison,
                 "traffic": traffic,
+                "flood_mode": "legacy_illustrative_water_level",
                 # Road indices the typed closures and crashes landed on, for the page's road tools.
                 "road_events": {"closed": closed, "crashes": crashes},
             }
@@ -283,6 +440,8 @@ def create_app(
 
         @app.post("/v1/viewer/hazard")
         def viewer_hazard(request: ViewerHazardRequest) -> dict:
+            if any(drop.kind is HazardKind.FLOOD for drop in request.hazards):
+                raise HTTPException(status_code=422, detail="Illustrative flood drops are disabled; use documented hydraulic outputs.")
             if not located:
                 raise HTTPException(
                     status_code=422,
@@ -319,6 +478,7 @@ def create_app(
                 "baseline": forecast_summary(compared["baseline"]),
                 "comparison": compared["comparison"],
                 "hazards": hazard_focus(hazards, viewer_snapshot, ground=viewer_ground),
+                "flood_mode": "legacy_illustrative_water_level",
                 "traffic": roads_after(hazards, request.hour),
             }
 
