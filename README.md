@@ -35,6 +35,33 @@ These come from running the whole pipeline on the public BBED layer (3,349 build
 | **About this view (provenance and OOD score)** | **HTTP API (`dynacity serve`)** |
 | ![About panel](docs/screenshots/viewer-05-about.jpg) | ![OpenAPI docs](docs/screenshots/api-docs.png) |
 
+### Interactive traffic and disaster scenarios
+
+The following captures show the local `dynacity serve` viewer. Traffic combines
+historical hourly speed profiles with SUMO-generated vehicle trajectories;
+these are simulated trips, not live traffic or measured GPS tracks. Road
+closures and disaster effects use illustrative assumptions.
+
+| SUMO traffic playback | Interactive road closure |
+| --- | --- |
+| ![Simulated vehicles, historical road speeds and trip accounting](docs/screenshots/viewer-06-traffic.jpg) | ![A selected road closure with traffic controls and trip accounting](docs/screenshots/viewer-07-road-closure.jpg) |
+
+**Disaster scenario and change from baseline.** The earthquake example shows
+assumed damage, road impacts and KPI ranges. Its fragility curves are
+uncalibrated; the display does not predict damage to individual buildings.
+
+![Illustrative earthquake scenario, baseline comparison and KPI uncertainty](docs/screenshots/viewer-08-disaster.jpg)
+
+### Video demos
+
+Click an animated preview to open its MP4. These are recordings of the running
+viewer; playback speed follows the simulation's on-screen indicator.
+
+| Traffic simulation | Illustrative disaster scenario |
+| --- | --- |
+| [![Animated traffic simulation preview](docs/videos/traffic-preview.gif)](docs/videos/traffic-simulation.mp4) | [![Animated earthquake scenario preview](docs/videos/disaster-preview.gif)](docs/videos/disaster-scenario.mp4) |
+| [Watch traffic playback (MP4)](docs/videos/traffic-simulation.mp4) | [Watch earthquake scenario (MP4)](docs/videos/disaster-scenario.mp4) |
+
 ## Data sources
 
 | Data | Where it comes from | What we use it for |
