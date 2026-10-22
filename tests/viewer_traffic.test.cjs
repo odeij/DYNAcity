@@ -31,6 +31,32 @@ const frame = (time, vehicles = [['a',35 + time * .001,33,90,10,'0:1',0]]) =>
 const response = body => ({ok:true,json:async()=>body});
 const deferred = () => {let resolve;const promise=new Promise(r=>{resolve=r;});return {promise,resolve};};
 const settle = () => new Promise(resolve=>setImmediate(resolve));
+
+test('mobility comparison shows paired baseline results and distinguishes unfinished trips',()=>{
+ const {run}=fixture({esc:x=>String(x).replaceAll('<','&lt;')});
+ run(`DATA.traffic.roads=[{name:'<Main>'}];ui.closedRoads.add(0);
+ trafficClock=25;trafficMetrics={total:10,active:5,pending:1,arrived:4,stopped:2,
+ baseline:{active:3,pending:1,arrived:6,stopped:1},detour:[[0,3]],stopped_roads:[[0,2]],
+ mean_completed_delay_s:4.5,paired_arrivals:4,overdue:2,no_detour:1};`);
+ const rendered=run('mobilityComparison()');
+ assert.match(rendered,/&lt;Main>/);
+ assert.doesNotMatch(rendered,/<Main>/);
+ assert.match(rendered,/Completed<\/th><td>6<\/td><td>4/);
+ assert.match(rendered,/4.5 seconds on average \(4 trips finished in both runs\)/);
+ assert.match(rendered,/2 trips finished in normal traffic but are still travelling/);
+ assert.match(rendered,/data-mobility-road="0"/);
+ assert.match(rendered,/3 diverted · 2 stopped/);
+ assert.match(rendered,/finite fleet/);
+ run('trafficMetrics.mean_completed_delay_s=null');
+ assert.match(run('mobilityComparison()'),/waiting for trips to finish in both runs/);
+});
+
+test('mobility comparison does not invent results before startup and flags mixed effects',()=>{
+ const {run}=fixture({currentHazards:()=>[{kind:'earthquake'}]});
+ assert.match(run('mobilityComparison()'),/Comparison appears when traffic simulation is available/);
+ assert.match(run('mobilityComparison()'),/also includes active crashes or disaster effects/);
+ assert.doesNotMatch(run('mobilityComparison()'),/<table/);
+});
 test('replay interpolates authoritative positions at the adaptive rate and preserves identity',()=>{
  const {run}=fixture();run('advanceCars(0); advanceCars(250)');
  assert.equal(run('trafficClock'),.0625);
@@ -166,7 +192,7 @@ test('road and hazard edits during a fetch keep the fleet and reach SUMO in the 
  run('advanceCars(250)');
  await settle();
  assert.equal(requests.length,2);
- assert.deepEqual(requests[1],{hour:8,seconds:2,closed:[3],crashes:[4],hazards});
+ assert.deepEqual(requests[1],{hour:8,seconds:2,continuous:true,closed:[3],crashes:[4],hazards});
  assert.equal(run('cars[0].key'),'a');
 });
 test('rate learning remains bounded for near-instant and very slow deliveries',async()=>{
@@ -214,9 +240,96 @@ test('traffic redraw updates the learned rate without rebuilding the hour slider
  assert.match(fields['traffic-body'].innerHTML,/data-road-clear/);
 });
 test('detail levels preserve full represented fleet and imported models',()=>{
- assert.match(html,/importedCarMesh\(kind\)/);
- assert.match(html,/for \(const c of cars\) carBuckets/);
+ assert.match(html,/importedCarMesh\(kind,/);
+ assert.match(html,/for \(const c of cars\) \{/);
  assert.equal(Number(html.match(/const CAR_SPEEDUP = ([0-9.]+)/)[1]),1);
  assert.equal(Number(html.match(/const TRAFFIC_INITIAL_RATE = ([0-9.]+)/)[1]),.25);
  assert.match(html,/if \(zoom < 16.5/);
+});
+
+function roadScene() {
+ const context=vm.createContext({Math,metresBetween:(a,b)=>Math.hypot((a[0]-b[0])*111320,(a[1]-b[1])*111320),
+   roadWidth:r=>r.width_m,ui:{},renderTraffic(){},render(){}});
+ vm.runInContext(html.slice(html.indexOf('function offsetRoadPath('),html.indexOf('let streetDetailsCache')),context);
+ return s=>vm.runInContext(s,context);
+}
+test('street markings respect lane widths, junction margins and one-way roads',()=>{
+ const run=roadScene();
+ run(`r={path:[[0,0],[.001,0]],width_m:12.8,oneway:0};marks=roadMarkings(r)`);
+ assert.equal(run("marks.filter(m=>m.kind==='centre').length"),1);
+ assert.equal(run("marks.filter(m=>m.kind==='edge').length"),2);
+ assert.ok(run("marks.some(m=>m.kind==='lane')"));
+ assert.ok(run('marks.every(m=>m.path.every(p=>Math.abs(p[1]*111320)<=6.4))'));
+ assert.ok(run('marks.every(m=>m.path.every(p=>p[0]*111320>10 && p[0]*111320<102))'));
+ run('r.oneway=-1;marks=roadMarkings(r)');
+ assert.equal(run("marks.filter(m=>m.kind==='centre').length"),0);
+ run('r.path=[[0,0],[.00005,0]]');
+ assert.equal(run('roadMarkings(r).length'),0);
+ // Degenerate vertices and sharp bends must not produce infinite offsets.
+ assert.ok(run('offsetRoadPath([[0,0],[0,0],[.001,0],[0,0]],3).flat().every(Number.isFinite)'));
+});
+
+test('vehicle paint changes body panels while preserving glass, wheels and geometry',()=>{
+ const models=JSON.parse(fs.readFileSync(`${__dirname}/../src/dynacity/assets/cars/meshes.json`,'utf8'));
+ const context=vm.createContext({IMPORTED_CARS:models,atob,Uint8Array,Uint16Array,Float32Array,Math});
+ vm.runInContext(html.slice(html.indexOf('const CAR_PAINT ='),html.indexOf('let carBuckets')),context);
+ vm.runInContext('const meshes={};'+html.slice(html.indexOf('function importedCarMesh('),html.indexOf('// Shared low-poly sedan')),context);
+ for(const kind of ['sedan','suv']) {
+   const a=vm.runInContext(`importedCarMesh('${kind}',0)`,context),b=vm.runInContext(`importedCarMesh('${kind}',2)`,context);
+   const mask=Buffer.from(models[kind].paint,'base64');let changed=0;
+   for(let i=0;i<mask.length;i++)for(let c=0;c<3;c++) {
+     const x=a.attributes.colors.value[i*3+c],y=b.attributes.colors.value[i*3+c];
+     if(mask[i])changed+=x!==y;else assert.equal(x,y);
+   }
+   assert.ok(changed>0,`${kind} has visible paint variation`);
+   assert.deepEqual(a.attributes.positions.value,b.attributes.positions.value);
+   assert.deepEqual(a.indices.value,b.indices.value);
+ }
+});
+
+test('appearance switch keeps the same simulation and vehicle identities',()=>{
+ const {run}=fixture();
+ run(html.slice(html.indexOf('function setTrafficStyle('),html.indexOf('function roadLayers(')));
+ run("const originalCars=cars;trafficSession='same-session';setTrafficStyle('street');setTrafficStyle('colours')");
+ assert.equal(run('cars===originalCars'),true);
+ assert.equal(run('trafficSession'),'same-session');
+ assert.equal(run('ui.trafficStyle'),'colours');
+});
+
+test('brake lights follow recorded slowing or stopped vehicles and speed interpolates',()=>{
+ const {run}=fixture();
+ run('trafficPlaybackRate=1;trafficFrames[1].vehicles[0][4]=0;advanceCars(0);advanceCars(250);advanceCars(500)');
+ assert.equal(run('cars[0].speed'),5);
+ assert.equal(run('cars[0].braking'),true);
+ run('trafficFrames[1].vehicles[0][4]=12;advanceCars(500)');
+ assert.equal(run('cars[0].braking'),false);
+});
+
+test('animation reuses pose arrays between samples and updates them when the frame changes',()=>{
+ const {run}=fixture();
+ run('trafficPlaybackRate=1;advanceCars(0);const pose=cars[0].pose,position=pose.position;advanceCars(250)');
+ assert.equal(run('cars[0].pose===pose && cars[0].pose.position===position'),true);
+ assert.equal(run('position[0]'),35.00025);
+ run('advanceCars(500);advanceCars(750);advanceCars(1000);advanceCars(1250)');
+ assert.equal(run('cars[0].pose===pose && cars[0].pose.position===position'),true);
+ assert.equal(run('position[0]'),35.00125);
+});
+
+test('close-up drawing culls only offscreen cars and preserves the full simulated fleet',()=>{
+ const scene={dataset:{}};
+ const {run}=fixture({map:{getZoom:()=>19,getCenter:()=>({toArray:()=>[35,33]}),
+   getBounds:()=>({toArray:()=>[[34.999,32.999],[35.002,33.002]]})},
+   calm:{matches:false},simpleTraffic:false,trafficDebug:true,$:()=>scene,
+   metresBetween:(a,b)=>Math.hypot((a[0]-b[0])*90000,(a[1]-b[1])*111320),
+   hash01:()=>.4,photoreal:()=>false,SOFT:{},mesh:()=>({}),importedCarMesh:()=>({}),
+   carMesh(){},carShadowMesh(){},carBrakeMesh(){},
+   deck:{SimpleMeshLayer:class {constructor(props){this.props=props;}}}});
+ run(html.slice(html.indexOf('const CAR_PAINT ='),html.indexOf('function setTraffic(on)')));
+ run(`advanceCars=()=>{};cars=[['near',35,33],['edge',35.0025,33],['far',36,33]].map(([key,x,y])=>
+   ({key,pose:{position:[x,y,.04],orientation:[0,0,0]}}));layers=carLayers(1000);`);
+ assert.equal(run('cars.length'),3);
+ assert.equal(run("layers.filter(l=>l.props.id.startsWith('cars-')).reduce((n,l)=>n+l.props.data.length,0)"),2);
+ assert.equal(scene.dataset.trafficCars,3);
+ assert.equal(scene.dataset.trafficVisibleCars,2);
+ assert.equal(run("layers.filter(l=>l.props.id.startsWith('cars-')).flatMap(l=>l.props.data).some(c=>c.key==='far')"),false);
 });

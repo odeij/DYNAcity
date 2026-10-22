@@ -34,7 +34,7 @@ def bake(name):
         stride = v.get('byteStride', width * itemsize)
         return np.ndarray((a['count'], width), dtype=dtype, buffer=binary, offset=offset, strides=(stride, itemsize)).copy()
 
-    positions, normals, colors, indices = [], [], [], []
+    positions, normals, colors, indices, paint = [], [], [], [], []
     count = 0
 
     def visit(index, parent):
@@ -54,6 +54,11 @@ def bake(name):
                 positions.append(p[:, [2, 0, 1]])  # +x is the nose, +z is up
                 normals.append(n[:, [2, 0, 1]])
                 colors.extend(rgb)
+                # The source kit's orange sedan / green SUV paint swatches. Keep glass, rubber,
+                # rims and light lenses unchanged when varying body colours.
+                paint_u = (.8125, .875) if name == 'sedan' else (.4375, .5)
+                paint.extend(int(node.get('name') == 'body' and paint_u[0] < u < paint_u[1] and .25 < v < .5)
+                             for u, v in uv)
                 indices.append(accessor(primitive['indices']).ravel() + count)
                 count += len(p)
         for child in node.get('children', []):
@@ -73,7 +78,9 @@ def bake(name):
     assert count < 65536
     encode = lambda a, t: base64.b64encode(np.asarray(a, dtype=t).tobytes()).decode('ascii')
     return dict(positions=encode(pos, '<f4'), normals=encode(nor, '<f4'),
-        colors=encode(colors, 'u1'), indices=encode(ind, '<u2'), vertices=count, triangles=len(ind)//3)
+        colors=encode(colors, 'u1'), paint=encode(paint, 'u1'),
+        paint_reference=max(max(c) for c, masked in zip(colors, paint) if masked),
+        indices=encode(ind, '<u2'), vertices=count, triangles=len(ind)//3)
 
 
 if __name__ == '__main__':

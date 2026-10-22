@@ -1,6 +1,6 @@
 # Destination traffic and SUMO replay
 
-The traffic adapter (`src/dynacity/traffic_sumo.py`) exports the existing road graph to SUMO, generates a fixed fleet of destination-based trips, and advances two independent SUMO runs: the scenario and an identical undisrupted baseline. The viewer draws scenario TraCI positions, headings and lanes, interpolating one-second samples (with 0.2-second simulation steps) at normal 1× playback. Kenney sedan/SUV assets and distance-dependent detail remain unchanged. Every active vehicle is rendered; insertion queues and completed arrivals are counted separately.
+The traffic adapter (`src/dynacity/traffic_sumo.py`) exports the existing road graph to SUMO, generates an initial fleet of destination-based trips, optionally adds continuous boundary entries, and advances two independent SUMO runs: the scenario and an identical undisrupted baseline. The viewer enables continuous entries. It draws scenario TraCI positions, headings and lanes, interpolating one-second samples (with 0.2-second simulation steps) at adaptive playback up to 1×, slowing when delivery falls behind. All active vehicles remain in replay; only offscreen drawing is culled. Insertion queues and completed arrivals are counted separately.
 
 This integration follows the inspected God's Plan reference at commit `23997b0482f8ad2cd94386b622f029ca5842c8c1`: its `frontend/src/babylon/traffic.ts` draws TraCI tracks and `backend/cityshift/live/network.py` updates lane permissions, reroutes to the existing destination and retains vehicles without detours. No reference source was copied.
 
@@ -20,7 +20,34 @@ Run the existing `dynacity serve` command with its real `--traffic`, `--snapshot
 
 ## API and playback
 
-- `POST /v1/viewer/traffic/simulation`: create a session; body has `hour`, `seconds` (0.2–10), `closed`, `crashes`, and `hazards`.
+### Street appearance
+
+The Traffic panel switches between **Street view** and **Traffic colours**.
+Street view uses opaque asphalt, a narrow road-edge casing and close-up lane
+markings. Traffic colours retains the historical hourly speed overlay. Switching
+appearance does not restart the session, reseed demand or alter any vehicle route.
+Closures and detour overlays remain visible in both appearances.
+
+Lane markings use the same assumed 3.2 m lane width and rounded lane counts as
+the SUMO export. They are illustrative, not surveyed road paint or kerbs. Markings
+are generated near the camera at zoom 16.5 or higher, leave junction-end margins,
+and are omitted on short segments. No turn restrictions, crossings or signal
+locations are inferred from these visual details.
+
+The existing Kenney sedan/SUV geometry now supports stable body-paint variations,
+contact shadows and brake lamps. Glass, tyres and original light lenses retain
+their source colours. Lamps indicate sampled deceleration/stops, not a separate
+driver-intent prediction. Sampled positions and headings are still authoritative;
+interpolation does not create intermediate lane paths or remove one-second
+sampling limitations at tight turns.
+
+Replay caches per-frame identity matching and mutates existing pose arrays during
+screen refreshes. Close-up drawing culls cars outside the viewport with a 100 m
+margin, while full-fleet positions and metrics are retained. This is a presentation
+optimization, not a smaller simulated demand. Diagnostics distinguish total active
+cars from drawn cars. Real-time citywide throughput is still a measurement question.
+
+- `POST /v1/viewer/traffic/simulation`: create a session; body has `hour`, `seconds` (0.2–10), `continuous` (default false for existing API clients), `closed`, `crashes`, and `hazards`. The viewer sends `continuous: true`.
 - `POST /v1/viewer/traffic/simulation/{key}`: apply current disruptions and advance this same fleet.
 - `DELETE /v1/viewer/traffic/simulation/{key}`: close both SUMO processes.
 
@@ -28,13 +55,65 @@ Responses contain `frames`, an assumptions statement, and the session key on cre
 
 Sessions are limited to four per server worker and expire after two idle minutes when the next session is created. Shutdown closes all sessions. Use a single API worker, since session storage is process-local. Closing Traffic releases the session. This is a local pilot API, not an authenticated multi-user simulation service.
 
-Closures prohibit passenger entry in both directed edges of a road. Vehicles upstream reroute while preserving their destination. Those with no permitted detour stay queued; teleportation is disabled. Vehicles already within a newly closed street stop in place. Reopening restores original permissions and releases stopped vehicles. Junction-internal vehicles retry rerouting after leaving the intersection. Slowing hazards change desired edge speeds. SUMO's own car-following, safe insertion, lane changing, junction priority and signals determine actual movement.
+Closures prohibit passenger entry in both directed edges of a road. Vehicles upstream reroute while preserving their destination. Those with no permitted detour stay queued; teleportation is disabled. Vehicles already within a newly closed street stop in place. Reopening restores original permissions and releases stopped vehicles. Junction-internal vehicles retry rerouting after leaving the intersection. New entry requests at a closed origin wait in an explicit entry queue, counted as pending, and enter SUMO after reopening. Slowing hazards change desired edge speeds. SUMO's own car-following, safe insertion, lane changing, junction priority and signals determine actual movement.
+
+### Continuous boundary demand
+
+`BoundaryInflow` identifies inward-facing directed roads in a fringe of the network
+bounding box (3% of the smaller dimension, at least 25 m). Their existing estimated
+directional vehicles/hour set seeded Poisson departure rates. Up to four reachable
+routes per origin are sampled toward outward-facing fringe roads; disconnected
+origins fall back to a legal local walk. These are explicit synthetic demand rules,
+not measured entry counts, an OD matrix or a calibrated trip-distribution model.
+
+Both runs receive identical IDs, destinations and scheduled departure times,
+quantized to SUMO's 0.2 s step. Demand never depends on scenario completion rates.
+The scheduler is independent of API request chunk size. Future departures are not
+counted as represented trips until eligible in SUMO; blocked-origin entry requests
+remain accounted for outside SUMO until their origin reopens. Once admitted, safe
+insertion controls spacing. The initial fleet can still redistribute or shrink;
+continuous entries do not impose a constant vehicle count or establish equilibrium.
+There is no calibrated warm-up period or automatic change to the next hourly profile.
+
+`metrics.demand` reports `mode`, `initial_trips`, `added_trips`, `entry_roads` and
+`expected_entry_vph`. `total` grows with eligible trips. If no fringe origins are
+available, mode remains `finite`, making the limitation visible. Changing demand
+mode or hour requires a fresh session. Legacy clients keep finite-fleet behavior.
 
 ## Calibration and limits
 
+### Mobility comparison
+
+In the Traffic panel, choose **Make car-free**, then click individual road segments.
+Click a selected segment again to reopen it. This uses the existing passenger-car
+closure mechanics; pedestrian activity and benefits are not simulated.
+
+The **Normal traffic vs your changes** table compares the undisrupted baseline and
+scenario at the displayed simulation time, using identical initial trips, destinations
+and random seed, including the same continuous entry schedule. It shows completed trips, cars on the road, cars awaiting entry, and
+cars stopped below 0.1 m/s. Stopped cars include signals and initial acceleration;
+these instantaneous counts are not measured queue lengths or sustained congestion.
+The viewer adds continuous boundary entries; no calibrated warm-up period is applied.
+
+New entries reroute to their fixed destinations before insertion when a legal detour
+exists. If their origin/destination is closed or no legal route exists, they stay in
+the explicit entry queue; reopening retries these requests without losing them.
+
+The panel also reports delay for trips completed in both runs, overdue trips and active
+trips without detours. Roads with diverted or stopped cars can be clicked to frame
+them on the map; the list shows up to five segments ranked by diverted count, then
+stopped count. Counts describe cars currently on those segments, not hourly flow.
+Historical road colours retain their existing meaning.
+
+**Restart comparison** retains current closures, crashes and hazards and resets both
+runs. Reopening a road during a run does not erase its previous effects. The panel
+flags active crashes or hazards so a mixed scenario is not presented as a pure
+pedestrianisation trial. Old API responses without baseline metrics show no invented
+comparison results.
+
 The available Beirut model has 10,817 split road segments / 14,900 directed edges, with 5,811 estimated speed profiles and 6,125 segments missing tagged lane counts. At 08:00, its density formula represents about 29,583 vehicles before stochastic rounding. OSM node identity, one-way direction, shape and per-direction lanes are preserved. Missing lanes borrow existing road-class defaults, and fractional lane estimates are rounded to integers. The model does **not** retain surveyed signal tags, turn restrictions, physical closure locations within a segment, bus fleet schedules, or verified lane connectors. SUMO generates lane connections geometrically; nodes with at least four incident segments receive assumed traffic lights and SUMO default programs, while other nodes use priority control. These are illustrative junction controls, not a validated model of Beirut intersections. Overlapping roads connect only at shared graph nodes.
 
-Historical Tari'ak hourly speeds from 2014–2019 set desired speeds, rather than exact vehicle speed trajectories. CDR 2016–17 class counts and probe-hour shapes estimate initial density as directional flow × edge length / hourly speed. Uncounted classes use the existing assumed fraction of lane capacity. This is historical input calibration; no measured OD matrix or disruption validation exists. Destinations are sampled by legal connected walks, followed by shortest legal routing to that fixed destination. These **generated trajectories are not measured GPS trips**. Initial vehicles start at rest and accelerate; safe insertion queues excess demand rather than overlapping cars or discarding vehicles. The finite initial fleet drains as trips arrive. There is no replenishment, activity schedule, current demand forecast, or continuous origin inflow in this implementation.
+Historical Tari'ak hourly speeds from 2014–2019 set desired speeds, rather than exact vehicle speed trajectories. CDR 2016–17 class counts and probe-hour shapes estimate initial density as directional flow × edge length / hourly speed. Uncounted classes use the existing assumed fraction of lane capacity. This is historical input calibration; no measured OD matrix or disruption validation exists. Initial destinations are sampled by legal connected walks, followed by shortest legal routing to that fixed destination. These **generated trajectories are not measured GPS trips**. Initial vehicles start at rest and accelerate; safe insertion queues excess demand rather than overlapping cars or discarding vehicles. Legacy finite mode drains as trips arrive. The viewer's continuous mode adds estimated boundary entries as described above; it does not provide activity schedules or a current demand forecast.
 
 Metrics use exactly the displayed fleet, without extrapolation to citywide vehicles/hour:
 
