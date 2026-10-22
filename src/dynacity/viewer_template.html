@@ -582,7 +582,8 @@ const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
 const metres = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
 
 const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, mode: 'scenario', answer: null, answerIds: null, tilesFailed: false, drops: [], traffic: false, hour: 8, roadHighlight: null, buses: false, stationsOpen: false,
-  trafficImpact: null, trafficStyle: 'street', roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map() };
+  trafficImpact: null, trafficStyle: 'street', mobilityMap: true, showSignals: false, mixed: false,
+  roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map() };
 // Photorealistic mode: Google 3D Tiles through the server's key-holding proxy,
 // with BBED footprints draped onto the mesh instead of extruded beside it.
 const GOOGLE = !!DATA?.basemap?.tiles_3d;
@@ -982,7 +983,7 @@ function drawFx() {
   if (!deckgl) return;
   fxScreen = { flash: 0, shake: 0, warm: 0 };
   const now = performance.now();
-  deckgl.setProps({ layers: [...baseLayers, ...streetDetailLayers(), ...carLayers(now), ...fxLayers(now)] });
+  deckgl.setProps({ layers: [...baseLayers, ...streetDetailLayers(), ...carLayers(now), ...mobilityLayers(), ...fxLayers(now)] });
   applyScreen();
 }
 // What the effects of this frame ask of the whole screen; applied once per frame.
@@ -1273,7 +1274,8 @@ let trafficGeneration = 0, trafficMetrics = null, trafficError = null, trafficRe
 let trafficPlaybackRate = TRAFFIC_INITIAL_RATE, trafficEffectiveRate = TRAFFIC_INITIAL_RATE;
 let trafficPoseA=null,trafficPoseB=null,trafficPoseRows=[];
 function simulationRequest() {
-  return {hour:ui.hour, seconds:2, continuous:true, closed:[...ui.closedRoads], crashes:[...ui.crashes], hazards:currentHazards()};
+  return {hour:ui.hour, seconds:2, continuous:true, mixed:!!ui.mixed,
+    closed:[...ui.closedRoads], crashes:[...ui.crashes], hazards:currentHazards()};
 }
 function simulationRevision() {
   const r = simulationRequest(); delete r.seconds; return JSON.stringify(r);
@@ -1357,7 +1359,7 @@ function advanceCars(now) {
     trafficPoseRows=a.vehicles.map(v=>{
       const w=next.get(v[0])??v,c=existing.get(v[0])??{key:v[0],pose:{position:[0,0,.04],orientation:[0,0,0]}};
       if(!existing.has(v[0]))membershipChanged=true;
-      c.i=Number(v[5].split(':')[0]);c.lane=v[6];
+      c.i=Number(v[5].split(':')[0]);c.lane=v[6];c.type=v[7]??'DEFAULT_VEHTYPE';
       return {v,w,c,delta:((w[3]-v[3]+540)%360)-180};
     });
     if(membershipChanged)cars=trafficPoseRows.map(row=>row.c);
@@ -1413,6 +1415,11 @@ const CAR_PAINT = [[235, 239, 243], [65, 117, 157], [181, 63, 49], [209, 180, 11
 const carPaintIndex = c => Math.min(CAR_PAINT.length-1,Math.floor(hash01(c.key,29)*CAR_PAINT.length));
 let carBuckets = null, carBucketSource = null, carBucketTime = 0, carBucketZoom = 0, carBucketCentre = null;
 function carDetail(c, zoom, centre) {
+  const cls=trafficNetwork?.vehicle_types?.[c.type]?.class;
+  if(cls==='bus')return 'bus';
+  if(cls==='truck')return 'truck';
+  if(cls==='delivery')return 'van';
+  if(cls==='motorcycle')return 'motorcycle';
   if (zoom < 16.5 || !centre || metresBetween(c.pose.position, centre) > 450) return 'simple';
   return hash01(c.key, 31) < 0.7 ? 'sedan' : 'suv';
 }
@@ -1453,24 +1460,82 @@ function carLayers(now) {
   const detailed=Object.entries(buckets).filter(([key])=>key!=='simple').flatMap(([,data])=>data);
   const drape=photoreal()?{extensions:[new deck._TerrainExtension()]}:{};
   const out=detailed.length?[new deck.SimpleMeshLayer({id:'car-contact-shadows',data:detailed,mesh:mesh('car-shadow',carShadowMesh),
-    getPosition:c=>[c.pose.position[0],c.pose.position[1],.018],getOrientation:c=>c.pose.orientation,
+    getPosition:c=>{const p=vehicleMeshPosition(c);return [p[0],p[1],.018];},getOrientation:c=>c.pose.orientation,
+    getScale:c=>{const d=trafficNetwork?.vehicle_types?.[c.type];return d?[d.length_m/4.6,d.width_m/2.06,1]:[1,1,1];},
     getColor:[9,14,17,75],material:false,parameters:SOFT,
     updateTriggers:{getPosition:t,getOrientation:t},...drape})]:[];
   out.push(...Object.entries(buckets).filter(([, data]) => data.length).map(([key, data]) => {
     const [kind,paint]=key.split('-');
     return new deck.SimpleMeshLayer({
-    id: `cars-${key}`, data, mesh: kind === 'simple' ? mesh('car', carMesh) : importedCarMesh(kind,Number(paint)),
-    getPosition: (c) => c.pose.position, getOrientation: (c) => c.pose.orientation,
+    id: `cars-${key}`, data, mesh: kind === 'simple' ? mesh('car', carMesh) :
+      ['bus','truck','van','motorcycle'].includes(kind)?mesh(`vehicle-${kind}`,()=>utilityVehicleMesh(kind)):importedCarMesh(kind,Number(paint)),
+    getPosition: vehicleMeshPosition, getOrientation: (c) => c.pose.orientation,
+    getScale: c => vehicleScale(c,kind),
     getColor: kind === 'simple' ? c => CAR_PAINT[carPaintIndex(c)] : [255, 255, 255],
     material: { ambient: 0.42, diffuse: 0.72, shininess: 72, specularColor: [150, 155, 165] },
     updateTriggers: { getPosition: t, getOrientation: t }, ...drape,
   });}));
-  const braking=detailed.filter(c=>c.braking);
+  const braking=detailed.filter(c=>c.braking&&!['bus','truck','delivery','motorcycle'].includes(trafficNetwork?.vehicle_types?.[c.type]?.class));
   if(braking.length)out.push(new deck.SimpleMeshLayer({id:'car-brake-lights',data:braking,mesh:mesh('car-brakes',carBrakeMesh),
-    getPosition:c=>c.pose.position,getOrientation:c=>c.pose.orientation,
-    getScale:c=>hash01(c.key,31)<.7?[1,1,1]:[4.6/4.4,1.05,1.15],
+    getPosition:vehicleMeshPosition,getOrientation:c=>c.pose.orientation,
+    getScale:c=>{const d=trafficNetwork?.vehicle_types?.[c.type];return d?[d.length_m/4.4,d.width_m/1.85,d.height_m/1.55]:[1,1,1];},
     getColor:[255,35,21],material:false,updateTriggers:{getPosition:t,getOrientation:t},...drape}));
   return out;
+}
+function vehicleScale(c,kind) {
+  const dimensions=trafficNetwork?.vehicle_types?.[c.type];
+  if(!dimensions)return [1,1,1];
+  const original=kind==='sedan'?[4.4,1.85,1.55]:kind==='suv'?[4.6,1.95,1.85]:kind==='simple'?[4.46,2.06,1.55]:[1,1,1];
+  return [dimensions.length_m/original[0],dimensions.width_m/original[1],dimensions.height_m/original[2]];
+}
+function vehicleMeshPosition(c) {
+  // TraCI supplies the front bumper. Centre a differently sized mesh behind it.
+  const p=c.pose.position,d=trafficNetwork?.vehicle_types?.[c.type];if(!d)return p;
+  const heading=c.pose.orientation[1]*Math.PI/180,half=d.length_m/2;
+  return [p[0]-Math.cos(heading)*half/(111320*Math.cos(p[1]*Math.PI/180)),
+    p[1]-Math.sin(heading)*half/111320,p[2]];
+}
+function setMixedTraffic(on) {
+  if(!DATA.traffic?.mobility?.fleet)return;
+  ui.mixed=!!on; closeTrafficSession();cars=[];prepareCars();renderTraffic();render();
+}
+function mobilityLayers() {
+  if(!ui.traffic || !DATA.traffic?.mobility)return [];
+  const out=[],features=ui.mobilityMap?DATA.traffic.mobility.features:[];
+  const areas=features.filter(f=>f.kind==='parking'&&f.path.length>1).map(feature=>({feature}));
+  const stops=features.filter(f=>f.path.length===1).map(feature=>({feature}));
+  if(areas.length)out.push(new deck.SolidPolygonLayer({id:'mobility-parking',data:areas,getPolygon:d=>d.feature.path,
+    getFillColor:[86,112,151,60],pickable:true,material:false}));
+  if(stops.length)out.push(new deck.ScatterplotLayer({id:'mobility-places',data:stops,
+    getPosition:d=>[...d.feature.path[0],.2],getRadius:2,radiusMinPixels:4,
+    getFillColor:d=>d.feature.kind==='bus_stop'?[33,151,146]:[98,124,164],
+    stroked:true,getLineColor:[255,255,255],lineWidthMinPixels:1,pickable:true}));
+  if(stops.length)out.push(new deck.TextLayer({id:'mobility-place-labels',data:stops,
+    getPosition:d=>[...d.feature.path[0],1],getText:d=>d.feature.label,getSize:12,
+    fontFamily:'Arial, sans-serif',getColor:[18,83,84],getPixelOffset:[0,-16],pickable:false}));
+  // Discrete light state at the displayed authoritative sample; never interpolate RGB.
+  const signals=ui.showSignals?(trafficFrames[0]?.signals??[]):[];
+  if(signals.length)out.push(new deck.ScatterplotLayer({id:'mobility-signals',data:signals.map(signal=>({signal})),
+    getPosition:d=>[d.signal[2],d.signal[3],3],getRadius:.55,radiusMinPixels:3,
+    getFillColor:d=>/[gG]/.test(d.signal[4])?[39,196,106]:/[yY]/.test(d.signal[4])?[255,185,48]:/[rR]/.test(d.signal[4])?[238,62,65]:[120,130,140],
+    stroked:true,getLineColor:[32,37,43],lineWidthMinPixels:1.5,pickable:true}));
+  return out;
+}
+function mobilityPilotPanel() {
+  const m=DATA.traffic?.mobility;if(!m)return '';
+  return `<div class="lever"><div class="t">${esc(m.title)}</div><div class="note">Separate corridor network · ${DATA.traffic.roads.length} road segments.</div>
+    <label class="road-row"><input type="checkbox" data-mobility-map ${ui.mobilityMap?'checked':''}>Mapped stops and parking</label>
+    <div class="note">${m.features.filter(f=>f.kind==='bus_stop').length} bus-stop markers · ${m.features.filter(f=>f.kind==='parking').length} parking locations. Occupancy unknown.</div>
+    ${m.fleet?`<label class="road-row"><input type="checkbox" data-mixed-traffic ${ui.mixed?'checked':''}>${esc(m.fleet.label)}</label>
+    <div class="note">${ui.mixed?'Historical mix scenario · SUMO default sizes and behaviour.':'Passenger-car baseline. Changing the mix starts a new run.'} Motorcycles unmeasured.</div>`:''}
+    <label class="road-row"><input type="checkbox" data-signal-states ${ui.showSignals?'checked':''}>Show simulated traffic lights</label>
+    <div class="note">${m.surveyed_signal_programs} surveyed signal programs loaded. Other timings and control locations are assumed; markers show SUMO stop lines.</div>
+    <details><summary>Data sources and missing observations</summary>
+      ${m.sources.map(s=>`<div class="note"><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a> · ${esc(s.as_of)}<br>${esc(s.limitations)}</div>`).join('')}
+      ${m.fleet?`<div class="note">${esc(m.fleet.scope)}</div>`:''}
+      ${m.gaps.map(g=>`<div class="note">${esc(g)}</div>`).join('')}
+      <div class="note">${m.observed_stop_events} observed pickup/parking events. Pedestrian demand unavailable; no generated people or occupied spaces are presented as observations.</div>
+    </details></div>`;
 }
 function setTraffic(on) {
   ui.traffic = on && !!DATA.traffic;
@@ -1570,7 +1635,7 @@ function renderTraffic() {
       <div class="sub">Historical speeds, ${esc(DATA.traffic.period)} · <span id="traffic-playback-rate"></span></div>
       <div class="sev"><div class="row"><label for="hour">Hour</label><b id="hour-label"></b></div>
         <input id="hour" type="range" min="0" max="23" step="1" value="${ui.hour}"></div>
-      <div id="traffic-body"></div>`;
+      <div id="traffic-controls"></div><div id="mobility-pilot"></div><div id="traffic-body"></div>`;
   }
   $('traffic-playback-rate').textContent = `adaptive ${trafficPlaybackRate.toFixed(2)}× playback; slows or pauses while buffering`;
   $('hour').value = ui.hour;
@@ -1588,9 +1653,17 @@ function renderTraffic() {
   const appearance = `<div class="seg" role="group" aria-label="Road appearance" style="margin-bottom:10px">
     <button type="button" data-traffic-style="street" aria-pressed="${ui.trafficStyle==='street'}">Street view</button>
     <button type="button" data-traffic-style="colours" aria-pressed="${ui.trafficStyle!=='street'}">Traffic colours</button></div>`;
+  // Keep focused controls and expanded source details alive between replay samples.
+  const controls=appearance+tools,pilot=mobilityPilotPanel();
+  if($('traffic-controls').dataset.content!==controls) {
+    $('traffic-controls').innerHTML=controls;$('traffic-controls').dataset.content=controls;
+  }
+  if($('mobility-pilot').dataset.content!==pilot) {
+    $('mobility-pilot').innerHTML=pilot;$('mobility-pilot').dataset.content=pilot;
+  }
   const entries=trafficMetrics?.demand;
   const demandLabel=entries?`<div class="note">${entries.mode==='boundary_inflow'?`Continuous traffic entries · ${entries.added_trips.toLocaleString()} new trips since start`:'Finite fleet · no incoming traffic in this run'}</div>`:'';
-  $('traffic-body').innerHTML = `${appearance}${tools}${demandLabel}${DATA.api ? mobilityComparison() : ''}
+  $('traffic-body').innerHTML = `${demandLabel}${DATA.api ? mobilityComparison() : ''}
     ${ui.trafficStyle==='street' ? '<div class="note">Asphalt and lane markings · illustrative street appearance. Switch to Traffic colours to read historical speeds.</div>' : `<div class="road-row"><span class="ln" style="background:${swatch(FLOW[0])}"></span><span>Near free-flow speed</span></div>
     <div class="road-row"><span class="ln" style="background:${swatch(FLOW[1])}"></span><span>About half speed</span></div>
     <div class="road-row"><span class="ln" style="background:${swatch(FLOW[2])}"></span><span>Crawling</span></div>`}
@@ -1682,6 +1755,34 @@ function carMesh() {
 function carShadowMesh() {
   const v=[],p=a=>[2.3*Math.cos(a),1.03*Math.sin(a),0],centre=[0,0,0];
   for(let i=0;i<20;i++)for(const point of [centre,p(i*Math.PI/10),p((i+1)*Math.PI/10)])v.push({p:point,n:[0,0,1],c:[1,1,1]});
+  return meshOf(v);
+}
+function utilityVehicleMesh(kind) {
+  // Unit dimensions; actual scale comes from the running SUMO type definition.
+  const v=[],body=[.78,.81,.82],glass=[.12,.24,.31],rubber=[.07,.08,.09];
+  if(kind==='motorcycle') {
+    box(v,[-.3,-.12,.25],[.3,.12,.55],[.19,.25,.29]);
+    for(const x of [-.32,.32])box(v,[x-.13,-.09,0],[x+.13,.09,.4],rubber);
+    box(v,[-.1,-.2,.45],[.1,.2,.75],[.22,.32,.42]);
+    box(v,[-.1,-.16,.75],[.1,.16,1],[.68,.7,.72]);
+  } else {
+    box(v,[-.5,-.48,.15],[.5,.48,.97],body);
+    for(const x of [-.32,.32])for(const y of [-.47,.47])box(v,[x-.07,y-.06,0],[x+.07,y+.06,.28],rubber);
+    box(v,[.495,-.4,.55],[.502,.4,.88],glass);
+    if(kind==='bus') {
+      for(let x=-.41;x<.42;x+=.12)for(const side of [-1,1])
+        box(v,[x,side<0?-.486:.48,.56],[x+.09,side<0?-.48:.486,.88],glass);
+    } else if(kind==='van') {
+      for(const side of [-1,1])box(v,[.19,side<0?-.486:.48,.58],[.43,side<0?-.48:.486,.87],glass);
+    } else {
+      box(v,[-.47,-.49,.3],[.16,.49,1],[.55,.62,.66]);
+      for(const side of [-1,1])box(v,[.25,side<0?-.486:.48,.6],[.43,side<0?-.48:.486,.86],glass);
+    }
+    for(const y of [-.36,.36]) {
+      box(v,[.5,y-.06,.25],[.505,y+.06,.35],[1,.98,.75]);
+      box(v,[-.505,y-.06,.25],[-.5,y+.06,.35],[.85,.07,.04]);
+    }
+  }
   return meshOf(v);
 }
 function carBrakeMesh() {
@@ -2279,7 +2380,7 @@ const deckProps = () => ({
   onHover: showTip,
   // Roads are thin; a few pixels of slack makes them clickable.
   pickingRadius: 6,
-  onClick: ({ object, coordinate }) => { if (object?.bus || object?.survey) return; if (object?.r) { if (ui.roadTool) toggleRoadEvent(object.i, coordinate); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
+  onClick: ({ object, coordinate }) => { if (object?.bus || object?.survey || object?.feature || object?.signal) return; if (object?.r) { if (ui.roadTool) toggleRoadEvent(object.i, coordinate); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
 });
 
 function linkedMapCamera() {
@@ -2403,6 +2504,14 @@ function roadTip(tip, { r, i }, x, y) {
 function showTip({ object, x, y }) {
   const tip = $('tip');
   if (!object) { tip.hidden = true; return; }
+  if(object.feature || object.signal) {
+    const f=object.feature,s=object.signal;
+    tip.innerHTML=f?`<div class="h">${esc(f.label)}</div><div class="s">Mapped ${esc(f.kind.replace('_',' '))} · OpenStreetMap</div>
+      <div class="s">${f.capacity===null?'Capacity unrecorded':`Tagged capacity: ${f.capacity}`} · occupancy and current service unknown.</div><div class="s">${esc(f.id)}</div>`:
+      `<div class="h">Simulated signal · ${esc(s[4])}</div><div class="s">${s[5]?'Survey-sourced program':'Assumed control and timing'} · SUMO stop-line marker</div>`;
+    tip.hidden=false;tip.style.left=`${Math.max(8,Math.min(x+16,innerWidth-tip.offsetWidth-10))}px`;
+    tip.style.top=`${Math.max(8,Math.min(y+16,innerHeight-tip.offsetHeight-10))}px`;return;
+  }
   if (object.survey) { floodSurveyTip(tip, object.survey, x, y); return; }
   if (object.r) { roadTip(tip, object, x, y); return; }
   if (object.bus) {
@@ -3309,6 +3418,9 @@ function wire() {
   $('p-traffic').addEventListener('input', (e) => {
     if (e.target.id === 'hour') setHour(Number(e.target.value));
     if (e.target.matches('[data-buses]')) { ui.buses = e.target.checked; renderTraffic(); render(); }
+    if (e.target.matches('[data-mixed-traffic]')) { setMixedTraffic(e.target.checked); }
+    if (e.target.matches('[data-mobility-map]')) { ui.mobilityMap=e.target.checked;renderTraffic();render(); }
+    if (e.target.matches('[data-signal-states]')) { ui.showSignals=e.target.checked;renderTraffic();render(); }
   });
   $('p-traffic').addEventListener('mouseover', (e) => {
     const row = e.target.closest('[data-station]');

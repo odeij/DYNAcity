@@ -452,6 +452,11 @@ def command_serve(args: argparse.Namespace) -> None:
             raise SystemExit(f"--basemap google needs {MAPS_KEY_VARIABLE} (a Google Maps key with the Map Tiles API)")
     ground = GroundModel.load(args.terrain) if args.terrain else None
     traffic = TrafficModel.load(args.traffic) if args.traffic else None
+    if args.mobility_inputs:
+        if traffic is None:
+            raise SystemExit('--mobility-inputs requires --traffic')
+        from .mobility_inputs import MobilityInputs
+        traffic.mobility = MobilityInputs.load(args.mobility_inputs)
     if traffic is not None and not args.snapshot:
         raise SystemExit("--traffic needs --snapshot")
     if args.snapshot:
@@ -767,6 +772,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--flood-context", help="verified private real-input-handoff.json for local survey mapping")
     serve.add_argument("--flood-runs", help="private directory outside Git for local ANUGA input packages and runs")
     serve.add_argument("--traffic", help="traffic model from build-traffic; disasters then close roads")
+    serve.add_argument("--mobility-inputs", help="private mobility evidence JSON for the traffic pilot")
     serve.add_argument("--basemap", choices=["carto", "google", "none"], default="carto")
     serve.add_argument("--provider", choices=["anthropic", "gemini"])
     serve.add_argument("--llm-model")

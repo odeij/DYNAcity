@@ -165,6 +165,8 @@ class TrafficModel:
     # Bus and van routes from OSM: label, operator, member way ids, and paths
     # in longitude/latitude.
     bus_routes: list[dict[str, Any]] = field(default_factory=list)
+    mobility: Any = field(default=None, repr=False, compare=False)
+    volume_reference: dict[str, dict[str, Any]] | None = None
     _graph_cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     def __len__(self) -> int:
@@ -182,6 +184,7 @@ class TrafficModel:
             "source": self.source,
             "class_hour_readings": self.class_hour_readings,
             "bus_routes": self.bus_routes,
+            "volume_reference": self.volume_reference,
             "roads": [
                 {
                     "u": int(self.u[i]), "v": int(self.v[i]), "oneway": int(self.oneway[i]),
@@ -224,6 +227,7 @@ class TrafficModel:
             class_hour_readings=payload.get("class_hour_readings", {}),
             lanes=np.asarray([r.get("lanes", 0.0) for r in roads], dtype=np.float64),
             bus_routes=payload.get("bus_routes", []),
+            volume_reference=payload.get("volume_reference"),
         )
 
 
@@ -605,6 +609,11 @@ def class_peak_volumes(model: TrafficModel) -> dict[str, dict[str, Any]]:
     `interpolated`. Other classes get nothing.
     """
 
+    if model.volume_reference is not None:
+        for ref in model.volume_reference.values():
+            if any(not math.isfinite(float(ref[k])) or float(ref[k]) <= 0 for k in ('vph', 'pm_vph', 'ref_lanes')):
+                raise ValueError('Invalid inherited traffic volume reference')
+        return model.volume_reference
     per_class: dict[str, list[tuple[float, float, list[int]]]] = {}
     for station in match_stations(model):
         if station["class"] in ("motorway", "trunk", "primary", "secondary"):
@@ -1215,6 +1224,7 @@ def traffic_payload(model: TrafficModel) -> dict[str, Any]:
             by_class[cls] = [int(round(q)) for q in curve]
     return {
         "schema": "dynacity-roads/1", "roads": roads, "period": model.period, "source": model.source,
+        "mobility": model.mobility.public() if model.mobility is not None else None,
         "stations": [{k: st[k] for k in ("label", "am", "pm", "class", "roads", "am_per_direction")} for st in stations],
         "volumes": volumes,
         "bus_routes": [

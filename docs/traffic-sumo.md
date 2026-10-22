@@ -128,10 +128,52 @@ Completed delay has survivor bias while blocked trips are unfinished, so overdue
 
 ## Verification
 
+### Optional mobility evidence package
+
+`dynacity serve --traffic <pilot-model.json> --mobility-inputs <mobility.json>`
+adds the source-labelled mobility controls to the existing viewer. The bundle
+uses schema `dynacity-mobility/1`, validated by `mobility_inputs.py`. Sources,
+bounds, features, vehicle types and missing observations travel with the input.
+Opening the viewer never downloads mobility inputs.
+
+Prepare a package from an already available OSM XML extract, optionally producing
+a separate whole-road pilot network:
+
+```powershell
+$env:PYTHONPATH='src'
+python scripts/prepare_mobility_pilot.py --osm <local-extract.xml> --bounds 35.522 33.895 35.530 33.900 --retrieved-on 2026-10-22 --output <mobility.json> --traffic-model <beirut-traffic.json> --output-traffic <pilot-model.json>
+```
+
+The command is offline. Its historical fleet option transfers the 2015 report's
+aggregate shares; it is not a measured local mix. The UI starts with that option
+off. Enabling it starts a new paired simulation with stable class assignment in
+both runs, including continuous incoming vehicles. Class dimensions and driving
+parameters use SUMO defaults. The supplied profile excludes motorcycles because
+their share was unmeasured. See [the source assessment](mobility-data-readiness.md).
+
+Optional signal programs and vehicle stop events require survey sources. Signals
+reference existing graph node IDs and must match SUMO's controlled-link count.
+Stops reference an initial generated vehicle ID, a route edge, lane, position and
+duration; invalid or off-route records fail rather than being silently relocated.
+`parking: false` stops in the lane; `parking: true` uses SUMO's off-road parking
+behaviour. These imports are mechanics, not a substitute for local observations;
+the current pilot loads neither. Imported programs do not certify that supplied
+movement phases are conflict-free.
+
+Replay vehicle rows append a type ID at index 7; `network.vehicle_types` supplies
+its actual SUMO dimensions and class. Positions are front-bumper coordinates;
+the renderer offsets mesh centres without changing the authoritative position.
+Signal rows contain `[node, linkIndex, lon, lat, state, surveyed]`. Signal colours
+use the displayed sample, without interpolating discrete states or using future
+buffered samples. Mapped parking areas and bus stops represent infrastructure,
+not occupied spaces or scheduled transit demand.
+
+### Runtime checks
+
 Run the real-runtime integration scenarios and replay adapter checks:
 
 ```sh
-OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 PYTHONPATH=src python -m pytest tests/test_traffic_sumo.py tests/test_traffic.py tests/test_viewer.py
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 PYTHONPATH=src python -m pytest tests/test_mobility_inputs.py tests/test_traffic_sumo.py tests/test_traffic.py tests/test_viewer.py
 node tests/viewer_traffic.test.cjs
 ```
 

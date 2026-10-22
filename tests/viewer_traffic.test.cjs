@@ -20,6 +20,7 @@ function fixture(overrides = {}) {
  const run=s=>vm.runInContext(s,context);
  run('let cars=[],carHour=null,carTime=null;');
  run(html.slice(html.indexOf('// Authoritative SUMO replay'),html.indexOf('const CAR_PAINT')));
+ run(html.slice(html.indexOf('function mobilityPilotPanel()'),html.indexOf('function setTraffic(on)')));
  run(`trafficFrames=[{time_s:0,vehicles:[['a',35,33,90,10,'0:1',0]],metrics:{total:1}},
  {time_s:1,vehicles:[['a',35.001,33,90,10,'0:1',0]],metrics:{total:1}},
  {time_s:2,vehicles:[['a',35.002,33,90,10,'1:1',0]],metrics:{total:1}}];
@@ -56,6 +57,53 @@ test('mobility comparison does not invent results before startup and flags mixed
  assert.match(run('mobilityComparison()'),/Comparison appears when traffic simulation is available/);
  assert.match(run('mobilityComparison()'),/also includes active crashes or disaster effects/);
  assert.doesNotMatch(run('mobilityComparison()'),/<table/);
+});
+
+test('typed replay retains vehicle class and sends the selected mix to SUMO',()=>{
+ const {run}=fixture();
+ run(`ui.mixed=true;trafficFrames[0].vehicles[0].push('bus');trafficFrames[1].vehicles[0].push('bus');advanceCars(0)`);
+ assert.equal(run('cars[0].type'),'bus');
+ assert.equal(run('simulationRequest().mixed'),true);
+ assert.equal(run('cars.length'),1);
+});
+
+test('pilot distinguishes mapped infrastructure, missing observations and transferred historical mix',()=>{
+ const {run}=fixture();
+ run(`DATA.traffic.mobility={title:'Pilot',features:[{kind:'bus_stop'},{kind:'parking'}],sources:[],
+  fleet:{label:'2015 historical mix',scope:'Transferred historical scenario'},gaps:['Motorcycle counts missing'],
+  surveyed_signal_programs:0,observed_stop_events:0}`);
+ const panel=run('mobilityPilotPanel()');
+ assert.match(panel,/Occupancy unknown/);
+ assert.match(panel,/0 surveyed signal programs/);
+ assert.match(panel,/Other timings and control locations are assumed/);
+ assert.match(panel,/Motorcycle counts missing/);
+ assert.match(panel,/Changing the mix starts a new run/);
+});
+
+test('signal colour follows the displayed sample, never the future buffer head',()=>{
+ class Layer {constructor(props){Object.assign(this,props);}}
+ const {run}=fixture({deck:{ScatterplotLayer:Layer,TextLayer:Layer,SolidPolygonLayer:Layer}});
+ run(html.slice(html.indexOf('function mobilityLayers()'),html.indexOf('function mobilityPilotPanel()')));
+ run(`DATA.traffic.mobility={features:[]};ui.showSignals=true;ui.mobilityMap=true;
+ trafficFrames[0].signals=[['n',0,35,33,'r',false]];trafficFrames[1].signals=[['n',0,35,33,'G',false]]`);
+ assert.equal(run('JSON.stringify(mobilityLayers()[0].getFillColor(mobilityLayers()[0].data[0]))'),'[238,62,65]');
+ run('trafficFrames.shift()');
+ assert.equal(run('JSON.stringify(mobilityLayers()[0].getFillColor(mobilityLayers()[0].data[0]))'),'[39,196,106]');
+ run('ui.showSignals=false');assert.equal(run('mobilityLayers().length'),0);
+});
+
+test('utility geometry uses the authoritative type dimensions at both detail levels',()=>{
+ const {run}=fixture();
+ run(html.slice(html.indexOf('function carDetail('),html.indexOf('function carLayers(')));
+ run(html.slice(html.indexOf('function vehicleScale('),html.indexOf('function setMixedTraffic(')));
+ run(`trafficNetwork={vehicle_types:{bus:{class:'bus',length_m:12,width_m:2.5,height_m:3.4}}};
+  c={type:'bus',pose:{position:[35,33]}}`);
+ assert.equal(run('carDetail(c,10,null)'),'bus');
+ assert.equal(run('JSON.stringify(vehicleScale(c,"bus"))'),'[12,2.5,3.4]');
+ run('c.pose.orientation=[0,0,0];c.pose.position=[35,33,.04]');
+ assert.ok(Math.abs(run('(35-vehicleMeshPosition(c)[0])*111320*Math.cos(33*Math.PI/180)')-6)<1e-7);
+ assert.equal(run('vehicleMeshPosition(c)[1]'),33);
+ assert.equal(run('c.pose.position[0]'),35);
 });
 test('replay interpolates authoritative positions at the adaptive rate and preserves identity',()=>{
  const {run}=fixture();run('advanceCars(0); advanceCars(250)');
@@ -192,7 +240,7 @@ test('road and hazard edits during a fetch keep the fleet and reach SUMO in the 
  run('advanceCars(250)');
  await settle();
  assert.equal(requests.length,2);
- assert.deepEqual(requests[1],{hour:8,seconds:2,continuous:true,closed:[3],crashes:[4],hazards});
+ assert.deepEqual(requests[1],{hour:8,seconds:2,continuous:true,mixed:false,closed:[3],crashes:[4],hazards});
  assert.equal(run('cars[0].key'),'a');
 });
 test('rate learning remains bounded for near-instant and very slow deliveries',async()=>{
@@ -222,7 +270,7 @@ test('traffic redraw updates the learned rate without rebuilding the hour slider
  const fields={};let headerWrites=0;
  fields['p-traffic']={hidden:false,set innerHTML(value){
   headerWrites++;
-  for(const id of ['hour','hour-label','traffic-body','traffic-playback-rate'])fields[id]={value:'',textContent:'',innerHTML:'',setAttribute(){}};
+  for(const id of ['hour','hour-label','traffic-body','traffic-playback-rate','traffic-controls','mobility-pilot'])fields[id]={value:'',textContent:'',innerHTML:'',dataset:{},setAttribute(){}};
  }};
  const {run}=fixture({$:id=>fields[id],hourLabel:h=>`${h}:00`,roadImpact:()=>null,
   FLOW:[[1,2,3],[4,5,6],[7,8,9]],simulationSummary:()=>'',stationRows:()=>''});
@@ -235,9 +283,9 @@ test('traffic redraw updates the learned rate without rebuilding the hour slider
  assert.equal(fields.hour,slider);
  assert.equal(slider.value,9);
  assert.match(fields['traffic-playback-rate'].textContent,/0.60×/);
- assert.match(fields['traffic-body'].innerHTML,/data-road-tool="close"/);
- assert.match(fields['traffic-body'].innerHTML,/data-road-tool="crash" aria-pressed="true"/);
- assert.match(fields['traffic-body'].innerHTML,/data-road-clear/);
+ assert.match(fields['traffic-controls'].innerHTML,/data-road-tool="close"/);
+ assert.match(fields['traffic-controls'].innerHTML,/data-road-tool="crash" aria-pressed="true"/);
+ assert.match(fields['traffic-controls'].innerHTML,/data-road-clear/);
 });
 test('detail levels preserve full represented fleet and imported models',()=>{
  assert.match(html,/importedCarMesh\(kind,/);

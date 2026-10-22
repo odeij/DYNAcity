@@ -29,7 +29,8 @@ ASSUMPTIONS = (
     "SUMO simulated trajectories, not measured GPS trips. Historical 2014–2019 hourly speeds "
     "set desired speeds; 2016–17 road-class counts estimate initial density. OD destinations "
     "and turning demand are synthetic and not calibrated. Lane counts use OSM or class defaults; "
-    "junction priority and signal timing are generated assumptions, not surveyed controls. "
+    "unsurveyed junction priority and signal timing are generated assumptions; imported survey programs "
+    "are identified separately. Vehicle dimensions and driving behaviour use SUMO class defaults, not local measurements. "
     "Optional boundary inflow uses estimated historical directional volumes and synthetic destinations; "
     "it is not measured origin-destination demand or a current demand forecast."
 )
@@ -47,7 +48,7 @@ def runtime():
         raise RuntimeError('SUMO unavailable: install eclipse-sumo and traci and put SUMO binaries on PATH or set SUMO_HOME') from exc
 
 
-def export_network(model: TrafficModel, directory: Path, netconvert: str, hour: int | None = None) -> Path:
+def export_network(model: TrafficModel, directory: Path, netconvert: str, hour: int | None = None, *, mixed=False) -> Path:
     """Preserve directed road identities and OSM connectivity, including parallel arcs."""
     nodes, edges = ET.Element('nodes'), ET.Element('edges')
     coordinates, degree = {}, {}
@@ -60,6 +61,15 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, hour: 
     for node, (x, y) in coordinates.items():
         ET.SubElement(nodes, 'node', id=str(node), x=str(x), y=str(y),
                       type='traffic_light' if degree[node] >= 4 else 'priority')
+    mobility = model.mobility
+    if mobility:
+        required = {s.node for s in mobility.signals}
+        if required - coordinates.keys():
+            raise ValueError('Mobility signal references an unknown network node')
+        for n in nodes:
+            if int(n.attrib['id']) in required:
+                n.set('type', 'traffic_light')
+    allowed = sorted({'passenger'} | ({t.vclass for t in mobility.types} if mixed and mobility else set()))
     lanes = lane_counts(model)
     for i, points in enumerate(model.geometry):
         for direction in (1, -1):
@@ -71,7 +81,7 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, hour: 
                              'to': str(int(model.v[i] if direction == 1 else model.u[i]))},
                           numLanes=str(int(lanes[i])), width=str(LANE_WIDTH_M),
                           speed=str(max(1, float(model.free_kmh[i] if hour is None else model.speed_kmh[i, hour]) / 3.6)),
-                          shape=' '.join(f'{x},{y}' for x, y in shape), allow='passenger',
+                          shape=' '.join(f'{x},{y}' for x, y in shape), allow=' '.join(allowed),
                           # An undivided two-way way describes the shared centre
                           # line: each direction belongs on its right. A one-way
                           # way already describes its whole carriageway centre.
@@ -190,8 +200,14 @@ class BoundaryInflow:
 
 
 class Simulation:
-    def __init__(self, model: TrafficModel, hour=8, *, trips=None, seed=42, continuous=False):
+    def __init__(self, model: TrafficModel, hour=8, *, trips=None, seed=42, continuous=False, mixed=False):
         self.model, self.hour = model, hour
+        self.mixed = mixed
+        self.mobility = model.mobility
+        self.seed = seed
+        self.vehicle_type_ids = {}
+        if mixed and (not self.mobility or not self.mobility.fleet):
+            raise ValueError('Mixed traffic requires a sourced vehicle-count profile')
         self.lock = threading.RLock()
         self.last_used = time.monotonic()
         self.directory = tempfile.TemporaryDirectory(prefix='dynacity-sumo-')
@@ -210,13 +226,23 @@ class Simulation:
         self.entry_route_cache = {}
         self.traci, binary, converter = runtime()
         try:
-            path = export_network(model, Path(self.directory.name), converter, hour)
+            path = export_network(model, Path(self.directory.name), converter, hour, mixed=mixed)
             import sumolib
             self.net = sumolib.net.readNet(str(path))
             represented = {int(e.getID().split(':')[0]) for e in self.net.getEdges()}
             self.network_quality = {'edges': len(self.net.getEdges()),
                                     'assumed_signals': len(self.net.getTrafficLights()),
                                     'excluded_roads': sorted(set(range(len(model))) - represented)}
+            programs = {str(s.node): s for s in self.mobility.signals} if self.mobility else {}
+            for node, program in programs.items():
+                tls = self.net.getTLS(node)
+                links = max(connection[2] for connection in tls.getConnections()) + 1
+                if any(len(p.state) != links for p in program.phases):
+                    raise ValueError(f'Signal {node}: phase state must cover all {links} controlled links')
+            self.network_quality['surveyed_signals'] = len(programs)
+            self.network_quality['assumed_signals'] -= len(programs)
+            self.network_quality['vehicle_types'] = {}
+            self.network_quality['vehicle_mix'] = self.mobility.fleet.model_dump() if mixed else None
             self.trips = demand(model, self.net, hour, seed) if trips is None else list(trips)
             self.initial_trips = len(self.trips)
             self.inflow = BoundaryInflow(model,self.net,hour,seed) if continuous else None
@@ -224,10 +250,28 @@ class Simulation:
             self.routes = {t.id: t.route for t in self.trips}
             self.held = set()
             routes_xml = ET.Element('routes')
+            if mixed:
+                for t in self.mobility.types:
+                    ET.SubElement(routes_xml, 'vType', id=t.id, vClass=t.vclass)
+            stops = self.mobility.stops if self.mobility else []
+            if {s.vehicle for s in stops} - self.trip_ids:
+                raise ValueError('Observed stop references a vehicle absent from the initial fleet')
+            stops_by_vehicle = {}
+            for stop in stops:
+                stops_by_vehicle.setdefault(stop.vehicle, []).append(stop)
             for trip in self.trips:
                 vehicle = ET.SubElement(routes_xml, 'vehicle', id=trip.id, depart='0',
-                                        departLane=str(trip.lane), departPos=str(trip.position), departSpeed='0')
+                                        departLane=str(trip.lane), departPos=str(trip.position), departSpeed='0',
+                                        type=self.type_for(trip.id))
                 ET.SubElement(vehicle, 'route', edges=' '.join(trip.route))
+                for stop in stops_by_vehicle.get(trip.id, []):
+                    if stop.edge not in trip.route or not self.net.hasEdge(stop.edge):
+                        raise ValueError('Observed stop must lie on the vehicle route')
+                    edge = self.net.getEdge(stop.edge)
+                    if stop.lane >= edge.getLaneNumber() or stop.position_m >= edge.getLength():
+                        raise ValueError('Observed stop lies outside its lane')
+                    ET.SubElement(vehicle, 'stop', lane=f'{stop.edge}_{stop.lane}', endPos=str(stop.position_m),
+                                  duration=str(stop.duration_s), parking='true' if stop.parking else 'false')
             routes_path = Path(self.directory.name) / 'trips.rou.xml'
             ET.ElementTree(routes_xml).write(routes_path)
             self.offset = self.net.getLocationOffset()
@@ -248,13 +292,53 @@ class Simulation:
                                  stdout=subprocess.DEVNULL)
                 c = self.traci.getConnection(label)
                 self.connections.append(c)
+                for node, program in programs.items():
+                    logic = self.traci.trafficlight.Logic('observed', 0, 0,
+                        [self.traci.trafficlight.Phase(p.duration_s, p.state) for p in program.phases])
+                    c.trafficlight.setProgramLogic(node, logic)
+                    c.trafficlight.setProgram(node, 'observed')
+                    # Determine phase at this local-hour start, including its cycle offset.
+                    cycle = sum(p.duration_s for p in program.phases)
+                    elapsed = (hour * 3600 - program.offset_s) % cycle
+                    for index, phase in enumerate(program.phases):
+                        if elapsed < phase.duration_s:
+                            c.trafficlight.setPhase(node, index)
+                            c.trafficlight.setPhaseDuration(node, phase.duration_s - elapsed)
+                            break
+                        elapsed -= phase.duration_s
                 c.simulationStep()
                 c.junction.subscribeContext(self.context_node, constants.CMD_GET_VEHICLE_VARIABLE,
                                             self.context_radius, variables if kind == 'scenario' else (constants.VAR_SPEED,))
+            c = self.connections[0]
+            type_ids = [t.id for t in self.mobility.types] if mixed else ['DEFAULT_VEHTYPE']
+            declared = {t.id: t for t in self.mobility.types} if self.mobility else {}
+            for tid in type_ids:
+                self.network_quality['vehicle_types'][tid] = {
+                    'class': c.vehicletype.getVehicleClass(tid),
+                    'label': declared[tid].label if tid in declared else 'Passenger car',
+                    'length_m': c.vehicletype.getLength(tid), 'width_m': c.vehicletype.getWidth(tid),
+                    'height_m': c.vehicletype.getHeight(tid),
+                    'parameters': 'SUMO class defaults; not measured Beirut vehicle dimensions or behaviour',
+                }
+            self.signal_links = []
+            for node in c.trafficlight.getIDList():
+                for index, connections in enumerate(c.trafficlight.getControlledLinks(node)):
+                    if not connections:
+                        continue
+                    lane = self.net.getLane(connections[0][0])
+                    # Replay a marker at the incoming stop line, not a claimed physical signal pole.
+                    x, y = lane.getShape()[-1]
+                    lon, lat = utm_to_lonlat(x-self.offset[0], y-self.offset[1], self.zone, self.north)
+                    bounds = self.mobility.bounds if self.mobility else None
+                    if bounds and bounds[0] <= lon <= bounds[2] and bounds[1] <= lat <= bounds[3]:
+                        self.signal_links.append((node, index, round(lon, 7), round(lat, 7), node in programs))
+            for node in {link[0] for link in self.signal_links}:
+                c.trafficlight.subscribe(node, [constants.TL_RED_YELLOW_GREEN_STATE])
             self.last_factors = np.ones(len(model))
             self.seen = set(self.connections[0].vehicle.getIDList())
-            # Exported edges permit passenger only; preserve their generated permissions.
-            self.permissions = {lane.getID(): tuple(sumolib.net.lane.SUMO_VEHICLE_CLASSES - lane.getPermissions())
+            # Preserve positive allowed classes; computing a negative complement includes
+            # aliases such as public_transport, which would prohibit buses on reopening.
+            self.permissions = {lane.getID(): tuple(sorted(lane.getPermissions()))
                                 for edge in self.net.getEdges() for lane in edge.getLanes()}
         except Exception:
             self.close()
@@ -269,15 +353,20 @@ class Simulation:
         self.connections = []
         self.directory.cleanup()
 
+    def type_for(self, vehicle_id):
+        if vehicle_id not in self.vehicle_type_ids:
+            self.vehicle_type_ids[vehicle_id] = self.mobility.vehicle_type(vehicle_id, self.seed) if self.mixed else 'DEFAULT_VEHTYPE'
+        return self.vehicle_type_ids[vehicle_id]
+
     def entry_route(self, trip):
         if trip.route[0] in self.closed or trip.route[-1] in self.closed:
             return None
         if not self.closed.intersection(trip.route):
             return trip.route
-        key=(trip.route[0],trip.route[-1])
+        key=(trip.route[0],trip.route[-1], self.type_for(trip.id))
         if key not in self.entry_route_cache:
             try:
-                route=tuple(self.connections[0].simulation.findRoute(*key).edges)
+                route=tuple(self.connections[0].simulation.findRoute(key[0], key[1], vType=key[2]).edges)
             except self.traci.TraCIException:
                 route=()
             self.entry_route_cache[key]=route if route and not self.closed.intersection(route) else None
@@ -302,13 +391,17 @@ class Simulation:
             if (eid in closed) != (eid in self.closed):
                 for lane in edge.getLanes():
                     original = self.permissions[lane.getID()]
-                    c.lane.setDisallowed(lane.getID(), list(set(original) | {'passenger'}) if eid in closed else original)
+                    if eid in closed:
+                        c.lane.setDisallowed(lane.getID(), ['all'])
+                    else:
+                        c.lane.setAllowed(lane.getID(), original)
         previous_closed = self.closed
         self.closed = closed
         self.last_factors = disruption.speed_factor.copy()
         # Retry after every chunk, including cars which were in internal junctions
         # during the last change and cars newly released from insertion queues.
         active = set(c.vehicle.getIDList())
+        previously_blocked = self.blocked.copy()
         self.blocked.intersection_update(active)
         self.seen = active
         self.retry = set()
@@ -316,13 +409,15 @@ class Simulation:
             self.blocked.clear()
         states = c.junction.getContextSubscriptionResults(self.context_node) or {}
         for vid in candidates:
+            if changed:
+                c.vehicle.updateBestLanes(vid)
             state = states.get(vid, {})
             road = state.get(self.traci.constants.VAR_ROAD_ID)
             index = state.get(self.traci.constants.VAR_ROUTE_INDEX)
             before = self.routes[vid]
             if index is None:
                 index = c.vehicle.getRouteIndex(vid)
-            needs_route = bool(closed.intersection(before[index + 1:])) or (bool(previous_closed - closed) and vid in self.rerouted)
+            needs_route = bool(closed.intersection(before[index + 1:])) or (bool(previous_closed - closed) and vid in (self.rerouted | previously_blocked))
             if not needs_route and road not in closed and vid not in self.held:
                 continue
             if road is None:
@@ -364,7 +459,8 @@ class Simulation:
             lon, lat = utm_to_lonlat(x - self.offset[0], y - self.offset[1], self.zone, self.north)
             vehicles.append([vid, round(lon, 7), round(lat, 7),
                              state[constants.VAR_ANGLE], state[constants.VAR_SPEED],
-                             state[constants.VAR_ROAD_ID], state[constants.VAR_LANE_INDEX]])
+                             state[constants.VAR_ROAD_ID], state[constants.VAR_LANE_INDEX],
+                             self.type_for(vid) if hasattr(self, 'mixed') else 'DEFAULT_VEHTYPE'])
         active_ids = set(c.vehicle.getIDList())
         now = c.simulation.getTime()
         pending_ids = set(c.simulation.getPendingVehicles())
@@ -401,6 +497,7 @@ class Simulation:
         }
         metrics['stopped'] = sum(v[4] < 0.1 for v in vehicles)
         metrics['stopped_roads'] = sorted(stopped_roads.items())
+        metrics['vehicle_types'] = {tid: sum(v[7] == tid for v in vehicles) for tid in {v[7] for v in vehicles}}
         inflow = getattr(self,'inflow',None)
         metrics['demand'] = {
             'mode': 'boundary_inflow' if inflow and inflow.origins else 'finite',
@@ -413,7 +510,13 @@ class Simulation:
             raise RuntimeError('SUMO replay is missing an active vehicle')
         if pending < 0 or c.simulation.getStartingTeleportNumber():
             raise RuntimeError('SUMO vehicle accounting invariant failed')
-        return {'time_s': now, 'vehicles': vehicles, 'metrics': metrics}
+        tls = c.trafficlight.getAllSubscriptionResults() if getattr(self, 'signal_links', []) else {}
+        signals = []
+        for node, index, lon, lat, observed in getattr(self, 'signal_links', []):
+            state = tls.get(node, {}).get(constants.TL_RED_YELLOW_GREEN_STATE)
+            if state is not None:
+                signals.append([node, index, lon, lat, state[index], observed])
+        return {'time_s': now, 'vehicles': vehicles, 'signals': signals, 'metrics': metrics}
 
     def advance(self, disruption, seconds=2, *, include_initial=True):
         with self.lock:
@@ -429,7 +532,7 @@ class Simulation:
                         if route:
                             self.connections[0].route.add(vid,route)
                             self.connections[0].vehicle.add(vid,vid,depart='now',departLane='best',
-                                                            departPos='base',departSpeed='max')
+                                                            departPos='base',departSpeed='max', typeID=self.type_for(vid))
                             self.routes[vid]=route
                             if route!=trip.route:
                                 self.rerouted.add(vid)
@@ -447,7 +550,7 @@ class Simulation:
                             else:
                                 c.route.add(trip.id,route)
                                 c.vehicle.add(trip.id,trip.id,depart=str(depart),departLane='best',
-                                              departPos='base',departSpeed='max')
+                                              departPos='base',departSpeed='max', typeID=self.type_for(trip.id))
                                 if index==0:
                                     self.routes[trip.id]=route
                                     if route!=trip.route:
@@ -493,6 +596,7 @@ def install_routes(app, model, snapshot, ground=None):
         hour: int = Field(default=8, ge=0, le=23)
         seconds: float = Field(default=2, ge=0.2, le=10)
         continuous: bool = False
+        mixed: bool = False
         closed: list[int] = Field(default_factory=list, max_length=1000)
         crashes: list[int] = Field(default_factory=list, max_length=20)
         hazards: list[HazardEvent] = Field(default_factory=list, max_length=8)
@@ -518,7 +622,7 @@ def install_routes(app, model, snapshot, ground=None):
                         del sessions[key]
                 if len(sessions) >= 4:
                     raise HTTPException(429, 'Four traffic sessions are active; close a viewer or retry after two minutes')
-                sim = Simulation(model, request.hour, continuous=request.continuous)
+                sim = Simulation(model, request.hour, continuous=request.continuous, mixed=request.mixed)
                 key = uuid.uuid4().hex
                 sessions[key] = sim
             try:
@@ -546,6 +650,8 @@ def install_routes(app, model, snapshot, ground=None):
                 raise HTTPException(409, 'Create a new session when changing the hour')
             if sim.continuous != request.continuous:
                 raise HTTPException(409, 'Create a new session when changing traffic demand')
+            if sim.mixed != request.mixed:
+                raise HTTPException(409, 'Create a new session when changing vehicle mix')
             return sim.advance(disruption(request), request.seconds, include_initial=False)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
