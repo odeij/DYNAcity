@@ -13,7 +13,7 @@ test('lens switch refreshes the evidence label and illustrative overlay warning'
     hasHazards:()=>!!ui.scenario?.forecast.hazard_impacts.length};
   load('function evidenceLabel(', 'function counts(', context);
   context.renderStatus(); assert.match(status.innerHTML, /Observed records/);
-  Object.assign(context, {history:{replaceState(){}}, document:{querySelectorAll:()=>[]},
+  Object.assign(context, {URLSearchParams, location:{hash:''}, history:{replaceState(){}}, document:{querySelectorAll:()=>[]},
     renderLegend(){}, renderDock(){}, render(){}});
   load('function setLens(', 'function togglePanel(', context);
   context.setLens('forecast'); assert.match(status.innerHTML, /Model prediction · BAU/);

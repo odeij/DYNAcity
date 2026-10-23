@@ -100,6 +100,31 @@ def test_spacing_and_same_edge_closure_resume(simulation,network):
     simulation.advance(road_events(network),5)
     assert c.vehicle.getSpeed('a')>0
 
+def test_limits_are_free_flow_and_hourly_speeds_check_the_run(network,tmp_path,monkeypatch):
+    from dataclasses import replace
+    import dynacity.traffic_sumo as adapter
+    try: _, _, converter = runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    import sumolib
+    # Congested at every hour (18 km/h) on roads that run 36 km/h when free.
+    slow=replace(network,speed_kmh=np.full((7,24),18.),_graph_cache={})
+    net=sumolib.net.readNet(str(adapter.export_network(slow,tmp_path,converter)))
+    assert net.getEdge('0:1').getSpeed()==pytest.approx(10.0)
+    # One car on empty roads: no queue, so it beats the congested median.
+    monkeypatch.setattr(adapter,'SPEED_CHECK_WARMUP_S',0)
+    monkeypatch.setattr(adapter,'SPEED_CHECK_MIN_SAMPLES',3)
+    sim=Simulation(slow,trips=[Trip('lone',('6:1','0:1','1:1','5:1'),0,5)])
+    try:
+        assert sim.advance(road_events(slow),0.2)['frames'][-1]['metrics']['speed_check'] is None
+        check=sim.advance(road_events(slow),10)['frames'][-1]['metrics']['speed_check']
+        assert check['roads']>=1 and check['observed_kmh']==18.0
+        assert check['ratio_p50']>1
+        # Samples stop while a road is closed: the check describes undisturbed traffic.
+        before=sim.speed_samples.sum()
+        sim.advance(road_events(slow,closed=[5]),3)
+        assert sim.speed_samples.sum()==before
+    finally: sim.close()
+
 def test_identical_baseline_has_zero_delay(simulation,network):
     for _ in range(8): result=simulation.advance(road_events(network),10)
     m=result['frames'][-1]['metrics']

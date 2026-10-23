@@ -1065,10 +1065,9 @@ function nearestAlong(path, c) {
 
 // ---- traffic: roads coloured by typical speed, with cars moving along them ----
 // Speeds are per-road hourly medians from crowd-sourced probes (pre-2020).
-// On road classes the CDR survey counted, cars are drawn at density = flow ÷
-// speed from the measured volumes; elsewhere probe readings stand in for how
-// busy a road is. After a disaster, closed roads empty,
-// slowed roads crawl, and the roads that take the detours fill up.
+// The cars are replayed SUMO positions (`/v1/viewer/traffic/simulation`); the
+// server seeds them from the estimated flow on each road. After a disaster,
+// closed roads empty, slowed roads crawl, and the detours fill up.
 const CAR_SPEEDUP = 1, LANE_M = 2.4;
 // SUMO can take longer than wall time to advance the full Beirut fleet. Match
 // playback to the measured server throughput (with headroom) so the two-second
@@ -1121,7 +1120,8 @@ function indexImpact(impact) {
   if (!impact || impact.closedSet) return impact;
   impact.closedSet = new Set(impact.closed);
   impact.slowedMap = new Map(impact.slowed);
-  impact.jamMap = new Map(impact.jammed ?? []);
+  // Detours slow the roads they load and speed up the ones they leave.
+  impact.jamMap = new Map([...(impact.jammed ?? []), ...(impact.relieved ?? [])]);
   impact.busHit = new Set((impact.bus_routes_hit ?? []).map((b) => b.id));
   impact.detourMap = new Map(impact.detour);
   impact.detourMax = Math.max(1, ...impact.detour.map((d) => d[1]));
@@ -1285,7 +1285,7 @@ function simulationSummary() {
   if (!m) return '<div class="note">Starting SUMO traffic simulation…</div>';
   return `<div class="note">${m.active.toLocaleString()} driving · ${m.pending.toLocaleString()} awaiting space · ${m.arrived.toLocaleString()} arrived / ${m.total.toLocaleString()} trips.<br>
     ${m.rerouted} rerouted · ${m.no_detour} without a detour · ${m.stopped_on_closed ?? 0} stopped within closures · ${m.overdue} still travelling after their baseline arrival.
-    ${m.mean_completed_delay_s === null ? 'Completed-trip delay pending.' : `Mean completed-trip delay: ${m.mean_completed_delay_s.toFixed(1)} s (${m.paired_arrivals} matched trips).`}${trafficNetwork?.excluded_roads?.length ? `<br>${trafficNetwork.excluded_roads.length} unsupported road geometry excluded; see integration notes.` : ''}</div>`;
+    ${m.mean_completed_delay_s === null ? 'Completed-trip delay pending.' : `Mean completed-trip delay: ${m.mean_completed_delay_s.toFixed(1)} s (${m.paired_arrivals} matched trips).`}${m.speed_check ? `<br>Simulated speed ${m.speed_check.simulated_kmh} km/h against ${m.speed_check.observed_kmh} observed at ${hourLabel(ui.hour)} (median ${m.speed_check.ratio_p50}×, ${m.speed_check.roads.toLocaleString()} roads).` : ''}${trafficNetwork?.excluded_roads?.length ? `<br>${trafficNetwork.excluded_roads.length} unsupported road geometry excluded; see integration notes.` : ''}</div>`;
 }
 const CAR_PAINT = [[235, 239, 243], [65, 117, 157], [181, 63, 49], [209, 180, 111], [109, 131, 120], [102, 110, 123]];
 let carBuckets = null, carBucketSource = null, carBucketTime = 0, carBucketZoom = 0, carBucketCentre = null;
@@ -1397,7 +1397,7 @@ function roadSummary(t) {
   const trips = !t.affected ? `None of ${count(t.trips)} sampled trips at ${hourLabel(t.hour)} uses these roads.`
     : `${count(t.affected)} of ${count(t.trips)} sampled trips at ${hourLabel(t.hour)} cross them. ${count(t.cut_off)}${span('cut_off')} are cut off; the rest take +${mins(t.delay_min.p50)} min${span('delay_p50', mins)} at the median and +${mins(t.delay_min.p90)} min${span('delay_p90', mins)} for the slowest tenth.${t.samples > 1 ? ` Brackets show the spread across ${t.samples} independent trip samples.` : ''}`;
   const flow = t.busiest_closed_vph ? `<div class="m">The busiest closed road normally carries about ${t.busiest_closed_vph.toLocaleString()} vehicles an hour each way at ${hourLabel(t.hour)} (estimated from the CDR peak counts).</div>` : '';
-  const jam = t.jammed_km ? `<div class="m">About ${t.diverted_vph.toLocaleString()}${span('diverted_vph')} vehicles an hour take detours, slowing ${Math.round(t.jammed_km).toLocaleString()} km of road (busiest at ${t.max_vc}× its capacity). Without that congestion the median delay would be +${mins(t.delay_min_uncongested.p50)} min.${t.spillover.trips ? ` ${count(t.spillover.trips)} other trips are held up too, +${mins(t.spillover.delay_min.p50)} min.` : ''}</div>` : '';
+  const jam = t.jammed_km ? `<div class="m">About ${t.diverted_vph.toLocaleString()}${span('diverted_vph')} vehicles an hour take detours, slowing ${Math.round(t.jammed_km).toLocaleString()} km of road (busiest at ${t.max_vc}× its capacity)${t.relieved_km >= 0.5 ? ` and freeing ${Math.round(t.relieved_km).toLocaleString()} km they left` : ''}. Without that congestion the median delay would be +${mins(t.delay_min_uncongested.p50)} min.${t.spillover.trips ? ` ${count(t.spillover.trips)} other trips are held up too, +${mins(t.spillover.delay_min.p50)} min.` : ''}</div>` : '';
   const buses = t.bus_routes_hit?.length ? `<div class="m">Bus and van lines cut: ${[...new Set(t.bus_routes_hit.map((b) => b.label))].map((l) => `<bdi>${esc(l)}</bdi>`).join(', ')}.</div>` : '';
   return `<div class="m">Illustrative traffic impact · uncalibrated rules</div><div class="m">${closed}${slowed}</div><div class="m">${trips}</div>${jam}${flow}${buses}`;
 }

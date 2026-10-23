@@ -25,12 +25,20 @@ from .traffic import TrafficModel, RoadDisruption, background_flow, lane_counts,
 from .viewer import _utm_zone, utm_to_lonlat
 
 ASSUMPTIONS = (
-    "SUMO simulated trajectories, not measured GPS trips. Historical 2014–2019 hourly speeds "
-    "set desired speeds; 2016–17 road-class counts estimate initial density. OD destinations "
+    "SUMO simulated trajectories, not measured GPS trips. Speed limits are each road's historical "
+    "2014–2019 free-flow speed; the hourly medians are the check on simulated speeds, not an input. "
+    "2016–17 road-class counts estimate initial density. OD destinations "
     "and turning demand are synthetic and not calibrated. Lane counts use OSM or class defaults; "
-    "junction priority and signal timing are generated assumptions, not surveyed controls. "
+    "signal locations and turn bans come from OSM (guessed at four-way junctions for older road files), "
+    "while junction priority and signal timing are generated assumptions, not surveyed controls. "
     "The finite represented fleet drains as trips finish; it is not a continuous demand forecast."
 )
+
+
+# The speed check ignores the first minute (the fleet starts at rest) and
+# roads with fewer vehicle-second samples than this.
+SPEED_CHECK_WARMUP_S = 60
+SPEED_CHECK_MIN_SAMPLES = 20
 
 
 def runtime():
@@ -45,19 +53,26 @@ def runtime():
         raise RuntimeError('SUMO unavailable: install eclipse-sumo and traci and put SUMO binaries on PATH or set SUMO_HOME') from exc
 
 
-def export_network(model: TrafficModel, directory: Path, netconvert: str, hour: int | None = None) -> Path:
-    """Preserve directed road identities and OSM connectivity, including parallel arcs."""
+def export_network(model: TrafficModel, directory: Path, netconvert: str) -> Path:
+    """Preserve directed road identities and OSM connectivity, including parallel arcs.
+
+    Speed limits are each road's free-flow speed (its fastest hourly median).
+    The hourly medians already contain that hour's congestion, so using them
+    as limits would slow the cars twice once SUMO queues them; they are the
+    check on the simulation instead (`Simulation.speed_check`).
+    """
     nodes, edges = ET.Element('nodes'), ET.Element('edges')
     coordinates, degree = {}, {}
     for i, points in enumerate(model.geometry):
         for node, point in ((int(model.u[i]), points[0]), (int(model.v[i]), points[-1])):
             coordinates[node] = point
             degree[node] = degree.get(node, 0) + 1
-    # Split-way model does not retain OSM traffic_signals tags. Guess only large
-    # junction controls, and record this assumption explicitly in every response.
+    # Signals come from OSM when the model kept them; an older model without
+    # signal nodes falls back to guessing a light at every four-way junction.
+    signals = set(model.signals) if model.signals is not None else {n for n, d in degree.items() if d >= 4}
     for node, (x, y) in coordinates.items():
         ET.SubElement(nodes, 'node', id=str(node), x=str(x), y=str(y),
-                      type='traffic_light' if degree[node] >= 4 else 'priority')
+                      type='traffic_light' if node in signals else 'priority')
     lanes = lane_counts(model)
     for i, points in enumerate(model.geometry):
         for direction in (1, -1):
@@ -68,17 +83,24 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, hour: 
                           **{'from': str(int(model.u[i] if direction == 1 else model.v[i])),
                              'to': str(int(model.v[i] if direction == 1 else model.u[i]))},
                           numLanes=str(int(lanes[i])), width=str(LANE_WIDTH_M),
-                          speed=str(max(1, float(model.free_kmh[i] if hour is None else model.speed_kmh[i, hour]) / 3.6)),
+                          speed=str(max(1, float(model.free_kmh[i]) / 3.6)),
                           shape=' '.join(f'{x},{y}' for x, y in shape), allow='passenger',
                           # An undivided two-way way describes the shared centre
                           # line: each direction belongs on its right. A one-way
                           # way already describes its whole carriageway centre.
                           spreadType='right' if model.oneway[i] == 0 else 'center')
-    for name, root in (('nodes', nodes), ('edges', edges)):
+    # OSM turn restrictions: delete the banned movement at its junction.
+    connections = ET.Element('connections')
+    for source, node, target in model.turn_bans:
+        into = 1 if int(model.v[source]) == node and model.oneway[source] >= 0 else -1
+        out = 1 if int(model.u[target]) == node and model.oneway[target] >= 0 else -1
+        ET.SubElement(connections, 'delete', **{'from': f'{source}:{into}', 'to': f'{target}:{out}'})
+    for name, root in (('nodes', nodes), ('edges', edges), ('connections', connections)):
         ET.ElementTree(root).write(directory / f'{name}.xml')
     net = directory / 'network.net.xml'
     result = subprocess.run([netconvert, '--node-files', str(directory / 'nodes.xml'),
-                             '--edge-files', str(directory / 'edges.xml'), '-o', str(net),
+                             '--edge-files', str(directory / 'edges.xml'),
+                             '--connection-files', str(directory / 'connections.xml'), '-o', str(net),
                              '--no-turnarounds', 'true', '--junctions.corner-detail', '5'],
                             capture_output=True, text=True, timeout=120)
     if result.returncode:
@@ -140,14 +162,19 @@ class Simulation:
         self.blocked = set()
         self.rerouted = set()
         self.arrivals = [{}, {}]
+        # Simulated speed per road (km/h sums and samples) while nothing is disrupted.
+        self.speed_sum = np.zeros(len(model))
+        self.speed_samples = np.zeros(len(model), dtype=np.int64)
         self.traci, binary, converter = runtime()
         try:
-            path = export_network(model, Path(self.directory.name), converter, hour)
+            path = export_network(model, Path(self.directory.name), converter)
             import sumolib
             self.net = sumolib.net.readNet(str(path))
             represented = {int(e.getID().split(':')[0]) for e in self.net.getEdges()}
             self.network_quality = {'edges': len(self.net.getEdges()),
-                                    'assumed_signals': len(self.net.getTrafficLights()),
+                                    'signals': len(self.net.getTrafficLights()),
+                                    'signal_source': 'osm' if model.signals is not None else 'guessed',
+                                    'turn_bans': len(model.turn_bans),
                                     'excluded_roads': sorted(set(range(len(model))) - represented)}
             self.trips = demand(model, self.net, hour, seed) if trips is None else trips
             self.trip_ids = {t.id for t in self.trips}
@@ -213,7 +240,7 @@ class Simulation:
             eid = edge.getID()
             i = int(eid.split(':')[0])
             if self.last_factors is None or disruption.speed_factor[i] != self.last_factors[i]:
-                c.edge.setMaxSpeed(eid, max(0.1, float(self.model.speed_kmh[i, self.hour]) * float(disruption.speed_factor[i]) / 3.6))
+                c.edge.setMaxSpeed(eid, max(0.1, float(self.model.free_kmh[i]) * float(disruption.speed_factor[i]) / 3.6))
             if (eid in closed) != (eid in self.closed):
                 for lane in edge.getLanes():
                     original = self.permissions[lane.getID()]
@@ -296,15 +323,42 @@ class Simulation:
             if vehicle[0] in self.rerouted and not vehicle[5].startswith(':'):
                 road = int(vehicle[5].split(':')[0])
                 detour_counts[road] = detour_counts.get(road, 0) + 1
+        undisturbed = not self.closed and (self.last_factors is None or bool(np.all(self.last_factors == 1)))
+        if undisturbed and now >= SPEED_CHECK_WARMUP_S:
+            for vehicle in vehicles:
+                if not vehicle[5].startswith(':'):
+                    road = int(vehicle[5].split(':')[0])
+                    self.speed_sum[road] += vehicle[4] * 3.6
+                    self.speed_samples[road] += 1
         metrics = {'detour': sorted(detour_counts.items()), 'total': len(self.trips), 'active': active, 'pending': pending,
                    'arrived': arrived, 'stopped_on_closed': len(self.held & active_ids), 'no_detour': len(self.blocked), 'rerouted': len(self.rerouted),
                    'paired_arrivals': len(paired), 'overdue': overdue,
-                   'mean_completed_delay_s': float(np.mean(delays)) if delays else None}
+                   'mean_completed_delay_s': float(np.mean(delays)) if delays else None,
+                   'speed_check': self.speed_check()}
         if {v[0] for v in vehicles} != active_ids:
             raise RuntimeError('SUMO replay is missing an active vehicle')
         if pending < 0 or c.simulation.getStartingTeleportNumber():
             raise RuntimeError('SUMO vehicle accounting invariant failed')
         return {'time_s': now, 'vehicles': vehicles, 'metrics': metrics}
+
+    def speed_check(self):
+        """Simulated against observed (Tari'ak) speed at this hour, over roads with enough samples.
+
+        Vehicle-second samples are gathered only while nothing is closed or
+        slowed, after the warm-up in which the fleet starts from rest. A ratio
+        below 1 means SUMO runs slower than the historical median, above 1 faster.
+        None until some road has `SPEED_CHECK_MIN_SAMPLES`.
+        """
+        roads = np.flatnonzero(self.speed_samples >= SPEED_CHECK_MIN_SAMPLES)
+        if not len(roads):
+            return None
+        simulated = self.speed_sum[roads] / self.speed_samples[roads]
+        observed = self.model.speed_kmh[roads, self.hour]
+        return {'roads': int(len(roads)),
+                'simulated_kmh': round(float(np.median(simulated)), 1),
+                'observed_kmh': round(float(np.median(observed)), 1),
+                'ratio_p50': round(float(np.median(simulated / np.maximum(observed, 1.0))), 2),
+                'mae_kmh': round(float(np.mean(np.abs(simulated - observed))), 1)}
 
     def advance(self, disruption, seconds=2, *, include_initial=True):
         with self.lock:

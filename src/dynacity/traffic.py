@@ -41,10 +41,11 @@ Closures and vehicle crashes can also be placed on the map by hand
 
 `traffic_impact` then samples trips across the graph and routes each before
 and after, reporting how many are cut off and how much longer the rest take.
-The trips over closed roads are rerouted in batches (incremental assignment),
-and the roads they move onto slow down by the BPR volume-delay curve
-(capacity from OSM lane counts), so a detour through a narrow street jams;
-trips are then re-timed once on the congested network. Bus and van routes from OSM are kept
+The trips over closed roads are rerouted and balanced by the method of
+successive averages: the roads they move onto slow down by the BPR
+volume-delay curve (capacity from OSM lane counts), so a detour through a
+narrow street jams, and the roads they leave speed up; trips are then re-timed
+once on that network. Bus and van routes from OSM are kept
 alongside, so a result can name the lines a closure cuts.
 Every closure rule and slowdown factor is an illustrative assumption, like the
 fragility numbers in `hazards.PROFILES`; nothing here is calibrated against
@@ -84,6 +85,9 @@ ROAD_CLASSES: dict[str, float] = {
 }
 # A way needs this many readings in an hour before its own median is used.
 MIN_READINGS = 10
+# An OSM traffic signal this close to a junction controls it (signals are
+# often tagged on the approach, a few metres before the stop line).
+SIGNAL_SNAP_M = 25.0
 # Shared by the SUMO exporter and the viewer's carriageway width.
 LANE_WIDTH_M = 3.2
 # Readings below this are phones standing still (parked, or the app left on
@@ -105,8 +109,8 @@ CORDON_KINDS = frozenset({
 # Speed multiplier at full exposure; it eases back to 1 at the footprint edge.
 WEATHER_SLOWDOWN = {HazardKind.STORM: 0.7, HazardKind.RAIN: 0.85}
 # A crash blocks its own segment and slows traffic queuing behind it: speeds
-# drop to CRASH_SLOWDOWN × normal right at the crash, easing back to normal
-# CRASH_QUEUE_M away. Assumptions, like the rules above.
+# drop to CRASH_SLOWDOWN × normal on the roads that drive into it, easing back
+# to normal CRASH_QUEUE_M back along the network. Assumptions, like the rules above.
 CRASH_SLOWDOWN = 0.5
 CRASH_QUEUE_M = 250.0
 # Lanes in each direction when OSM has no `lanes` tag, by road class.
@@ -123,8 +127,9 @@ CAPACITY_PER_LANE = {
 UNCOUNTED_PEAK_VC = 0.6
 # BPR volume-delay curve: travel time = free time × (1 + α (V/C)^β).
 BPR_ALPHA, BPR_BETA = 0.15, 4.0
-# Detoured trips are assigned in this many batches (incremental assignment).
-ASSIGNMENT_STEPS = 4
+# Detoured trips are re-routed this many times on the network their traffic
+# loads, and the results averaged (method of successive averages).
+ASSIGNMENT_ITERATIONS = 6
 # A trip delayed by more than this counts as delayed.
 DELAYED_MIN = 0.5
 # Edge geometry is sampled this often when testing it against a hazard.
@@ -165,6 +170,11 @@ class TrafficModel:
     # Bus and van routes from OSM: label, operator, member way ids, and paths
     # in longitude/latitude.
     bus_routes: list[dict[str, Any]] = field(default_factory=list)
+    # Junctions (graph nodes) with an OSM traffic signal; None when the roads
+    # were fetched without signal nodes, and the simulator then guesses.
+    signals: list[int] | None = None
+    # Movements OSM turn restrictions forbid, as (from road, via node, to road).
+    turn_bans: list[tuple[int, int, int]] = field(default_factory=list)
     _graph_cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     def __len__(self) -> int:
@@ -182,6 +192,8 @@ class TrafficModel:
             "source": self.source,
             "class_hour_readings": self.class_hour_readings,
             "bus_routes": self.bus_routes,
+            "signals": self.signals,
+            "turn_bans": [list(ban) for ban in self.turn_bans],
             "roads": [
                 {
                     "u": int(self.u[i]), "v": int(self.v[i]), "oneway": int(self.oneway[i]),
@@ -224,6 +236,8 @@ class TrafficModel:
             class_hour_readings=payload.get("class_hour_readings", {}),
             lanes=np.asarray([r.get("lanes", 0.0) for r in roads], dtype=np.float64),
             bus_routes=payload.get("bus_routes", []),
+            signals=payload.get("signals"),
+            turn_bans=[tuple(ban) for ban in payload.get("turn_bans", [])],
         )
 
 
@@ -264,11 +278,15 @@ def snapshot_extent(snapshot: UrbanStateSnapshot, margin_m: float) -> tuple[floa
 
 
 def overpass_query(bbox: tuple[float, float, float, float]) -> str:
+    """Drivable ways and traffic-signal nodes with geometry, then turn restrictions (members only)."""
+
     west, south, east, north = bbox
     classes = "|".join(ROAD_CLASSES)
+    box = f"({south:.6f},{west:.6f},{north:.6f},{east:.6f})"
     return (
-        f'[out:json][timeout:120];way["highway"~"^({classes})$"]'
-        f"({south:.6f},{west:.6f},{north:.6f},{east:.6f});out body geom;"
+        f'[out:json][timeout:120];(way["highway"~"^({classes})$"]{box};'
+        f'node["highway"="traffic_signals"]{box};);out body geom;'
+        f'relation["type"="restriction"]{box};out body;'
     )
 
 
@@ -326,6 +344,98 @@ def _road_name(tags: dict) -> str:
     return str(tags.get("name:en") or tags.get("name:fr") or tags.get("name") or "")
 
 
+def _signal_junctions(
+    overpass: dict, index: dict[int, int], u: Sequence[int], v: Sequence[int],
+    geometry: Sequence[Sequence[tuple[float, float]]], zone: int, north: bool,
+) -> list[int] | None:
+    """Graph junctions controlled by an OSM `highway=traffic_signals` node; None when the JSON has none.
+
+    A signal tagged on the junction node is used as is. One tagged on the
+    approach (common on dual carriageways, a few metres before the stop line)
+    is moved to the nearest junction of three or more roads within
+    `SIGNAL_SNAP_M`; signals further from any junction, such as mid-block
+    pedestrian crossings, are dropped.
+    """
+
+    signals = [
+        e for e in overpass.get("elements", [])
+        if e.get("type") == "node" and e.get("tags", {}).get("highway") == "traffic_signals" and "lat" in e
+    ]
+    if not signals:
+        return None
+    degree: dict[int, int] = {}
+    where: dict[int, tuple[float, float]] = {}
+    for a, b, line in zip(u, v, geometry, strict=True):
+        for node, point in ((a, line[0]), (b, line[-1])):
+            degree[node] = degree.get(node, 0) + 1
+            where[node] = point
+    junctions = [n for n, d in degree.items() if d >= 3]
+    xy = np.asarray([where[n] for n in junctions], dtype=np.float64).reshape(-1, 2)
+    found = set()
+    for signal in signals:
+        node = index.get(int(signal["id"]))
+        if node is not None and degree.get(node, 0) >= 3:
+            found.add(node)
+            continue
+        if not len(xy):
+            continue
+        point = np.asarray(lonlat_to_utm(signal["lon"], signal["lat"], zone, north))
+        gap = np.linalg.norm(xy - point, axis=1)
+        if gap.min() <= SIGNAL_SNAP_M:
+            found.add(junctions[int(gap.argmin())])
+    return sorted(found)
+
+
+def _turn_bans(
+    overpass: dict, index: dict[int, int], u: Sequence[int], v: Sequence[int],
+    oneway: Sequence[int], way_ids: Sequence[int],
+) -> list[tuple[int, int, int]]:
+    """OSM turn restrictions as (from road, via junction, to road) movements that are not allowed.
+
+    `no_*` bans its own movement; `only_*` bans every other way out of the
+    junction for that approach. Restrictions through a via-way, or on
+    conditions, are left out.
+    """
+
+    bans: set[tuple[int, int, int]] = set()
+    for rel in overpass.get("elements", []):
+        tags = rel.get("tags", {})
+        kind = str(tags.get("restriction") or tags.get("restriction:motorcar") or "")
+        if rel.get("type") != "relation" or not kind.startswith(("no_", "only_")):
+            continue
+        members = rel.get("members", [])
+        via = [m for m in members if m.get("role") == "via"]
+        if len(via) != 1 or via[0].get("type") != "node" or int(via[0]["ref"]) not in index:
+            continue
+        node = index[int(via[0]["ref"])]
+
+        def roads(role: str, arriving: bool) -> list[int]:
+            refs = {int(m["ref"]) for m in members if m.get("role") == role and m.get("type") == "way"}
+            out = []
+            for i, w in enumerate(way_ids):
+                if w not in refs:
+                    continue
+                # Arriving at the node means driving u→v with v the node (or the reverse).
+                if (v[i] == node and (oneway[i] >= 0 if arriving else oneway[i] <= 0)) or (
+                    u[i] == node and (oneway[i] <= 0 if arriving else oneway[i] >= 0)
+                ):
+                    out.append(i)
+            return out
+
+        sources, targets = roads("from", True), roads("to", False)
+        if not sources or not targets:
+            continue
+        if kind.startswith("no_"):
+            bans.update((s, node, t) for s in sources for t in targets if s != t)
+        else:
+            exits = [
+                i for i in range(len(way_ids))
+                if (u[i] == node and oneway[i] >= 0) or (v[i] == node and oneway[i] <= 0)
+            ]
+            bans.update((s, node, t) for s in sources for t in exits if t not in targets and t != s)
+    return sorted(bans)
+
+
 def road_graph(overpass: dict, crs: str) -> dict[str, Any]:
     """Split OSM ways at every node shared with another way (or at their ends) into graph edges."""
 
@@ -365,6 +475,8 @@ def road_graph(overpass: dict, crs: str) -> dict[str, Any]:
         "geometry": geometry, "u": np.asarray(u, dtype=np.int64), "v": np.asarray(v, dtype=np.int64),
         "oneway": np.asarray(oneway, dtype=np.int8), "highway": highway, "way_id": way_ids, "name": names,
         "lanes": np.asarray(lanes, dtype=np.float64), "length_m": np.asarray(lengths, dtype=np.float64),
+        "signals": _signal_junctions(overpass, index, u, v, geometry, zone, north),
+        "turn_bans": _turn_bans(overpass, index, u, v, oneway, way_ids),
     }
 
 
@@ -484,6 +596,7 @@ def build_traffic_model(
         length_m=graph["length_m"], oneway=graph["oneway"], highway=graph["highway"], way_id=graph["way_id"],
         speed_kmh=speed, free_kmh=speed.max(axis=1), readings=counts, estimated=estimated,
         name=graph["name"], class_hour_readings=class_hour, lanes=graph["lanes"],
+        signals=graph["signals"], turn_bans=graph["turn_bans"],
         bus_routes=(
             bus_routes_from_overpass(bus_overpass, snapshot_extent(snapshot, margin_m), overpass) if bus_overpass else []
         ),
@@ -849,6 +962,55 @@ def road_disruption(
     return RoadDisruption(closed=closed, speed_factor=factor, reason=reason)
 
 
+def _feeders(model: TrafficModel) -> dict[int, list[tuple[int, int]]]:
+    """For each node, the roads that drive into it and the node each comes from."""
+
+    cached = model._graph_cache.get("feeders")
+    if cached is not None:
+        return cached
+    into: dict[int, list[tuple[int, int]]] = {}
+    for i in range(len(model)):
+        u, v = int(model.u[i]), int(model.v[i])
+        if model.oneway[i] >= 0:
+            into.setdefault(v, []).append((i, u))
+        if model.oneway[i] <= 0:
+            into.setdefault(u, []).append((i, v))
+    model._graph_cache["feeders"] = into
+    return into
+
+
+def _queue_distance(model: TrafficModel, road: int, reach: float) -> np.ndarray:
+    """Metres back along the network from where traffic enters `road`; inf beyond `reach`.
+
+    Only roads that lead into the blocked one are reached, against their
+    direction of travel, so the far side of a crash and the streets that only
+    run past it are left alone. A two-way road is entered from both ends.
+    """
+
+    import heapq
+
+    into = _feeders(model)
+    distance = np.full(len(model), np.inf)
+    entries = [int(model.u[road])] if model.oneway[road] >= 0 else []
+    if model.oneway[road] <= 0:
+        entries.append(int(model.v[road]))
+    best = {node: 0.0 for node in entries}
+    heap = [(0.0, node) for node in entries]
+    while heap:
+        d, node = heapq.heappop(heap)
+        if d > best[node]:
+            continue
+        for j, previous in into.get(node, ()):
+            if j == road:
+                continue
+            distance[j] = min(distance[j], d)
+            further = d + float(model.length_m[j])
+            if further < reach and further < best.get(previous, np.inf):
+                best[previous] = further
+                heapq.heappush(heap, (further, previous))
+    return distance
+
+
 def road_events(model: TrafficModel, *, closed: Sequence[int] = (), crashes: Sequence[int] = ()) -> RoadDisruption:
     """Roads closed by hand, and crashes: each blocks its road and slows the queue behind it."""
 
@@ -861,16 +1023,12 @@ def road_events(model: TrafficModel, *, closed: Sequence[int] = (), crashes: Seq
     reason: list[str | None] = [None] * roads
     for i in closed:
         out_closed[i], reason[i] = True, "manual"
-    if crashes:
-        xy, owner = _samples(model)
-        for i in crashes:
-            out_closed[i], reason[i] = True, "crash"
-            centre = xy[owner == i].mean(axis=0)
-            distance = np.full(roads, np.inf)
-            np.minimum.at(distance, owner, np.linalg.norm(xy - centre, axis=1))
-            near = distance < CRASH_QUEUE_M
-            slow = 1.0 - (1.0 - CRASH_SLOWDOWN) * (1.0 - distance[near] / CRASH_QUEUE_M)
-            factor[near] = np.minimum(factor[near], slow)
+    for i in crashes:
+        out_closed[i], reason[i] = True, "crash"
+        distance = _queue_distance(model, i, CRASH_QUEUE_M)
+        near = distance < CRASH_QUEUE_M
+        slow = 1.0 - (1.0 - CRASH_SLOWDOWN) * (1.0 - distance[near] / CRASH_QUEUE_M)
+        factor[near] = np.minimum(factor[near], slow)
     return RoadDisruption(closed=out_closed, speed_factor=factor, reason=reason)
 
 
@@ -992,12 +1150,14 @@ def _traffic_impact(
 
     Every sampled trip stands for the same vehicles per hour (`vph_per_trip`,
     calibrated so the sample reproduces the volume on the counted roads). With
-    `congestion`, the trips over a closed road are rerouted in
-    `ASSIGNMENT_STEPS` batches, each on the network the earlier batches have
-    loaded; the added volume slows each road by the BPR curve against
-    `capacity_of`, and every trip is timed once more on that congested
-    network. This is one pass of incremental assignment, not an equilibrium,
-    and relief on the emptied roads is not credited.
+    `congestion`, the trips over a closed road leave their usual roads and are
+    rerouted `ASSIGNMENT_ITERATIONS` times by the method of successive
+    averages, each time on the network the averaged detour traffic has loaded.
+    The volume change moves each road along the BPR curve against
+    `capacity_of`: detours slow down, and the roads the detouring trips left
+    speed up (to at most their free-flow speed). Every trip is then timed once
+    more on that network. Only the detouring trips choose new routes, so this
+    approaches an equilibrium for the diversion, not for the whole city.
 
     `affected` trips are those whose usual route crosses a closed or slowed
     road; `cut_off` and `delay_min` are over them, so a local disaster is not
@@ -1052,41 +1212,54 @@ def _traffic_impact(
         basis = load > 0
     per_trip = float((flow[basis] * model.length_m[basis]).sum() / max((load[basis] * model.length_m[basis]).sum(), 1e-9))
     cap = np.maximum(capacity_of(model), 1.0)
+    usual = 1.0 + BPR_ALPHA * (flow / cap) ** BPR_BETA
+    # A road that traffic leaves speeds up, but no faster than its free-flow speed.
+    ceiling = model.free_kmh / np.maximum(model.speed_kmh[:, hour], 1.0)
 
-    def jam_of(extra: np.ndarray) -> np.ndarray:
-        # Speed multiplier from the BPR curve: added volume over the usual one.
-        free = 1.0 + BPR_ALPHA * (flow / cap) ** BPR_BETA
-        return free / (1.0 + BPR_ALPHA * ((flow + extra) / cap) ** BPR_BETA)
+    def jam_of(change: np.ndarray) -> np.ndarray:
+        # Speed multiplier from the BPR curve, the changed volume against the
+        # usual one: below 1 where detours add traffic, above 1 where it left.
+        return np.minimum(usual / (1.0 + BPR_ALPHA * (np.maximum(flow + change, 0.0) / cap) ** BPR_BETA), ceiling)
 
-    def network(extra: np.ndarray) -> tuple[Any, dict]:
-        return _directed(model, hour, combine_disruptions(disruption, RoadDisruption(
-            closed=np.zeros(len(model), dtype=bool), speed_factor=jam_of(extra), reason=[None] * len(model),
-        )))
+    def network(change: np.ndarray) -> tuple[Any, dict]:
+        return _directed(model, hour, RoadDisruption(
+            closed=disruption.closed, speed_factor=disruption.speed_factor * jam_of(change), reason=disruption.reason,
+        ))
 
     rerouted = [t for t in trips if disruption.closed[t[3]].any() and np.isfinite(dist_after[t[0], t[2]])]
     cut_vph = per_trip * sum(1 for t in trips if disruption.closed[t[3]].any() and not np.isfinite(dist_after[t[0], t[2]]))
     diverted = per_trip * len(rerouted)
-    extra = np.zeros(len(model))
-    # Incremental assignment: the detoured trips are routed in batches, each
-    # on the network the earlier batches have already loaded, so the diverted
-    # traffic spreads over the alternatives instead of all piling onto one.
-    batches = ASSIGNMENT_STEPS if congestion else 1
-    for b in range(batches):
-        batch = rerouted[b::batches]
-        if not batch:
-            continue
-        graph, arcs = (after, arcs_after) if b == 0 else network(extra)
-        rows = sorted({t[0] for t in batch})
+    # The detouring vehicles leave the open parts of their usual routes.
+    left = np.zeros(len(model))
+    for _k, _origin, _target, path in rerouted:
+        np.add.at(left, path, per_trip)
+    left[disruption.closed] = 0.0
+    rows = sorted({t[0] for t in rerouted})
+    row_of = {k: j for j, k in enumerate(rows)}
+
+    def assign(graph: Any, arcs: dict) -> np.ndarray:
+        """Vehicles per hour the detoured trips put on each road, each by its quickest route."""
+
+        out = np.zeros(len(model))
         _, pred = dijkstra(graph, indices=starts[rows], return_predecessors=True)
-        row_of = {k: j for j, k in enumerate(rows)}
-        for k, origin, target, _path in batch:
-            np.add.at(extra, _path_roads(pred[row_of[k]], origin, target, arcs), per_trip)
+        for k, origin, target, _path in rerouted:
+            np.add.at(out, _path_roads(pred[row_of[k]], origin, target, arcs), per_trip)
+        return out
+
+    extra = assign(after, arcs_after) if rerouted else np.zeros(len(model))
+    if congestion and rerouted:
+        # Method of successive averages: route the detoured trips again on the
+        # network their own traffic has loaded (and emptied), and average that
+        # in, so the diversion settles over the alternatives instead of piling
+        # onto the first one.
+        for step in range(2, ASSIGNMENT_ITERATIONS + 1):
+            extra += (assign(*network(extra - left)) - extra) / step
 
     final, arcs_final, dist_final, pred_final = after, arcs_after, dist_after, pred_after
     jam = np.ones(len(model))
-    if congestion and extra.any():
-        jam = jam_of(extra)
-        final, arcs_final = network(extra)
+    if congestion and rerouted:
+        jam = jam_of(extra - left)
+        final, arcs_final = network(extra - left)
         dist_final, pred_final = dijkstra(final, indices=starts, return_predecessors=True)
 
     load_after = np.zeros(len(model))
@@ -1123,7 +1296,8 @@ def _traffic_impact(
     busiest = float(np.nanmax(closed_flow)) if np.isfinite(closed_flow).any() else None
     slowed = disruption.speed_factor < 0.999
     jammed = (jam < 0.95) & ~disruption.closed
-    loaded_vc = (flow + extra) / np.maximum(capacity_of(model), 1.0)
+    relieved = (jam > 1.05) & ~disruption.closed
+    loaded_vc = np.maximum(flow + extra - left, 0.0) / cap
     reasons = {
         why: int(sum(1 for r in disruption.reason if r == why))
         for why in ("rubble", "water", "cordon", "manual", "crash")
@@ -1157,6 +1331,8 @@ def _traffic_impact(
         # Vehicles per hour each sampled trip stands for at this hour.
         "vph_per_trip": round(per_trip, 1),
         "jammed_km": round(float(model.length_m[jammed].sum()) / 1000.0, 2),
+        # Roads that run faster because detouring traffic left them.
+        "relieved_km": round(float(model.length_m[relieved].sum()) / 1000.0, 2),
         "max_vc": round(float(loaded_vc[extra > 0].max()), 2) if (extra > 0).any() else None,
         "slowed_km": round(float(model.length_m[slowed & ~disruption.closed].sum()) / 1000.0, 2),
         "bus_routes_hit": routes_hit,
@@ -1164,12 +1340,13 @@ def _traffic_impact(
         "closed": [int(i) for i in np.flatnonzero(disruption.closed)],
         "slowed": [[int(i), round(float(disruption.speed_factor[i]), 2)] for i in np.flatnonzero(slowed & ~disruption.closed)],
         "jammed": [[int(i), round(float(jam[i]), 2)] for i in np.flatnonzero(jammed)],
+        "relieved": [[int(i), round(float(jam[i]), 2)] for i in np.flatnonzero(relieved)],
         "detour": [[int(i), int(shift[i])] for i in np.flatnonzero(shift > 0)],
         "assumptions": (
             "Closure rules, weather slowdowns, crash queues, lane capacities and the volume on uncounted roads are "
-            "illustrative assumptions. Trips are sampled with probe readings standing in for demand, detour "
-            "congestion is one step of assignment rather than an equilibrium, and speeds are typical pre-2020 "
-            "conditions."
+            "illustrative assumptions. Trips are sampled with probe readings standing in for demand, only the "
+            "detouring trips choose new routes (balanced over a few rounds of successive averages), and speeds "
+            "are typical pre-2020 conditions."
         ),
     }
 

@@ -59,7 +59,33 @@ def overpass() -> dict:
     cols = [way(10 + c, [node_id(c, r) for r in range(3)], highway="residential") for c in range(3)]
     spur = [way(20, [node_id(2, 1), 999], highway="tertiary")]
     footpath = [{**way(30, [100, 104]), "tags": {"highway": "footway"}}]
-    return {"elements": rows + cols + spur + footpath}
+    return {"elements": rows + cols + spur + footpath + signal_nodes() + restrictions()}
+
+
+def signal_node(node: int, x: float, y: float) -> dict:
+    lon, lat = utm_to_lonlat(x, y, 36, True)
+    return {"type": "node", "id": node, "lat": lat, "lon": lon, "tags": {"highway": "traffic_signals"}}
+
+
+def signal_nodes() -> list[dict]:
+    cx, cy = node_xy(104)
+    return [
+        signal_node(5001, cx - 12, cy),  # on the approach to the centre junction
+        signal_node(5002, X0 + 100, Y0),  # mid-block crossing, no junction near
+    ]
+
+
+def restrictions() -> list[dict]:
+    def relation(rel_id: int, kind: str, source: int, target: int) -> dict:
+        return {"type": "relation", "id": rel_id, "tags": {"type": "restriction", "restriction": kind}, "members": [
+            {"type": "way", "ref": source, "role": "from"},
+            {"type": "node", "ref": node_id(2, 1), "role": "via"},
+            {"type": "way", "ref": target, "role": "to"},
+        ]}
+
+    # Off the spur at the middle-right junction: no turn onto the middle row,
+    # and (the same movement, said the other way) right turns only.
+    return [relation(40, "no_left_turn", 20, 2), relation(41, "only_right_turn", 20, 12)]
 
 
 def bus_overpass() -> dict:
@@ -118,6 +144,47 @@ def test_ways_split_at_shared_nodes_and_footways_dropped():
     assert len(graph["geometry"]) == 13
     assert 30 not in graph["way_id"]
     assert graph["length_m"] == pytest.approx(np.full(13, STEP), abs=0.5)
+
+
+def test_signals_snap_to_junctions_and_turn_bans_resolve_to_roads():
+    graph = road_graph(overpass(), CRS)
+    index = {}
+    for i in range(len(graph["u"])):
+        index[int(graph["u"][i])] = graph["geometry"][i][0]
+        index[int(graph["v"][i])] = graph["geometry"][i][-1]
+    centre = next(n for n, p in index.items() if p == pytest.approx(node_xy(104), abs=0.5))
+    # The approach signal moves 12 m onto the centre junction; the mid-block one is dropped.
+    assert graph["signals"] == [centre]
+    spur = graph["way_id"].index(20)
+    middle_east = [i for i, w in enumerate(graph["way_id"]) if w == 2][1]
+    via = int(graph["u"][spur])
+    assert graph["turn_bans"] == [(spur, via, middle_east)]
+    no_signals = {"elements": [e for e in overpass()["elements"] if e["type"] != "node"]}
+    assert road_graph(no_signals, CRS)["signals"] is None
+
+
+def test_osm_signals_and_turn_bans_reach_the_simulator(model, tmp_path):
+    from dynacity.traffic_sumo import export_network, runtime
+
+    try:
+        _, _, converter = runtime()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+    import sumolib
+
+    loaded = TrafficModel.load(_saved(model, tmp_path))
+    assert loaded.signals == model.signals and loaded.turn_bans == model.turn_bans
+    net = sumolib.net.readNet(str(export_network(loaded, tmp_path, converter)))
+    assert [tls.getID() for tls in net.getTrafficLights()] == [str(model.signals[0])]
+    source, _, target = model.turn_bans[0]
+    moves = {edge.getID() for edge in net.getEdge(f"{source}:-1").getOutgoing()}
+    assert f"{target}:-1" not in moves and moves
+
+
+def _saved(model: TrafficModel, tmp_path):
+    path = tmp_path / "traffic.json"
+    model.save(path)
+    return path
 
 
 def test_hourly_speeds_use_moving_readings_and_fall_back_to_class(model):
@@ -269,6 +336,22 @@ def test_hand_closures_and_crashes(model):
     assert (out.speed_factor < 1).sum() > 1
     with pytest.raises(ValueError):
         road_events(model, closed=[len(model)])
+
+
+def test_crash_queue_backs_up_the_roads_that_feed_it(model):
+    # The top row is one-way west to east: a crash on its first block is fed
+    # only from its west end.
+    first, second = roads_of_way(model, 3)
+    out = road_events(model, crashes=[first])
+    feeder = roads_of_way(model, 10)[1]  # the left column's top block, into the crash
+    assert out.speed_factor[feeder] == pytest.approx(CRASH_SLOWDOWN)
+    # Downstream of the crash, and the street that only meets its far end,
+    # are within 250 m in a straight line but carry no queue.
+    assert out.speed_factor[second] == 1.0
+    assert out.speed_factor[roads_of_way(model, 11)[1]] == 1.0
+    # One block further back the queue has thinned.
+    behind = roads_of_way(model, 10)[0]
+    assert CRASH_SLOWDOWN < out.speed_factor[behind] < 1.0
 
 
 def test_disruptions_combine(model):
