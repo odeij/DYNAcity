@@ -34,7 +34,8 @@ ASSUMPTIONS = (
     "unsurveyed junction priority and signal timing are generated assumptions; imported survey programs "
     "are identified separately. Vehicle dimensions and driving behaviour use SUMO class defaults, not local measurements. "
     "Optional boundary inflow uses estimated historical directional volumes and synthetic destinations; "
-    "it is not measured origin-destination demand or a current demand forecast."
+    "it is not measured origin-destination demand or a current demand forecast. "
+    "A car stuck at the front of a queue for two minutes is moved onto its next road; the count is reported."
 )
 
 
@@ -42,6 +43,35 @@ ASSUMPTIONS = (
 # roads with fewer vehicle-second samples than this.
 SPEED_CHECK_WARMUP_S = 60
 SPEED_CHECK_MIN_SAMPLES = 20
+
+# Junction behaviour. Without these, cars that block a junction box or wait
+# on a full exit road lock into cycles that never clear: at 08:00 about 6,000
+# cars were still stuck after ten minutes. A car blocking a junction for
+# JUNCTION_BLOCKER_S is ignored by cross traffic, a car waiting IMPATIENCE_S
+# accepts smaller gaps, and the front car of a queue standing UNSTICK_AFTER_S
+# is moved onto the next road of its route (`Simulation.unstick`). SUMO's own
+# teleport stays off: it cannot be kept away from cars a closure holds.
+JUNCTION_BLOCKER_S = 20
+IMPATIENCE_S = 30
+UNSTICK_AFTER_S = 120
+# Free road needed to place an unstuck car (SUMO's default car length plus
+# gap), searched at most UNSTICK_REACH roads ahead along its route.
+UNSTICK_ROOM_M = 7.5
+UNSTICK_REACH = 5
+
+# Clipping the network at the map edge leaves stub roads, some only a few
+# metres long, where a car can never be inserted: half the 08:00 boundary
+# inflow was scheduled onto entries shorter than this and piled up unentered.
+# Inflow trips start on the first road of their route at least this long.
+MIN_ENTRY_M = 60.0
+
+
+def trim_entry(route, length_of, min_length=MIN_ENTRY_M):
+    """Drop leading stub roads so the route starts where a car fits; unchanged if none is long enough."""
+    for i, edge in enumerate(route[:-1]):
+        if length_of(edge) >= min_length:
+            return tuple(route[i:])
+    return tuple(route)
 
 
 def runtime():
@@ -209,7 +239,8 @@ class BoundaryInflow:
                         break
                     route.append(self.rng.choice(exits))
                 paths=[tuple(e.getID() for e in route)]
-            self.pool[edge_id]=paths
+            length=lambda e:self.net.getEdge(e).getLength()
+            self.pool[edge_id]=[trim_entry(path,length) for path in paths]
         return self.pool[edge_id]
 
     def until(self, time_s):
@@ -241,6 +272,8 @@ class Simulation:
         self.blocked = set()
         self.rerouted = set()
         self.arrivals = [{}, {}]
+        # Cars moved past a gridlock, per run (`unstick`).
+        self.unstuck = [0, 0]
         # Simulated speed per road (km/h sums and samples) while nothing is disrupted.
         self.speed_sum = np.zeros(len(model))
         self.speed_samples = np.zeros(len(model), dtype=np.int64)
@@ -307,12 +340,16 @@ class Simulation:
             self.context_radius = math.hypot(bounds[1][0] - bounds[0][0], bounds[1][1] - bounds[0][1]) + 100
             constants = self.traci.constants
             variables = (constants.VAR_POSITION, constants.VAR_ANGLE, constants.VAR_SPEED,
-                         constants.VAR_ROAD_ID, constants.VAR_LANE_INDEX, constants.VAR_ROUTE_INDEX)
+                         constants.VAR_ROAD_ID, constants.VAR_LANE_INDEX, constants.VAR_ROUTE_INDEX,
+                         constants.VAR_WAITING_TIME)
             self.variables = variables
+            self.baseline_variables = (constants.VAR_SPEED, constants.VAR_WAITING_TIME)
             for kind in ('scenario', 'baseline'):
                 label = f'dynacity-{uuid.uuid4().hex}'
                 self.traci.start([binary, '-n', str(path), '-r', str(routes_path), '--step-length', '0.2', '--seed', str(seed),
                                   '--time-to-teleport', '-1', '--time-to-teleport.disconnected', '-1',
+                                  '--ignore-junction-blocker', str(JUNCTION_BLOCKER_S),
+                                  '--time-to-impatience', str(IMPATIENCE_S),
                                   '--collision.action', 'warn', '--no-step-log', 'true',
                                   '--duration-log.disable', 'true', '--no-warnings', 'true'], label=label,
                                  stdout=subprocess.DEVNULL)
@@ -334,7 +371,7 @@ class Simulation:
                         elapsed -= phase.duration_s
                 c.simulationStep()
                 c.junction.subscribeContext(self.context_node, constants.CMD_GET_VEHICLE_VARIABLE,
-                                            self.context_radius, variables if kind == 'scenario' else (constants.VAR_SPEED,))
+                                            self.context_radius, variables if kind == 'scenario' else self.baseline_variables)
             c = self.connections[0]
             type_ids = [t.id for t in self.mobility.types] if mixed else ['DEFAULT_VEHTYPE']
             declared = {t.id: t for t in self.mobility.types} if self.mobility else {}
@@ -521,7 +558,7 @@ class Simulation:
                    'arrived': arrived, 'stopped_on_closed': len(self.held & active_ids), 'no_detour': len(self.blocked), 'rerouted': len(self.rerouted),
                    'paired_arrivals': len(paired), 'overdue': overdue,
                    'mean_completed_delay_s': float(np.mean(delays)) if delays else None,
-                   'speed_check': self.speed_check()}
+                   'speed_check': self.speed_check(), 'unstuck': getattr(self, 'unstuck', [0])[0]}
         baseline = self.connections[1]
         baseline_states = baseline.junction.getContextSubscriptionResults(self.context_node) or {}
         metrics['baseline'] = {
@@ -552,6 +589,46 @@ class Simulation:
             if state is not None:
                 signals.append([node, index, lon, lat, state[index], observed])
         return {'time_s': now, 'vehicles': vehicles, 'signals': signals, 'metrics': metrics}
+
+    def unstick(self, index, c):
+        """Move gridlocked front-of-queue cars further along their route.
+
+        A car standing `UNSTICK_AFTER_S` while first on its lane is placed at
+        the start of the nearest of its next `UNSTICK_REACH` roads with
+        `UNSTICK_ROOM_M` free, as SUMO's teleport would. Cars a closure holds
+        or blocks are left alone, and the search stops at a closed road, so
+        closures stay closed. The car stays on the network and in the
+        accounting; `unstuck` counts the moves.
+        """
+        constants = self.traci.constants
+        states = c.junction.getContextSubscriptionResults(self.context_node) or {}
+        protected = (self.held | self.blocked) if index == 0 else set()
+        for vid, state in states.items():
+            if state.get(constants.VAR_WAITING_TIME, 0) < UNSTICK_AFTER_S or vid in protected:
+                continue
+            # Only the first car on its lane; the ones behind follow once it moves.
+            here = c.vehicle.getLanePosition(vid)
+            if any(c.vehicle.getLanePosition(v) > here for v in c.lane.getLastStepVehicleIDs(c.vehicle.getLaneID(vid)) if v != vid):
+                continue
+            route, at = c.vehicle.getRoute(vid), c.vehicle.getRouteIndex(vid)
+            target = None
+            for ahead in route[at + 1:at + 1 + UNSTICK_REACH]:
+                if index == 0 and ahead in self.closed:
+                    break
+                for lane in range(c.edge.getLaneNumber(ahead)):
+                    lane_id = f'{ahead}_{lane}'
+                    if min((c.vehicle.getLanePosition(v) for v in c.lane.getLastStepVehicleIDs(lane_id)), default=math.inf) >= UNSTICK_ROOM_M:
+                        target = lane_id
+                        break
+                if target:
+                    break
+            if target is None:
+                continue
+            try:
+                c.vehicle.moveTo(vid, target, 0.0)
+            except self.traci.TraCIException:
+                continue
+            self.unstuck[index] += 1
 
     def speed_check(self):
         """Simulated against observed (Tari'ak) speed at this hour, over roads with enough samples.
@@ -619,10 +696,11 @@ class Simulation:
                     c.junction.unsubscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE,
                                                   self.context_radius)
                     c.simulationStep(c.simulation.getTime() + ticks * 0.2)
-                    variables = self.variables if index == 0 else (self.traci.constants.VAR_SPEED,)
+                    variables = self.variables if index == 0 else self.baseline_variables
                     c.junction.subscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE,
                                                 self.context_radius, variables)
                     self.arrivals[index].update({v: c.simulation.getTime() for v in c.simulation.getArrivedIDList()})
+                    self.unstick(index, c)
                 now=self.connections[0].simulation.getTime()
                 # SUMO can retain a departure exactly at the sample boundary
                 # for its next integration step. Do not count future demand as

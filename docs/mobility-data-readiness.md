@@ -77,7 +77,17 @@ simulated over observed (Tari'ak 2014–2019) speed:
 The OSM lights bring the evening median close to observed and overshoot the
 morning one. Per-road error stays near 13 km/h in all four runs, and about 90%
 of active cars are stopped at the 10-minute mark in every run, so demand and
-junction behaviour are not calibrated by this change. The optional pilot adds typed vehicles and
+junction behaviour are not calibrated by this change.
+
+The stopped cars were gridlock, not congestion: about 6,000 at 08:00 had stood
+over five minutes. With the junction options and gridlock breaker described in
+[traffic-sumo.md](traffic-sumo.md#gridlock), one car at 08:00 and three at 17:00
+remain stuck that long, and per-road error falls to about 11 km/h. The median
+ratio is now 1.28 at 08:00 and 1.21 at 17:00: simulated traffic runs too fast
+because the city empties. The initial fleet finishes its trips, new trips
+start only at the map edge, and those edges are congested, so active cars fall
+from about 27,000 to 3,500 at 08:00 within ten minutes. Calibrating speeds
+needs trips that also start inside the modelled area. The optional pilot adds typed vehicles and
 controller-state replay, while pedestrian demand and parking occupancy are missing.
 
 ## Primary sources checked

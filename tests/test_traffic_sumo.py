@@ -39,6 +39,42 @@ def test_comparison_counts_include_unfinished_trips_and_ignore_internal_roads():
     assert m['paired_arrivals'] == 1
     assert m['mean_completed_delay_s'] == 2
 
+
+def test_unstick_moves_only_free_gridlocked_front_cars():
+    """Front cars standing past the limit move to their next road; held, queued and closed moves do not."""
+    from types import SimpleNamespace as NS
+    from dynacity.traffic_sumo import UNSTICK_AFTER_S
+    W = 9
+    states = {'stuck': {W: UNSTICK_AFTER_S + 1}, 'held': {W: 999}, 'queued': {W: 999},
+              'toclosed': {W: 999}, 'fresh': {W: 5}}
+    routes = {'stuck': ('1:1', '2:1'), 'held': ('3:1', '4:1'), 'queued': ('1:1', '2:1'),
+              'toclosed': ('5:1', '6:1'), 'fresh': ('1:1', '2:1')}
+    moved = []
+    c = NS(junction=NS(getContextSubscriptionResults=lambda _: states),
+           vehicle=NS(getLaneID=lambda v: 'own_' + v, getRoute=lambda v: routes[v], getRouteIndex=lambda v: 0,
+                      getLanePosition=lambda v: 50.0 if v == 'ahead' else 40.0,
+                      moveTo=lambda v, lane, pos: moved.append((v, lane))),
+           edge=NS(getLaneNumber=lambda e: 2),
+           # 'queued' has a car ahead of it on its own lane; '2:1_0' has room only past 40 m.
+           lane=NS(getLastStepVehicleIDs=lambda lane: ['ahead', 'queued'] if lane == 'own_queued'
+                   else [lane[4:]] if lane.startswith('own_') else ['x'] if lane == '2:1_0' else []))
+    sim = Simulation.__new__(Simulation)
+    sim.traci = NS(constants=NS(VAR_WAITING_TIME=W), TraCIException=RuntimeError)
+    sim.context_node = 'junction'
+    sim.held, sim.blocked, sim.closed = {'held'}, set(), {'6:1'}
+    sim.unstuck = [0, 0]
+    sim.unstick(0, c)
+    assert moved == [('stuck', '2:1_0')]  # car far ahead on lane 0 leaves room
+    assert sim.unstuck == [1, 0]
+
+def test_inflow_routes_skip_stub_entry_roads():
+    from dynacity.traffic_sumo import trim_entry
+    length = {'stub': 2.0, 'short': 30.0, 'long': 120.0, 'end': 10.0}.get
+    assert trim_entry(('stub', 'short', 'long', 'end'), length) == ('long', 'end')
+    assert trim_entry(('long', 'end'), length) == ('long', 'end')
+    # No long road before the last: keep the route rather than lose the trip.
+    assert trim_entry(('stub', 'short', 'end'), length) == ('stub', 'short', 'end')
+
 @pytest.fixture
 def network():
     # Directed diamond with a shared destination edge, plus a second origin.
