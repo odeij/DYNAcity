@@ -14,7 +14,7 @@ test('road overlay follows simulated carriageway width, with a legacy fallback',
 function fixture(overrides = {}) {
  const context=vm.createContext({ui:{traffic:true,hour:8,closedRoads:new Set(),crashes:new Set()},
   DATA:{traffic:{roads:[]}},currentHazards:()=>[],prepareRoads:()=>{},CAR_SPEEDUP:1,
-  TRAFFIC_INITIAL_RATE:.25,TRAFFIC_MIN_RATE:.05,TRAFFIC_RATE_HEADROOM:.75,
+  TRAFFIC_INITIAL_RATE:1,
   clamp01:x=>Math.max(0,Math.min(1,x)),renderTraffic:()=>{},render:()=>{},esc:x=>x,
   fetch:async()=>{throw new Error('unexpected fetch')},performance:{now:()=>0},console,...overrides});
  const run=s=>vm.runInContext(s,context);
@@ -105,24 +105,20 @@ test('utility geometry uses the authoritative type dimensions at both detail lev
  assert.equal(run('vehicleMeshPosition(c)[1]'),33);
  assert.equal(run('c.pose.position[0]'),35);
 });
-test('replay interpolates authoritative positions at the adaptive rate and preserves identity',()=>{
+test('replay interpolates authoritative positions at real time and preserves identity',()=>{
  const {run}=fixture();run('advanceCars(0); advanceCars(250)');
- assert.equal(run('trafficClock'),.0625);
- assert.equal(run('cars[0].pose.position[0]'),35.0000625);
+ assert.equal(run('trafficClock'),.25);
+ assert.equal(run('cars[0].pose.position[0]'),35.00025);
  assert.equal(run('cars[0].pose.orientation[1]'),0);
  assert.equal(run('cars[0].key'),'a');
 });
-test('slow playback approaches the buffer edge without extrapolating or wrapping',()=>{
- const {run}=fixture();run('for(let t=0;t<=10000;t+=250) advanceCars(t)');
- assert.ok(run('trafficClock') > 1.8);
- assert.ok(run('trafficClock') < 2);
- assert.ok(run('cars[0].pose.position[0]') < 35.002);
-});
-test('playback starts below real time so a slow SUMO response does not immediately drain the buffer',()=>{
- const {run}=fixture();run('for(let t=0;t<=4000;t+=250) advanceCars(t)');
- assert.equal(run('trafficClock'),1);
- assert.equal(run('trafficEffectiveRate'),.25);
- assert.equal(run('cars[0].pose.position[0]'),35.001);
+test('real-time playback holds at the buffer edge without extrapolating',()=>{
+ const {run}=fixture();run('advanceCars(0);advanceCars(250)');
+ assert.equal(run('trafficClock'),.25);
+ run('for(let t=500;t<=4000;t+=250) advanceCars(t)');
+ assert.equal(run('trafficClock'),2);
+ assert.equal(run('trafficEffectiveRate'),0);
+ assert.equal(run('cars[0].pose.position[0]'),35.002);
 });
 test('closure change preserves fleet positions pending authoritative reroute',()=>{
  const {run}=fixture();run('advanceCars(0);ui.closedRoads.add(0);carHour=8;prepareCars()');
@@ -149,17 +145,6 @@ test('an exhausted buffer holds its last SUMO pose and resumes from there after 
  assert.equal(run('cars[0].key'),'a');
  assert.ok(run('cars[0].pose.position[0]')>35.002);
 });
-test('rate learning uses delivered SUMO time rather than requested time',async()=>{
- let now=0, batch=[frame(2),frame(2.5)];
- const {run}=fixture({performance:{now:()=>now},fetch:async()=>{now+=4000;return response({frames:batch});}});
- run('trafficSession="live";trafficFetch=false');
- await run('fetchTrafficFrames()');
- assert.equal(run('trafficPlaybackRate'),.25*.35+(.5/4*.75)*.65);
- batch=[frame(3)];
- await run('fetchTrafficFrames()');
- assert.ok(run('trafficPlaybackRate')<.15);
- assert.equal(run('trafficFrames.length'),5); // overlapping frame at 2 is ignored
-});
 test('duplicate, empty and invalid batches preserve the last buffer and report an error',async()=>{
  for(const frames of [[],[frame(2)],[frame(4),frame(3)],[{...frame(3),time_s:NaN}]]) {
   const {run}=fixture({fetch:async()=>response({frames})});
@@ -167,7 +152,7 @@ test('duplicate, empty and invalid batches preserve the last buffer and report a
   await run('fetchTrafficFrames()');
   assert.equal(run('trafficFrames.length'),3);
   assert.equal(run('trafficClock'),0);
-  assert.equal(run('trafficPlaybackRate'),.25);
+  assert.equal(run('trafficPlaybackRate'),1);
   assert.match(run('trafficError'),/SUMO frame batch/);
   assert.equal(run('trafficFetch'),false);
  }
@@ -203,7 +188,7 @@ test('hour changes discard stale startup responses and delete the abandoned sess
  await old;
  assert.equal(run('trafficSession'),'current');
  assert.equal(run('trafficClock'),80);
- assert.equal(run('trafficPlaybackRate'),.25);
+ assert.equal(run('trafficPlaybackRate'),1);
  assert.ok(requests.some(r=>r.url.endsWith('/abandoned') && r.options.method==='DELETE'));
 });
 test('a stale failed request cannot clear the fetch lock for the new hour',async()=>{
@@ -243,16 +228,6 @@ test('road and hazard edits during a fetch keep the fleet and reach SUMO in the 
  assert.deepEqual(requests[1],{hour:8,seconds:2,continuous:true,mixed:false,closed:[3],crashes:[4],hazards});
  assert.equal(run('cars[0].key'),'a');
 });
-test('rate learning remains bounded for near-instant and very slow deliveries',async()=>{
- for(const elapsed of [0,1000000]) {
-  let now=0, time=2;
-  const {run}=fixture({performance:{now:()=>now},fetch:async()=>{now+=elapsed;return response({frames:[frame(++time)]});}});
-  run('trafficSession="live";trafficFetch=false');
-  for(let i=0;i<20;i++)await run('fetchTrafficFrames()');
-  assert.ok(run('trafficPlaybackRate')>=.05 && run('trafficPlaybackRate')<=1);
-  assert.ok(elapsed===0 ? run('trafficPlaybackRate')>.99 : run('trafficPlaybackRate')<.051);
- }
-});
 test('departures and replacements appear only at their authoritative frame, with shortest-turn interpolation',()=>{
  const {run}=fixture();
  run(`trafficFrames[0].vehicles[0][3]=350;
@@ -277,27 +252,38 @@ test('traffic redraw updates the learned rate without rebuilding the hour slider
  run(html.slice(html.indexOf('function renderTraffic()'),html.indexOf('// ---- meshes')));
  run('DATA.api=true;renderTraffic()');
  const slider=fields.hour;
- assert.match(fields['traffic-playback-rate'].textContent,/0.25×/);
+ assert.match(fields['traffic-playback-rate'].textContent,/1×/);
  run('trafficPlaybackRate=.6;ui.hour=9;ui.roadTool="crash";ui.crashes.add(0);renderTraffic()');
  assert.equal(headerWrites,1);
  assert.equal(fields.hour,slider);
  assert.equal(slider.value,9);
- assert.match(fields['traffic-playback-rate'].textContent,/0.60×/);
+ assert.match(fields['traffic-playback-rate'].textContent,/1×/);
  assert.match(fields['traffic-controls'].innerHTML,/data-road-tool="close"/);
  assert.match(fields['traffic-controls'].innerHTML,/data-road-tool="crash" aria-pressed="true"/);
  assert.match(fields['traffic-controls'].innerHTML,/data-road-clear/);
+});
+test('cars near the detail cut-off keep their model instead of flickering',()=>{
+ const context=vm.createContext({Math,trafficNetwork:null,hash01:()=>.1,metresBetween:(a,b)=>Math.abs(a[0]-b[0])});
+ vm.runInContext(html.slice(html.indexOf('function carDetail('),html.indexOf('function carLayers(')),context);
+ const kind=(c,zoom,d)=>{c.pose={position:[d,0]};return vm.runInContext('carDetail',context)(c,zoom,[0,0]);};
+ const c={key:'k'};
+ assert.equal(kind(c,17,440),'simple');
+ assert.equal(kind(c,17,400),'sedan');
+ assert.equal(kind(c,17,460),'sedan');
+ assert.equal(kind(c,16.4,460),'sedan');
+ assert.equal(kind(c,17,500),'simple');
+ assert.equal(kind(c,16.4,100),'simple');
 });
 test('detail levels preserve full represented fleet and imported models',()=>{
  assert.match(html,/importedCarMesh\(kind,/);
  assert.match(html,/for \(const c of cars\) \{/);
  assert.equal(Number(html.match(/const CAR_SPEEDUP = ([0-9.]+)/)[1]),1);
- assert.equal(Number(html.match(/const TRAFFIC_INITIAL_RATE = ([0-9.]+)/)[1]),.25);
- assert.match(html,/if \(zoom < 16.5/);
+ assert.equal(Number(html.match(/const TRAFFIC_INITIAL_RATE = ([0-9.]+)/)[1]),1);
 });
 
 function roadScene() {
  const context=vm.createContext({Math,metresBetween:(a,b)=>Math.hypot((a[0]-b[0])*111320,(a[1]-b[1])*111320),
-   roadWidth:r=>r.width_m,ui:{},renderTraffic(){},render(){}});
+   roadWidth:r=>r.width_m,ui:{},renderTraffic(){},render(){},DATA:{traffic:{signals:[7]}}});
  vm.runInContext(html.slice(html.indexOf('function offsetRoadPath('),html.indexOf('let streetDetailsCache')),context);
  return s=>vm.runInContext(s,context);
 }
@@ -315,6 +301,34 @@ test('street markings respect lane widths, junction margins and one-way roads',(
  assert.equal(run('roadMarkings(r).length'),0);
  // Degenerate vertices and sharp bends must not produce infinite offsets.
  assert.ok(run('offsetRoadPath([[0,0],[0,0],[.001,0],[0,0]],3).flat().every(Number.isFinite)'));
+});
+
+test('stop lines cross only the lanes arriving at a signalled junction',()=>{
+ const run=roadScene();
+ const stops=()=>JSON.parse(run("JSON.stringify(roadMarkings(r).filter(m=>m.kind==='stop').map(m=>m.path.map(p=>[p[0]*111320,p[1]*111320])))"));
+ run('r={path:[[0,0],[.001,0]],width_m:12.8,oneway:0,u:3,v:7}');
+ let lines=stops();
+ assert.equal(lines.length,1);
+ // Arriving at v (east end): right-hand half, south of the centreline here.
+ assert.ok(lines[0].every(([x,y])=>x>90 && x<102 && y<=0 && y>-6.4));
+ run('r.u=7;r.v=3');lines=stops();
+ assert.ok(lines[0].every(([x,y])=>x>10 && x<20 && y>=0 && y<6.4));
+ run('r.oneway=1;r.u=3;r.v=7');lines=stops();
+ assert.ok(lines[0].some(([,y])=>y<-5) && lines[0].some(([,y])=>y>5));
+ run('r.oneway=-1');assert.equal(stops().length,0);
+});
+
+test('zebra stripes sit at mapped crossings, outside the junction, even on short links',()=>{
+ const run=roadScene();
+ run('r={path:[[0,0],[.001,0]],width_m:6.4,oneway:0,u:1,v:2,xing:[[50,"signals"],[0,"marked"]]}');
+ const zebra=JSON.parse(run("JSON.stringify(roadMarkings(r).filter(m=>m.kind==='zebra').map(m=>m.path.map(p=>p[0]*111320)))"));
+ assert.equal(zebra.length,12);
+ assert.ok(zebra.slice(0,6).every(xs=>xs.every(x=>x>48 && x<52)));
+ // The crossing tagged on the junction node moves just inside the road.
+ assert.ok(zebra.slice(6).every(xs=>xs.every(x=>x>2 && x<8)));
+ run('r.path=[[0,0],[.0001,0]];r.xing=[[5,"marked"]]');
+ assert.ok(run("roadMarkings(r).every(m=>m.kind==='zebra')"));
+ assert.ok(run("roadMarkings(r).length>0"));
 });
 
 test('vehicle paint changes body panels while preserving glass, wheels and geometry',()=>{
@@ -349,6 +363,9 @@ test('brake lights follow recorded slowing or stopped vehicles and speed interpo
  run('trafficPlaybackRate=1;trafficFrames[1].vehicles[0][4]=0;advanceCars(0);advanceCars(250);advanceCars(500)');
  assert.equal(run('cars[0].speed'),5);
  assert.equal(run('cars[0].braking'),true);
+ // Braking from 10 to 0 m/s in a second dips the nose (pitch > 0), capped at 2°.
+ const dip=run('cars[0].pose.orientation[0]');
+ assert.ok(dip>0 && dip<=2,`pitch ${dip}`);
  run('trafficFrames[1].vehicles[0][4]=12;advanceCars(500)');
  assert.equal(run('cars[0].braking'),false);
 });
@@ -370,7 +387,7 @@ test('close-up drawing culls only offscreen cars and preserves the full simulate
    calm:{matches:false},simpleTraffic:false,trafficDebug:true,$:()=>scene,
    metresBetween:(a,b)=>Math.hypot((a[0]-b[0])*90000,(a[1]-b[1])*111320),
    hash01:()=>.4,photoreal:()=>false,SOFT:{},mesh:()=>({}),importedCarMesh:()=>({}),
-   carMesh(){},carShadowMesh(){},carBrakeMesh(){},
+   carMesh(){},carShadowMesh(){},carBrakeMesh(){},nightLevel:()=>0,
    deck:{SimpleMeshLayer:class {constructor(props){this.props=props;}}}});
  run(html.slice(html.indexOf('const CAR_PAINT ='),html.indexOf('function setTraffic(on)')));
  run(`advanceCars=()=>{};cars=[['near',35,33],['edge',35.0025,33],['far',36,33]].map(([key,x,y])=>

@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": {"three":"0.180.0","three-mesh-bvh":"0.9.2","esbuild":"0.25.10"}
+}

@@ -8,9 +8,9 @@ from dynacity.traffic_sumo import Simulation, Trip, runtime
 def test_comparison_counts_include_unfinished_trips_and_ignore_internal_roads():
     """Known subscription samples verify comparison accounting without optional binaries."""
     from types import SimpleNamespace as NS
-    constants = NS(VAR_POSITION=1, VAR_ANGLE=2, VAR_SPEED=3, VAR_ROAD_ID=4, VAR_LANE_INDEX=5)
+    constants = NS(VAR_POSITION=1, VAR_ANGLE=2, VAR_SPEED=3, VAR_ROAD_ID=4, VAR_LANE_INDEX=5, VAR_SIGNALS=6)
     states = {
-        'a': {1:(733000,3750000), 2:90, 3:0, 4:'1:1', 5:0},
+        'a': {1:(733000,3750000), 2:90, 3:0, 4:'1:1', 5:0, 6:2},
         'b': {1:(733010,3750000), 2:90, 3:6, 4:':junction_0', 5:0},
         'c': {1:(733020,3750000), 2:90, 3:0.05, 4:'2:-1', 5:0},
     }
@@ -38,6 +38,8 @@ def test_comparison_counts_include_unfinished_trips_and_ignore_internal_roads():
     assert m['overdue'] == 1
     assert m['paired_arrivals'] == 1
     assert m['mean_completed_delay_s'] == 2
+    # Left indicator on 'a'; vehicles reporting no bits read as 0.
+    assert {v[0]: v[8] for v in frame['vehicles']} == {'a': 2, 'b': 0, 'c': 0}
 
 
 def test_unstick_moves_only_free_gridlocked_front_cars():
@@ -105,6 +107,28 @@ def assert_accounting(frame):
     assert m['total'] == b['active'] + b['pending'] + b['arrived']
     assert 0 <= b['stopped'] <= b['active']
     assert m['stopped'] == sum(v[4] < 0.1 for v in frame['vehicles'])
+    # SUMO's light bits ride along for drawing indicators.
+    assert all(isinstance(v[8], int) and v[8] >= 0 for v in frame['vehicles'])
+
+
+def test_replay_samples_each_step_and_keeps_junction_safety(simulation, network):
+    from dynacity.traffic_sumo import JUNCTION_BLOCKER_S, IMPATIENCE_S
+    assert JUNCTION_BLOCKER_S == -1
+    assert IMPATIENCE_S == 0
+    # Any old gridlock relocation call would turn this into an immediate failure.
+    simulation.unstick = lambda *args: pytest.fail('Replay must not relocate cars')
+    original_frame = simulation.frame
+    def checked_frame():
+        assert simulation.connections[0].simulation.getCollidingVehiclesNumber() == 0
+        return original_frame()
+    simulation.frame = checked_frame
+    result = simulation.advance(road_events(network), 2)
+    times = [f['time_s'] for f in result['frames']]
+    assert len(times) == 11
+    assert np.allclose(np.diff(times), .2)
+    for frame in result['frames']:
+        assert_accounting(frame)
+    assert simulation.connections[0].simulation.getCollidingVehiclesNumber() == 0
 
 
 @pytest.mark.parametrize('oneway', [1, -1, 0])
@@ -381,3 +405,23 @@ def test_new_entries_reroute_around_an_existing_interior_closure(network):
                 assert_accounting(frame)
         assert result['frames'][-1]['metrics']['total']>0
     finally: sim.close()
+
+
+def test_route_setup_keeps_child_environment_after_worker_threads_exit():
+    """pyproj empties the environment when its importing thread exits; the routes import it up front."""
+    import subprocess
+    import sys
+    pytest.importorskip("sumolib")
+    script = (
+        "import subprocess, threading\n"
+        "from fastapi import FastAPI\n"
+        "from dynacity.traffic_sumo import install_routes\n"
+        "install_routes(FastAPI(), None, None)\n"
+        "t = threading.Thread(target=lambda: __import__('sumolib')); t.start(); t.join()\n"
+        "out = subprocess.run(['/usr/bin/env'], capture_output=True, text=True).stdout\n"
+        "print(sum('=' in line for line in out.splitlines()))\n"
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120,
+                            env={"PATH": "/usr/bin:/bin", "DYNACITY_TEST_MARKER": "1", "HOME": "/tmp"})
+    assert result.returncode == 0, result.stderr
+    assert int(result.stdout.split()[-1]) >= 3

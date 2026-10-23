@@ -46,7 +46,6 @@ from .contracts import ForecastRequest, ForecastResult, ScenarioSpec, UrbanState
 from .engine import ForecastEngine
 from .evidence import EvidenceBundle, EvidenceRegistry, freeze_bundle, verify_bundle
 from .features import extract_building_features, load_points
-from .google_tiles import KEY_VARIABLE as MAPS_KEY_VARIABLE, GoogleTilesProxy
 from .las import (
     LASHeader,
     classification_sample,
@@ -443,13 +442,9 @@ def command_serve(args: argparse.Namespace) -> None:
             raise SystemExit("--point-cloud-dir requires a loopback host for private local viewing")
         from .point_cloud import PointCloudView
         point_cloud = PointCloudView.load(args.point_cloud_dir)
-    viewer_html = snapshot = baseline = tiles = None
-    if args.basemap == "google":
-        tiles = GoogleTilesProxy(sessions=RequestBudget(
-            total=args.tiles_session_limit, per_minute=10, what="photorealistic map sessions"
-        ))
-        if not tiles.api_key:
-            raise SystemExit(f"--basemap google needs {MAPS_KEY_VARIABLE} (a Google Maps key with the Map Tiles API)")
+    if args.beirut_overlay_dir and args.host not in {"127.0.0.1", "::1", "localhost"}:
+        raise SystemExit("--beirut-overlay-dir requires a loopback host for private local viewing")
+    viewer_html = snapshot = baseline = None
     ground = GroundModel.load(args.terrain) if args.terrain else None
     traffic = TrafficModel.load(args.traffic) if args.traffic else None
     if args.mobility_inputs:
@@ -498,12 +493,12 @@ def command_serve(args: argparse.Namespace) -> None:
         llm_budget=RequestBudget(
             total=args.llm_request_limit, per_minute=args.llm_requests_per_minute, what="language-model requests"
         ),
-        tiles_proxy=tiles,
         viewer_traffic=traffic,
         flood_pilot=PilotBundle.model_validate(_json(args.flood_pilot)) if args.flood_pilot else None,
         flood_context=flood_context,
         flood_jobs=flood_jobs,
         point_cloud=point_cloud,
+        beirut_overlay_dir=Path(args.beirut_overlay_dir) if args.beirut_overlay_dir else None,
     )
     print(f"language-model requests capped at {args.llm_request_limit} per run, "
           f"{args.llm_requests_per_minute} a minute")
@@ -767,19 +762,19 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--forecast")
     serve.add_argument("--evidence")
     serve.add_argument("--terrain", help="ground model from fetch-terrain; floods then follow it")
+    serve.add_argument("--beirut-overlay-dir", help="private prepared Beirut 001 / BBED overlay directory")
     serve.add_argument("--point-cloud-dir", help="private export-point-cloud directory for local RGB point viewing")
     serve.add_argument("--flood-pilot", help="private neighborhood model-output bundle JSON; separate from illustrative hazards")
     serve.add_argument("--flood-context", help="verified private real-input-handoff.json for local survey mapping")
     serve.add_argument("--flood-runs", help="private directory outside Git for local ANUGA input packages and runs")
     serve.add_argument("--traffic", help="traffic model from build-traffic; disasters then close roads")
     serve.add_argument("--mobility-inputs", help="private mobility evidence JSON for the traffic pilot")
-    serve.add_argument("--basemap", choices=["carto", "google", "none"], default="carto")
+    serve.add_argument("--basemap", choices=["carto", "none"], default="carto")
     serve.add_argument("--provider", choices=["anthropic", "gemini"])
     serve.add_argument("--llm-model")
     # Caps on paid calls, so an exposed server has a known worst-case bill.
     serve.add_argument("--llm-request-limit", type=int, default=300)
     serve.add_argument("--llm-requests-per-minute", type=int, default=12)
-    serve.add_argument("--tiles-session-limit", type=int, default=100)
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8000)
     serve.set_defaults(func=command_serve)

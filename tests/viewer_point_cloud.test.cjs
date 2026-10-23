@@ -3,7 +3,7 @@ const html=fs.readFileSync(`${__dirname}/../src/dynacity/viewer_template.html`,'
 test('road alignment translates only display Z once across visibility toggles',async()=>{
  const original=new Float64Array([35.51,33.89,10,35.52,33.90,12]);
  const nodes=new Map(),location={hash:'#lens=observed'};
- const context=vm.createContext({URLSearchParams,location,render:()=>{},attribution:()=>'',
+ const context=vm.createContext({DATA:{},URLSearchParams,location,render:()=>{},attribution:()=>'',
   history:{replaceState:(_,__,hash)=>location.hash=hash},
   $:id=>{if(!nodes.has(id))nodes.set(id,{});return nodes.get(id)},
   fetch:async url=>({ok:true,arrayBuffer:async()=>url.endsWith('positions')?original.slice().buffer:new Uint8Array([1,2,3,4,5,6]).buffer})});

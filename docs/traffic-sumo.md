@@ -1,6 +1,6 @@
 # Destination traffic and SUMO replay
 
-The traffic adapter (`src/dynacity/traffic_sumo.py`) exports the existing road graph to SUMO, generates an initial fleet of destination-based trips, optionally adds continuous boundary entries, and advances two independent SUMO runs: the scenario and an identical undisrupted baseline. The viewer enables continuous entries. It draws scenario TraCI positions, headings and lanes, interpolating one-second samples (with 0.2-second simulation steps) at adaptive playback up to 1×, slowing when delivery falls behind. All active vehicles remain in replay; only offscreen drawing is culled. Insertion queues and completed arrivals are counted separately.
+The traffic adapter (`src/dynacity/traffic_sumo.py`) exports the existing road graph to SUMO, generates an initial fleet of destination-based trips, optionally adds continuous boundary entries, and advances two independent SUMO runs: the scenario and an identical undisrupted baseline. The viewer enables continuous entries. It draws scenario TraCI positions, headings and lanes, interpolating 0.2-second samples at 1× playback, pausing when delivery falls behind. All active vehicles remain in replay; only offscreen drawing is culled. Insertion queues and completed arrivals are counted separately.
 
 This integration follows the inspected God's Plan reference at commit `23997b0482f8ad2cd94386b622f029ca5842c8c1`: its `frontend/src/babylon/traffic.ts` draws TraCI tracks and `backend/cityshift/live/network.py` updates lane permissions, reroutes to the existing destination and retains vehicles without detours. No reference source was copied.
 
@@ -38,8 +38,7 @@ The existing Kenney sedan/SUV geometry now supports stable body-paint variations
 contact shadows and brake lamps. Glass, tyres and original light lenses retain
 their source colours. Lamps indicate sampled deceleration/stops, not a separate
 driver-intent prediction. Sampled positions and headings are still authoritative;
-interpolation does not create intermediate lane paths or remove one-second
-sampling limitations at tight turns.
+interpolation does not create intermediate lane paths or eliminate all sampling limitations at tight turns.
 
 Replay caches per-frame identity matching and mutates existing pose arrays during
 screen refreshes. Close-up drawing culls cars outside the viewport with a 100 m
@@ -51,7 +50,7 @@ cars from drawn cars. Real-time citywide throughput is still a measurement quest
 - `POST /v1/viewer/traffic/simulation/{key}`: apply current disruptions and advance this same fleet.
 - `DELETE /v1/viewer/traffic/simulation/{key}`: close both SUMO processes.
 
-Responses contain `frames`, an assumptions statement, and the session key on creation. Each frame contains `time_s`, vehicle rows `[id, longitude, latitude, SUMO_angle, speed_mps, edge_id, lane_index]`, and metrics. Internal junction positions are returned too; cars do not jump between street endpoints. The viewer fetches two-second buffers, pauses when exhausted, and never extrapolates beyond SUMO data. Closure commands take effect at the next simulated buffer boundary (up to two seconds of visible buffered traffic). Changing the hour starts a new fleet; toggling detail does not.
+Responses contain `frames`, an assumptions statement, and the session key on creation. Each frame contains `time_s`, vehicle rows `[id, longitude, latitude, SUMO_angle, speed_mps, edge_id, lane_index]`, and metrics. Internal junction positions are returned too; cars do not jump between street endpoints. The viewer fetches two-second buffers, pauses when exhausted, and never extrapolates beyond SUMO data. The viewer prefetches when fewer than four simulated seconds remain; closure commands take effect at the next server request, after already buffered traffic has played. Changing the hour starts a new fleet; toggling detail does not.
 
 Sessions are limited to four per server worker and expire after two idle minutes when the next session is created. Shutdown closes all sessions. Use a single API worker, since session storage is process-local. Closing Traffic releases the session. This is a local pilot API, not an authenticated multi-user simulation service.
 
@@ -111,9 +110,14 @@ flags active crashes or hazards so a mixed scenario is not presented as a pure
 pedestrianisation trial. Old API responses without baseline metrics show no invented
 comparison results.
 
+### Bridges and tunnels
+
+Each road keeps its OSM vertical level (`TrafficModel.level`, from `layer`, else 1 for `bridge`, -1 for `tunnel`); the page receives it as `lvl` on roads that are not at grade. In the 23 October 2026 extract 132 road pieces are bridges at level 1, 3 at level 2 and 63 are tunnels, mostly the motorway flyovers (Fouad Chéhab, Charles Hélou, the port interchange) and the Saëb Salam and Corniche underpasses. No bridge shares a node mid-span with a road below it, so SUMO already keeps the levels apart; the level is used only for drawing. OSM holds no deck heights, so the viewer draws each level 6 m up, reached over 40 m from any end where the bridge meets a lower road, with a soft shadow on the ground beneath. Cars on a bridge ride at its height; cars in a tunnel are not drawn but stay in every metric. Tunnels are drawn faint, with no pavement or markings.
+
 ### Gridlock
 
-Without intervention the Beirut network locks within the first half minute: cars stall inside junction boxes or wait on full exit roads in cycles that never clear, and at 08:00 about 6,000 cars were still standing after ten simulated minutes. Three measures keep it moving. SUMO lets cross traffic ignore a car that has blocked a junction for 20 s (`--ignore-junction-blocker`) and lets a car waiting 30 s accept smaller gaps (`--time-to-impatience`). The adapter's gridlock breaker (`Simulation.unstick`) then takes any car that has stood 120 s while first on its lane and places it at the start of the nearest of its next five roads with 7.5 m free, as SUMO's teleport would. SUMO's own teleport stays off because it would also move cars a closure holds, and a closed lane accepts no stop that could exempt them. The breaker skips cars held or blocked by a closure and never searches past a closed road. In ten simulated minutes it moved 456 cars at 08:00 and 869 at 17:00, about 1.5–2% of trips; one and three cars respectively had stood longer than five minutes at the end, and a five-road closure kept all 734 held cars with none entering.
+Replay preserves junction blocking and disables time-based impatience. Junction collision checking is enabled. The adapter no longer calls the gridlock relocation helper, and SUMO teleportation remains disabled. Cars queue rather than being moved through occupied junctions or relocated to downstream roads. Gridlock can therefore persist where the assumed network, controls or demand are inconsistent; it must be addressed in those inputs rather than hidden by moving vehicles. Collision warnings are diagnostic, not proof of collision-free traffic.
+
 
 Clipping the network at the map edge leaves stub entry roads, some only a few metres long, where a car cannot be inserted. Boundary inflow trips start on the first road of their route at least 60 m long (`MIN_ENTRY_M`). The boundary queue still grows: the busy entry trunks are congested back to the map edge, which stands for queues outside the modelled area.
 
@@ -136,7 +140,7 @@ Metrics use exactly the displayed fleet, without extrapolation to citywide vehic
 - `rerouted` counts distinct vehicles whose SUMO route changed, not commands issued.
 - `stopped_on_closed` counts vehicles held within a newly closed edge.
 - `no_detour` counts active vehicles whose remaining route still contains a prohibited road; pending trips remain in `pending`.
-- `paired_arrivals` counts trips completed in both runs; `mean_completed_delay_s` is their scenario arrival time minus baseline arrival time, observed at one-second sample boundaries. It can be negative and is not an estimate for unfinished trips.
+- `paired_arrivals` counts trips completed in both runs; `mean_completed_delay_s` is their scenario arrival time minus baseline arrival time, observed at 0.2-second sample boundaries. It can be negative and is not an estimate for unfinished trips.
 - `overdue` counts trips that arrived in baseline but remain unfinished in the scenario.
 
 Completed delay has survivor bias while blocked trips are unfinished, so overdue and no-detour counts must be read alongside it. The older `/v1/viewer/traffic` static assignment remains for closure/slowdown road overlays and offline scenario summaries; it is separate sampled-trip sensitivity analysis. While Traffic is enabled, the viewer presents SUMO fleet metrics instead of those static trip counts. Purple overlays while Traffic is enabled count rerouted vehicles on their actual current road, rather than sampled static detour assignment. Road colors still show historical hourly medians, not instantaneous SUMO lane speeds.

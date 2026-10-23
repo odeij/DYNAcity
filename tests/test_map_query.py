@@ -1,12 +1,9 @@
-import io
 import json
-from urllib.error import HTTPError
 
 import pytest
 from fastapi.testclient import TestClient
 
 from dynacity.contracts import EvidenceLevel, ForecastResult, ObjectTransitionForecast
-from dynacity.google_tiles import GoogleTilesProxy, TilesError
 from dynacity.limits import RequestBudget
 from dynacity.map_query import MapQuery, ask_map, check_query, run_query
 from dynacity.providers import UNAVAILABLE
@@ -154,56 +151,6 @@ def test_budget_per_minute_window_slides():
     assert "a minute" in budget.take()
     now[0] = 61.0
     assert budget.take() is None
-
-
-class FakeResponse(io.BytesIO):
-    headers = {"Content-Type": "application/json"}
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-
-def test_tiles_proxy_adds_key_server_side_and_drops_browser_key():
-    seen = []
-
-    def opener(request, timeout):
-        seen.append(request)
-        return FakeResponse(b'{"root": {}}')
-
-    proxy = GoogleTilesProxy("secret-key", opener=opener)
-    tile = proxy.fetch("v1/3dtiles/datasets/abc/files/x.json", {"session": "s1", "key": "from-browser"})
-    assert tile.body == b'{"root": {}}'
-    request = seen[0]
-    assert request.full_url == "https://tile.googleapis.com/v1/3dtiles/datasets/abc/files/x.json?session=s1"
-    assert request.get_header("X-goog-api-key") == "secret-key"
-
-
-def test_tiles_proxy_refuses_other_paths_missing_key_and_extra_sessions():
-    proxy = GoogleTilesProxy("k", sessions=RequestBudget(total=1), opener=lambda r, timeout: FakeResponse(b"{}"))
-    for bad in ("v1/other/x", "v1/3dtiles/../../x", "https://evil.example/v1/3dtiles/x"):
-        with pytest.raises(TilesError) as exc:
-            proxy.fetch(bad, {})
-        assert exc.value.status == 404
-    proxy.fetch("v1/3dtiles/root.json", {})
-    with pytest.raises(TilesError) as exc:
-        proxy.fetch("v1/3dtiles/root.json", {})
-    assert exc.value.status == 429
-    with pytest.raises(TilesError) as exc:
-        GoogleTilesProxy("").fetch("v1/3dtiles/root.json", {})
-    assert exc.value.status == 503
-
-
-def test_tiles_endpoint_passes_google_errors_through():
-    def opener(request, timeout):
-        raise HTTPError(request.full_url, 403, "Forbidden", {}, io.BytesIO(b"Map Tiles API has not been used"))
-
-    client = TestClient(create_app(engine_fixture(), tiles_proxy=GoogleTilesProxy("secret-xyz", opener=opener)))
-    response = client.get("/v1/3dtiles/root.json")
-    assert response.status_code == 403 and "Map Tiles API" in response.json()["detail"]
-    assert "secret-xyz" not in json.dumps(response.json())
 
 
 def test_answer_text_names_what_was_left_out():

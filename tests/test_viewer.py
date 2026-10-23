@@ -47,7 +47,9 @@ def test_payload_joins_geometry_to_states_in_lonlat(bbed_collection):
     (west, south), (east, north) = payload["bounds"]
     assert west < east and south < north
     assert payload["basemap"]["context_tiles"].endswith(".mvt")
-    assert "{z}" in payload["basemap"]["satellite_tiles"]
+    imagery = payload["basemap"]["imagery"]
+    assert len(imagery) > 1 and all(im["label"] and im["attribution"] for im in imagery)
+    assert all("{z}" in layer["tiles"] for im in imagery for layer in im["layers"])
     assert set(payload["forecast"]["p"]) == {o.object_id for o in snapshot.objects}
 
 
@@ -106,18 +108,18 @@ def test_served_viewer_runs_compile_and_forecast_loop(bbed_collection):
     assert body["forecast"]["evidence_level"] == "assumption_based_scenario"
 
 
-def test_google_basemap_is_served_only_and_never_carries_the_key(bbed_collection, monkeypatch):
-    monkeypatch.setenv("GOOGLE_MAPS_API_KEY", "secret-maps-key")
+def test_google_experiment_removed(bbed_collection):
     snapshot = snapshot_for(bbed_collection)
-    with pytest.raises(ValueError, match="dynacity serve"):
-        build_viewer_payload(bbed_collection, snapshot, basemap="google")
-    payload = build_viewer_payload(bbed_collection, snapshot, bau(snapshot), api=True, basemap="google")
-    assert payload["basemap"]["tiles_3d"] == "/v1/3dtiles/root.json"
+    with pytest.raises(ValueError, match="unknown basemap"):
+        build_viewer_payload(bbed_collection, snapshot, api=True, basemap="google")
+    payload = build_viewer_payload(bbed_collection, snapshot, bau(snapshot), api=True)
     page = render_viewer(payload)
-    assert "secret-maps-key" not in page
-    assert 'id="mode"' in page and "/v1/viewer/ask" in page
-    with pytest.raises(SystemExit):
-        main(["export-viewer", "--bbed", "b", "--snapshot", "s", "--output", "o", "--basemap", "google"])
+    assert "earth_3d" not in payload
+    assert 'id="view-earth"' not in page
+    assert '/v1/3dtiles/' not in page
+    client = TestClient(create_app(engine_fixture()))
+    assert client.get('/v1/3dtiles/root.json').status_code == 404
+    assert client.get('/v1/maps/status').status_code == 404
 
 
 def test_viewer_routes_absent_without_viewer_mode():

@@ -153,7 +153,12 @@ No accepted local phase plan, cycle length, offset, movement mapping or current
 operational-status record was obtained. An earlier bounded query for OSM signal
 and crossing nodes in an approximate Mar Mikhael box timed out. The citywide road
 query on 23 October 2026 did return signal nodes (see the table above); crossing
-nodes were not requested. Missing mapping is still not evidence of absence.
+nodes were not requested. Of its 186 signal nodes, 110 also carry a `crossing`
+tag (103 `traffic_signals`, 6 `uncontrolled`, 1 `unmarked`); the viewer draws the
+109 painted ones as zebra stripes (`traffic.road_crossings`). The road query now
+also requests `highway=crossing` nodes, so a re-fetch adds crossings without
+signals. These are drawn only; they do not change SUMO behaviour. Missing
+mapping is still not evidence of absence.
 
 Even a successful OSM signal-location query would not establish present-day
 operation or the phase timing. Each accepted junction needs dated movement-level

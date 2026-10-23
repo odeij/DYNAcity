@@ -13,10 +13,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Any, Literal
+from pathlib import Path
 import re
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response, FileResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .contracts import ForecastRequest, ForecastResult, HazardEvent, HazardKind, ScenarioSpec, UrbanStateSnapshot
@@ -28,7 +29,6 @@ from .flood_pilot import (
     evaluate_planning_bundle, evaluate_observation_payload, pilot_map_geometry,
 )
 from .evidence import EvidenceBundle, verify_bundle
-from .google_tiles import GoogleTilesProxy, TilesError
 from .limits import RequestBudget
 from .map_query import ask_map
 from .planning import PlanningRequest, PlanningResult, plan
@@ -108,12 +108,12 @@ def create_app(
     viewer_forecast: ForecastResult | None = None,
     viewer_ground: GroundModel | None = None,
     llm_budget: RequestBudget | None = None,
-    tiles_proxy: GoogleTilesProxy | None = None,
     viewer_traffic: TrafficModel | None = None,
     flood_pilot: PilotBundle | None = None,
     flood_context: dict | None = None,
     flood_jobs: Any | None = None,
     point_cloud: Any | None = None,
+    beirut_overlay_dir: Path | None = None,
 ) -> FastAPI:
     def spend_llm_call() -> None:
         # Checked before any model call; a refused request costs nothing.
@@ -377,6 +377,20 @@ def create_app(
         return Response(content=getattr(point_cloud, buffer), media_type="application/octet-stream",
                         headers={"Cache-Control": "private, no-store"})
 
+    @app.get("/v1/beirut-overlay")
+    def beirut_overlay_status():
+        return {"available": beirut_overlay_dir is not None}
+
+    @app.get("/v1/beirut-overlay/{asset}")
+    def beirut_overlay_asset(asset: str):
+        allowed = {"data.json", "indices.bin", "map-positions.bin", "map-normals.bin", "map-picking.bin"}
+        if beirut_overlay_dir is None or asset not in allowed:
+            raise HTTPException(status_code=404, detail="Overlay asset unavailable")
+        path = Path(beirut_overlay_dir) / asset
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Overlay asset unavailable")
+        return FileResponse(path, media_type="application/json" if asset.endswith('.json') else "application/octet-stream", headers={"Cache-Control": "private, no-store"})
+
     # Viewer mode: the 3D page is served from the same origin as the API, and
     # scenarios run against the snapshot held here. The browser only ever sends
     # prose, so per-object features never round-trip through the page.
@@ -507,17 +521,6 @@ def create_app(
             except RuntimeError as exc:
                 raise HTTPException(status_code=503, detail=str(exc)) from exc
             return result.model_dump(mode="json")
-
-    # Photorealistic basemap: Google 3D Tiles fetched through this server so
-    # the Maps key never reaches the browser (see google_tiles).
-    if tiles_proxy is not None:
-        @app.get("/v1/3dtiles/{path:path}", include_in_schema=False)
-        def google_3d_tiles(path: str, request: Request) -> Response:
-            try:
-                tile = tiles_proxy.fetch(f"v1/3dtiles/{path}", dict(request.query_params))
-            except TilesError as exc:
-                raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
-            return Response(content=tile.body, media_type=tile.content_type, headers={"Cache-Control": "no-store"})
 
     return app
 

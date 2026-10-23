@@ -18,7 +18,9 @@ from dynacity.traffic import (
     build_traffic_model,
     road_disruption,
     road_events,
+    road_crossings,
     road_graph,
+    road_level,
     traffic_impact,
     traffic_payload,
 )
@@ -161,6 +163,58 @@ def test_signals_snap_to_junctions_and_turn_bans_resolve_to_roads():
     assert graph["turn_bans"] == [(spur, via, middle_east)]
     no_signals = {"elements": [e for e in overpass()["elements"] if e["type"] != "node"]}
     assert road_graph(no_signals, CRS)["signals"] is None
+
+
+def test_mapped_painted_crossings_snap_to_their_road():
+    def crossing(node: int, x: float, y: float, **tags) -> dict:
+        lon, lat = utm_to_lonlat(x, y, 36, True)
+        return {"type": "node", "id": node, "lat": lat, "lon": lon, "tags": tags}
+
+    elements = overpass()["elements"] + [
+        crossing(6001, X0 + 60, Y0 + 1, highway="crossing", crossing="uncontrolled"),
+        crossing(6002, X0 + 140, Y0, highway="traffic_signals", crossing="traffic_signals"),
+        crossing(6003, X0 + 80, Y0, highway="crossing", crossing="unmarked"),
+        crossing(6004, X0 + 100, Y0 + 60, highway="crossing"),  # off every road
+    ]
+    graph = road_graph({"elements": elements}, CRS)
+    first = next(i for i, w in enumerate(graph["way_id"]) if w == 1)
+    assert graph["crossings"] == [(first, 60.0, "marked"), (first, 140.0, "signals")]
+    # The plain signal fixtures carry no crossing tag, so roads without
+    # crossing nodes report none mapped rather than an empty list.
+    assert road_graph(overpass(), CRS)["crossings"] is None
+    assert road_crossings({"elements": []}, graph["geometry"], CRS) is None
+
+
+def test_crossings_and_signals_reach_the_page(model, tmp_path):
+    road = 0
+    model.crossings = [(road, 12.5, "marked")]
+    loaded = TrafficModel.load(_saved(model, tmp_path))
+    assert loaded.crossings == [(road, 12.5, "marked")]
+    payload = traffic_payload(loaded)
+    assert payload["roads"][road]["xing"] == [[12.5, "marked"]]
+    assert all("xing" not in r for r in payload["roads"][1:])
+    assert payload["signals"] == model.signals and payload["crossings_mapped"]
+
+
+def test_bridge_and_tunnel_levels_reach_the_page(model, tmp_path):
+    data = overpass()
+    tags = {e["id"]: e["tags"] for e in data["elements"] if e["type"] == "way"}
+    tags[3]["bridge"] = "yes"
+    tags[11].update({"bridge": "viaduct", "layer": "2"})
+    tags[12]["tunnel"] = "yes"
+    graph = road_graph(data, CRS)
+    level_of = {w: int(lvl) for w, lvl in zip(graph["way_id"], graph["level"], strict=True)}
+    assert (level_of[1], level_of[3], level_of[11], level_of[12]) == (0, 1, 2, -1)
+    assert road_level({"tunnel": "building_passage"}) == 0
+    assert road_level({"bridge": "yes", "layer": "x"}) == 1
+    model.level = np.zeros(len(model), dtype=np.int8)
+    model.level[0] = 1
+    loaded = TrafficModel.load(_saved(model, tmp_path))
+    roads = traffic_payload(loaded)["roads"]
+    assert roads[0]["lvl"] == 1 and all("lvl" not in r for r in roads[1:])
+    # A road file built before levels were kept still loads, with none drawn.
+    model.level = None
+    assert TrafficModel.load(_saved(model, tmp_path)).level is None
 
 
 def test_osm_signals_and_turn_bans_reach_the_simulator(model, tmp_path):

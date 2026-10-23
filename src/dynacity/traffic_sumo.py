@@ -35,7 +35,7 @@ ASSUMPTIONS = (
     "are identified separately. Vehicle dimensions and driving behaviour use SUMO class defaults, not local measurements. "
     "Optional boundary inflow uses estimated historical directional volumes and synthetic destinations; "
     "it is not measured origin-destination demand or a current demand forecast. "
-    "A car stuck at the front of a queue for two minutes is moved onto its next road; the count is reported."
+    "Junction blockers remain obstacles; gridlocked vehicles are not relocated and queues can persist."
 )
 
 
@@ -44,15 +44,11 @@ ASSUMPTIONS = (
 SPEED_CHECK_WARMUP_S = 60
 SPEED_CHECK_MIN_SAMPLES = 20
 
-# Junction behaviour. Without these, cars that block a junction box or wait
-# on a full exit road lock into cycles that never clear: at 08:00 about 6,000
-# cars were still stuck after ten minutes. A car blocking a junction for
-# JUNCTION_BLOCKER_S is ignored by cross traffic, a car waiting IMPATIENCE_S
-# accepts smaller gaps, and the front car of a queue standing UNSTICK_AFTER_S
-# is moved onto the next road of its route (`Simulation.unstick`). SUMO's own
-# teleport stays off: it cannot be kept away from cars a closure holds.
-JUNCTION_BLOCKER_S = 20
-IMPATIENCE_S = 30
+# Preserve junction right-of-way even during gridlock: never ignore blockers
+# or increase impatience with waiting time. Queues may persist on this assumed
+# network; hiding them by driving through occupied junctions is misleading.
+JUNCTION_BLOCKER_S = -1
+IMPATIENCE_S = 0
 UNSTICK_AFTER_S = 120
 # Free road needed to place an unstuck car (SUMO's default car length plus
 # gap), searched at most UNSTICK_REACH roads ahead along its route.
@@ -419,7 +415,7 @@ class Simulation:
             constants = self.traci.constants
             variables = (constants.VAR_POSITION, constants.VAR_ANGLE, constants.VAR_SPEED,
                          constants.VAR_ROAD_ID, constants.VAR_LANE_INDEX, constants.VAR_ROUTE_INDEX,
-                         constants.VAR_WAITING_TIME)
+                         constants.VAR_WAITING_TIME, constants.VAR_SIGNALS)
             self.variables = variables
             self.baseline_variables = (constants.VAR_SPEED, constants.VAR_WAITING_TIME)
             for kind in ('scenario', 'baseline'):
@@ -428,6 +424,7 @@ class Simulation:
                                   '--time-to-teleport', '-1', '--time-to-teleport.disconnected', '-1',
                                   '--ignore-junction-blocker', str(JUNCTION_BLOCKER_S),
                                   '--time-to-impatience', str(IMPATIENCE_S),
+                                  '--collision.check-junctions', 'true',
                                   '--collision.action', 'warn', '--no-step-log', 'true',
                                   '--duration-log.disable', 'true', '--no-warnings', 'true'], label=label,
                                  stdout=subprocess.DEVNULL)
@@ -613,7 +610,10 @@ class Simulation:
             vehicles.append([vid, round(lon, 7), round(lat, 7),
                              state[constants.VAR_ANGLE], state[constants.VAR_SPEED],
                              state[constants.VAR_ROAD_ID], state[constants.VAR_LANE_INDEX],
-                             self.type_for(vid) if hasattr(self, 'mixed') else 'DEFAULT_VEHTYPE'])
+                             self.type_for(vid) if hasattr(self, 'mixed') else 'DEFAULT_VEHTYPE',
+                             # SUMO's own light bits (1 right, 2 left indicator, 8 brake),
+                             # set by its turn and lane-change rules: drawn, not observed.
+                             int(state.get(constants.VAR_SIGNALS, 0))])
         active_ids = set(c.vehicle.getIDList())
         now = c.simulation.getTime()
         pending_ids = set(c.simulation.getPendingVehicles())
@@ -770,7 +770,7 @@ class Simulation:
             frames = [self.frame()] if include_initial else []
             remaining = round(seconds * 5)
             while remaining:
-                ticks = min(5, remaining)
+                ticks = 1
                 for vid,(_,trip) in list(self.entry_queue.items()):
                     route=self.entry_route(trip)
                     if route:
@@ -805,9 +805,8 @@ class Simulation:
                                         self.rerouted.add(trip.id)
                         self.future_entries.append((depart,trip))
                 for index, c in enumerate(self.connections):
-                    # SUMO still advances internally at 0.2 s. One TraCI call
-                    # returns the one-second sample and all arrival IDs since
-                    # the previous call, avoiding full-fleet decoding at 5 Hz.
+                    # Replay each 0.2 s integration step so interpolation cannot
+                    # shortcut a whole second of turning through a junction.
                     c.junction.unsubscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE,
                                                   self.context_radius)
                     c.simulationStep(c.simulation.getTime() + ticks * 0.2)
@@ -815,7 +814,8 @@ class Simulation:
                     c.junction.subscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE,
                                                 self.context_radius, variables)
                     self.arrivals[index].update({v: c.simulation.getTime() for v in c.simulation.getArrivedIDList()})
-                    self.unstick(index, c)
+                    # Keep queues in place; relocating a gridlocked car to a
+                    # later road creates visible jumps through other vehicles.
                 now=self.connections[0].simulation.getTime()
                 # SUMO can retain a departure exactly at the sample boundary
                 # for its next integration step. Do not count future demand as
@@ -839,6 +839,16 @@ def install_routes(app, model, snapshot, ground=None):
     from pydantic import BaseModel, Field, ConfigDict
     from .contracts import HazardEvent
     from .traffic import road_events, road_disruption, combine_disruptions
+
+    # sumolib imports pyproj, and pyproj (3.8) empties the process environment
+    # when the thread that first imported it exits. Requests run on worker
+    # threads that do exit, after which netconvert starts with no environment
+    # and segfaults, so every session after the first failed. Importing here,
+    # on the thread that builds the app, keeps those imports off the workers.
+    try:
+        runtime()
+    except RuntimeError:
+        pass  # SUMO missing: each request reports it.
 
     class Request(BaseModel):
         model_config = ConfigDict(extra='forbid')

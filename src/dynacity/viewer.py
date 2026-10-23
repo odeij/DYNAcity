@@ -21,14 +21,11 @@ so write it under `DYNACITY_ARTIFACT_ROOT`, not into the repository.
 With a basemap (the default), the page loads CARTO/OpenStreetMap tiles for
 streets, water, parks, and pale 3D context buildings, which tells that tile
 server the area being viewed. The satellite toggle does the same with Esri's
-World Imagery tiles, which are only requested once it is switched on.
+World Imagery tiles, or with dated 2020 Maxar scenes from OpenAerialMap when
+those are picked; imagery is only requested once it is switched on.
 `basemap="none"` keeps the page fully offline
 apart from the deck.gl script.
 
-`basemap="google"` (served pages only) streams Google Photorealistic 3D Tiles
-through the server's `/v1/3dtiles/` proxy, which holds the Maps key, and
-drapes the building colours onto that real 3D mesh. A static export cannot use
-it: the key would have to be written into the file.
 """
 
 from __future__ import annotations
@@ -68,23 +65,52 @@ ATTRIBUTION = (
 
 _PLACEHOLDER = "/*__DYNACITY_DATA__*/null"
 
-BASEMAPS: dict[str, dict[str, str] | None] = {
+def _oam_tiles(image: str, options: str = "") -> str:
+    """Tile URL for an OpenAerialMap image, from HOT's tiler directly.
+
+    OpenAerialMap's own tile links redirect here without a CORS header, so the
+    map's tile fetches would be blocked if the page used them. `options` are
+    extra tiler query parameters.
+    """
+    cog = f"https://oin-hotosm-temp.s3.us-east-1.amazonaws.com/{image}.tif"
+    return f"https://titiler.hotosm.org/cog/tiles/WebMercatorQuad/{{z}}/{{x}}/{{y}}@1x?url={cog}{options}"
+
+
+BASEMAPS: dict[str, dict[str, Any] | None] = {
     "carto": {
         "style_light": "https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json",
         "style_dark": "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
         # OpenStreetMap buildings with heights, drawn as pale 3D context.
         "context_tiles": "https://tiles-a.basemaps.cartocdn.com/vectortiles/carto.streets/v1/{z}/{x}/{y}.mvt",
         "attribution": "Basemap © CARTO, © OpenStreetMap contributors.",
-        # Optional colour imagery the page can swap in for the street basemap.
-        "satellite_tiles": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        "satellite_attribution": "Imagery © Esri, Maxar, Earthstar Geographics.",
-    },
-    # Photorealistic 3D Tiles via the server's proxy (see google_tiles.py).
-    # Terrain and buildings come from Google's mesh, so BBED footprints are
-    # draped onto it instead of extruded, and the page shows Google's credits.
-    "google": {
-        "tiles_3d": "/v1/3dtiles/root.json",
-        "attribution": "Google",
+        # Colour imagery the page can swap in for the street basemap; the first
+        # entry is the default. Each entry stacks its layers bottom to top, and
+        # `bounds` keeps a scene from requesting tiles outside its footprint.
+        "imagery": [
+            {
+                "label": "Recent · Esri",
+                "layers": [{"tiles": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", "maxzoom": 19}],
+                "attribution": "Imagery © Esri, Maxar, Earthstar Geographics.",
+            },
+            # Maxar Open Data scenes of the 2020 port blast, hosted by
+            # OpenAerialMap (CC BY-NC 4.0). Tiles take a second or two each.
+            {
+                "label": "Jul 2020 · before blast",
+                "layers": [{"tiles": _oam_tiles("5f3350077ef1c4000631d8cd/2/5f3350077ef1c4000631d8d0"), "maxzoom": 18, "bounds": [35.3914, 33.813922, 35.658469, 34.068934]}],
+                "attribution": "Imagery: Maxar Open Data, 31 Jul 2020, CC BY-NC 4.0, via OpenAerialMap.",
+            },
+            {
+                "label": "Aug 2020 · after blast",
+                "layers": [
+                    {"tiles": _oam_tiles("5f2b60d3b0052e00067dbae0/2/5f2b60d3b0052e00067dbae3"), "maxzoom": 18, "bounds": [35.382533, 33.753481, 35.653243, 34.023247]},
+                    # 12 cm drone orthophoto of the port area, 4 Aug 2020. It is
+                    # 16-bit with a black collar, which the tiler cannot write
+                    # as PNG edge tiles unless scaled to 8-bit and masked.
+                    {"tiles": _oam_tiles("5f2bd274b0052e00067dbaed/0/5f2bd274b0052e00067dbaee", "&rescale=0,65535&bidx=1&bidx=2&bidx=3&nodata=0"), "maxzoom": 20, "bounds": [35.515748, 33.897378, 35.524059, 33.904185]},
+                ],
+                "attribution": "Imagery: Maxar Open Data, 5 Aug 2020, CC BY-NC 4.0; port drone orthophoto 4 Aug 2020 by Rabih El Zein / GeoConor, CC BY 4.0; via OpenAerialMap.",
+            },
+        ],
     },
     "none": None,
 }
@@ -208,11 +234,6 @@ def build_viewer_payload(
 
     if basemap not in BASEMAPS:
         raise ValueError(f"unknown basemap {basemap!r}; choose from {sorted(BASEMAPS)}")
-    if basemap == "google" and not api:
-        raise ValueError(
-            "the google basemap needs `dynacity serve`, which keeps the Maps key on the server; "
-            "a static export would have to embed it"
-        )
     zone, north = _utm_zone(snapshot.crs)
 
     if forecast is not None and forecast.baseline_snapshot_id != snapshot.snapshot_id:

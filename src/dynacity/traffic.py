@@ -88,6 +88,11 @@ MIN_READINGS = 10
 # An OSM traffic signal this close to a junction controls it (signals are
 # often tagged on the approach, a few metres before the stop line).
 SIGNAL_SNAP_M = 25.0
+# An OSM crossing node sits on the road it crosses; this allows for rounding
+# and for a node on a parallel carriageway's centreline.
+CROSSING_SNAP_M = 6.0
+# OSM `crossing` values that say there is no painted crossing.
+UNMARKED_CROSSINGS = frozenset({"unmarked", "no", "informal"})
 # Shared by the SUMO exporter and the viewer's carriageway width.
 LANE_WIDTH_M = 3.2
 # Readings below this are phones standing still (parked, or the app left on
@@ -175,6 +180,13 @@ class TrafficModel:
     signals: list[int] | None = None
     # Movements OSM turn restrictions forbid, as (from road, via node, to road).
     turn_bans: list[tuple[int, int, int]] = field(default_factory=list)
+    # Painted crossings as (road, metres from its start, "signals" | "marked");
+    # None when the roads were fetched without crossing nodes. Drawn only.
+    crossings: list[tuple[int, float, str]] | None = None
+    # Vertical level from OSM per road: 1, 2 … for bridges, -1 … for tunnels,
+    # 0 at grade (`road_level`); None for road files built before this. Drawn
+    # only: SUMO joins roads at shared nodes, which bridges do not share.
+    level: np.ndarray | None = None
     mobility: Any = field(default=None, repr=False, compare=False)
     volume_reference: dict[str, dict[str, Any]] | None = None
     _graph_cache: dict = field(default_factory=dict, repr=False, compare=False)
@@ -196,6 +208,8 @@ class TrafficModel:
             "bus_routes": self.bus_routes,
             "signals": self.signals,
             "turn_bans": [list(ban) for ban in self.turn_bans],
+            "crossings": [list(c) for c in self.crossings] if self.crossings is not None else None,
+            "level": [int(x) for x in self.level] if self.level is not None else None,
             "volume_reference": self.volume_reference,
             "roads": [
                 {
@@ -241,6 +255,11 @@ class TrafficModel:
             bus_routes=payload.get("bus_routes", []),
             signals=payload.get("signals"),
             turn_bans=[tuple(ban) for ban in payload.get("turn_bans", [])],
+            crossings=(
+                [(int(i), float(d), str(kind)) for i, d, kind in payload["crossings"]]
+                if payload.get("crossings") is not None else None
+            ),
+            level=np.asarray(payload["level"], dtype=np.int8) if payload.get("level") is not None else None,
             volume_reference=payload.get("volume_reference"),
         )
 
@@ -282,14 +301,14 @@ def snapshot_extent(snapshot: UrbanStateSnapshot, margin_m: float) -> tuple[floa
 
 
 def overpass_query(bbox: tuple[float, float, float, float]) -> str:
-    """Drivable ways and traffic-signal nodes with geometry, then turn restrictions (members only)."""
+    """Drivable ways, traffic-signal and crossing nodes with geometry, then turn restrictions (members only)."""
 
     west, south, east, north = bbox
     classes = "|".join(ROAD_CLASSES)
     box = f"({south:.6f},{west:.6f},{north:.6f},{east:.6f})"
     return (
         f'[out:json][timeout:120];(way["highway"~"^({classes})$"]{box};'
-        f'node["highway"="traffic_signals"]{box};);out body geom;'
+        f'node["highway"~"^(traffic_signals|crossing)$"]{box};);out body geom;'
         f'relation["type"="restriction"]{box};out body;'
     )
 
@@ -348,6 +367,21 @@ def _road_name(tags: dict) -> str:
     return str(tags.get("name:en") or tags.get("name:fr") or tags.get("name") or "")
 
 
+def road_level(tags: dict) -> int:
+    """OSM vertical level of a way: its `layer`, else 1 for a bridge, -1 for a tunnel, else 0."""
+    try:
+        layer = int(float(tags.get("layer", 0)))
+    except ValueError:
+        layer = 0
+    if layer:
+        return layer
+    if tags.get("bridge", "no") != "no":
+        return 1
+    if tags.get("tunnel", "no") not in ("no", "building_passage"):
+        return -1
+    return 0
+
+
 def _signal_junctions(
     overpass: dict, index: dict[int, int], u: Sequence[int], v: Sequence[int],
     geometry: Sequence[Sequence[tuple[float, float]]], zone: int, north: bool,
@@ -388,6 +422,58 @@ def _signal_junctions(
         if gap.min() <= SIGNAL_SNAP_M:
             found.add(junctions[int(gap.argmin())])
     return sorted(found)
+
+
+def road_crossings(
+    overpass: dict, geometry: Sequence[Sequence[tuple[float, float]]], crs: str,
+) -> list[tuple[int, float, str]] | None:
+    """Painted pedestrian crossings as (road, metres from the road's start, kind); None when the JSON has none.
+
+    Read from `highway=crossing` nodes and from traffic-signal nodes that
+    also carry a `crossing` tag. Kind is "signals" for signal-controlled
+    crossings and "marked" otherwise. Crossings OSM records as unmarked are
+    left out, and so are nodes further than `CROSSING_SNAP_M` from any road
+    (a crossing on a footway or a service road this model does not keep).
+    Missing mapping is not evidence that a road has no crossing.
+    """
+
+    nodes = []
+    for e in overpass.get("elements", []):
+        tags = e.get("tags", {})
+        if e.get("type") != "node" or "lat" not in e:
+            continue
+        if tags.get("highway") == "crossing" or (tags.get("highway") == "traffic_signals" and "crossing" in tags):
+            nodes.append((e, tags))
+    if not nodes:
+        return None
+    starts, ends, owner, offset = [], [], [], []
+    for i, line in enumerate(geometry):
+        travelled = 0.0
+        for a, b in zip(line[:-1], line[1:], strict=True):
+            starts.append(a)
+            ends.append(b)
+            owner.append(i)
+            offset.append(travelled)
+            travelled += math.dist(a, b)
+    if not starts:
+        return []
+    a, b = np.asarray(starts, dtype=np.float64), np.asarray(ends, dtype=np.float64)
+    ab = b - a
+    length2 = np.maximum((ab ** 2).sum(axis=1), 1e-9)
+    zone, north = _utm_zone(crs)
+    found = []
+    for node, tags in nodes:
+        if str(tags.get("crossing", "")) in UNMARKED_CROSSINGS or tags.get("crossing:markings") == "no":
+            continue
+        point = np.asarray(lonlat_to_utm(node["lon"], node["lat"], zone, north))
+        t = np.clip(((point - a) * ab).sum(axis=1) / length2, 0.0, 1.0)
+        gap = np.linalg.norm(a + ab * t[:, None] - point, axis=1)
+        k = int(gap.argmin())
+        if gap[k] > CROSSING_SNAP_M:
+            continue
+        signalled = tags.get("highway") == "traffic_signals" or tags.get("crossing") == "traffic_signals"
+        found.append((owner[k], round(offset[k] + float(t[k]) * math.sqrt(length2[k]), 1), "signals" if signalled else "marked"))
+    return sorted(set(found))
 
 
 def _turn_bans(
@@ -455,6 +541,7 @@ def road_graph(overpass: dict, crs: str) -> dict[str, Any]:
             uses[node] = uses.get(node, 0) + 1
     index: dict[int, int] = {}
     geometry, u, v, oneway, highway, way_ids, names, lanes = [], [], [], [], [], [], [], []
+    levels = []
     for way in ways:
         nodes = way["nodes"]
         points = [lonlat_to_utm(p["lon"], p["lat"], zone, north) for p in way["geometry"]]
@@ -471,6 +558,7 @@ def road_graph(overpass: dict, crs: str) -> dict[str, Any]:
                     way_ids.append(int(way["id"]))
                     names.append(_road_name(way["tags"]))
                     lanes.append(_lanes_per_direction(way["tags"], oneway[-1]))
+                    levels.append(road_level(way["tags"]))
                 start = i
     lengths = [
         sum(math.dist(a, b) for a, b in zip(g[:-1], g[1:], strict=True)) for g in geometry
@@ -481,6 +569,8 @@ def road_graph(overpass: dict, crs: str) -> dict[str, Any]:
         "lanes": np.asarray(lanes, dtype=np.float64), "length_m": np.asarray(lengths, dtype=np.float64),
         "signals": _signal_junctions(overpass, index, u, v, geometry, zone, north),
         "turn_bans": _turn_bans(overpass, index, u, v, oneway, way_ids),
+        "crossings": road_crossings(overpass, geometry, crs),
+        "level": np.asarray(levels, dtype=np.int8),
     }
 
 
@@ -600,7 +690,8 @@ def build_traffic_model(
         length_m=graph["length_m"], oneway=graph["oneway"], highway=graph["highway"], way_id=graph["way_id"],
         speed_kmh=speed, free_kmh=speed.max(axis=1), readings=counts, estimated=estimated,
         name=graph["name"], class_hour_readings=class_hour, lanes=graph["lanes"],
-        signals=graph["signals"], turn_bans=graph["turn_bans"],
+        signals=graph["signals"], turn_bans=graph["turn_bans"], crossings=graph["crossings"],
+        level=graph["level"],
         bus_routes=(
             bus_routes_from_overpass(bus_overpass, snapshot_extent(snapshot, margin_m), overpass) if bus_overpass else []
         ),
@@ -1374,6 +1465,9 @@ def traffic_payload(model: TrafficModel) -> dict[str, Any]:
     lanes = lanes_of(model)
     widths = road_widths(model)
     factor = lane_factor(model)
+    crossings: dict[int, list[list[Any]]] = {}
+    for road, at, kind in model.crossings or []:
+        crossings.setdefault(road, []).append([at, kind])
     roads = []
     for i, line in enumerate(model.geometry):
         roads.append({
@@ -1392,6 +1486,12 @@ def traffic_payload(model: TrafficModel) -> dict[str, Any]:
             # Multiplier on the class flow for this road's lanes (counted classes).
             "qf": round(float(factor[i]), 2),
         })
+        if i in crossings:
+            # [metres from the path's start, "signals" | "marked"]
+            roads[-1]["xing"] = crossings[i]
+        if model.level is not None and model.level[i]:
+            # OSM level: >0 bridge, <0 tunnel; absent at grade.
+            roads[-1]["lvl"] = int(model.level[i])
     stations = match_stations(model) if model.name else []
     volumes = class_peak_volumes(model) if model.name else {}
     by_class = {}
@@ -1411,4 +1511,7 @@ def traffic_payload(model: TrafficModel) -> dict[str, Any]:
         # class's `ref_lanes`; a road's own figure is this × its `qf`.
         "flow": by_class,
         "volume_source": COUNT_SOURCE,
+        # Junctions (the roads' u/v) with an OSM traffic signal, for stop lines.
+        "signals": model.signals or [],
+        "crossings_mapped": model.crossings is not None,
     }

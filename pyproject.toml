@@ -20,6 +20,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+overlay = [
+  "rhino3dm>=8.35,<9",
+  "pyproj>=3.6,<4",
+  "scipy>=1.14,<2",
+]
 dev = [
   "httpx>=0.28,<1",
   "pytest>=8.3,<10",
