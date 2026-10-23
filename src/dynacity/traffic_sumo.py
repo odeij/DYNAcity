@@ -65,6 +65,18 @@ UNSTICK_REACH = 5
 # Inflow trips start on the first road of their route at least this long.
 MIN_ENTRY_M = 60.0
 
+# Trips that start inside the modelled area. The initial fleet stands for
+# cars already mid-trip: their remaining journeys average under a kilometre,
+# so on its own it drains within minutes and boundary entries alone cannot
+# replace it (08:00 fell from about 27,000 active cars to 3,500). New interior
+# trips start on roads in proportion to their estimated vehicles and go to a
+# destination drawn the same way at least INTERIOR_MIN_TRIP_M away in a
+# straight line, at the rate that replaces the initial fleet over one mean
+# trip time. The distance is a modelling assumption; no Beirut trip-length
+# data are loaded.
+INTERIOR_MIN_TRIP_M = 1000.0
+INTERIOR_SAMPLE_TRIPS = 150
+
 
 def trim_entry(route, length_of, min_length=MIN_ENTRY_M):
     """Drop leading stub roads so the route starts where a car fits; unchanged if none is long enough."""
@@ -191,16 +203,19 @@ def demand(model, net, hour, seed=42):
 
 
 class BoundaryInflow:
-    """Seeded Poisson entries on inward-facing network-fringe roads.
+    """Seeded Poisson entries on inward-facing network-fringe roads, plus
+    interior trips that keep the represented fleet from draining.
 
     This is a transparent demand assumption, not an observed OD matrix. The
     schedule is shared by both runs and never responds to scenario arrivals.
     """
-    def __init__(self, model, net, hour, seed):
+    def __init__(self, model, net, hour, seed, *, interior=True):
         self.net = net
         self.rng = random.Random(seed + 104729)
+        self.interior_rng = random.Random(seed + 7919)
         self.heap, self.pool, self.exits = [], {}, []
-        self.generated, self.expected_vph = 0, 0.0
+        self.interior_pool = {}
+        self.generated, self.expected_vph, self.interior_vph = 0, 0.0, 0.0
         (west, south), (east, north) = net.getBBoxXY()
         margin = max(25, min(east-west, north-south)*.03)
         flow = background_flow(model)[:, hour]
@@ -216,8 +231,58 @@ class BoundaryInflow:
             rate = float(flow[int(edge.getID().split(':')[0])])/3600
             if inward and math.isfinite(rate) and rate>0:
                 self.expected_vph += rate*3600
-                heapq.heappush(self.heap,(self.rng.expovariate(rate),edge.getID(),rate))
+                heapq.heappush(self.heap,(self.rng.expovariate(rate),'boundary',edge.getID(),rate))
         self.origins = len(self.heap)
+        if interior:
+            self._schedule_interior(model, hour)
+
+    def _schedule_interior(self, model, hour):
+        speed = np.maximum(3, model.speed_kmh[:, hour])
+        flow = background_flow(model)[:, hour]
+        edges = [e for e in sorted(self.net.getEdges(), key=lambda e: e.getID())]
+        index = [int(e.getID().split(':')[0]) for e in edges]
+        # Vehicles each road holds at this hour, as in `demand`.
+        on_road = np.nan_to_num(flow[index] * model.length_m[index] / 1000 / speed[index])
+        keep = on_road > 0
+        self.places = [e for e, k in zip(edges, keep) if k]
+        self.weights = on_road[keep].tolist()
+        self.centres = {e.getID(): e.getShape()[len(e.getShape()) // 2] for e in self.places}
+        fleet = float(on_road.sum())
+        if not self.places or fleet <= 0:
+            return
+        sample = self.interior_rng.choices(self.places, weights=self.weights, k=INTERIOR_SAMPLE_TRIPS)
+        seconds = []
+        for origin in sample:
+            route = self.interior_routes(origin.getID())[0]
+            i = [int(e.split(':')[0]) for e in route]
+            seconds.append(float((model.length_m[i] / (speed[i] / 3.6)).sum()))
+        # Replace the fleet once per mean trip time; never faster than once a minute.
+        total = fleet / max(60.0, float(np.mean(seconds)))
+        self.interior_vph = total * 3600
+        for edge, weight in zip(self.places, self.weights):
+            rate = total * weight / fleet
+            heapq.heappush(self.heap, (self.interior_rng.expovariate(rate), 'interior', edge.getID(), rate))
+
+    def interior_routes(self, edge_id):
+        """A few legal routes from this road to destinations at least `INTERIOR_MIN_TRIP_M` away."""
+        if edge_id not in self.interior_pool:
+            origin = self.net.getEdge(edge_id)
+            ox, oy = self.centres[edge_id]
+            paths = []
+            for _ in range(3):
+                best, best_d = None, -1.0
+                for target in self.interior_rng.choices(self.places, weights=self.weights, k=20):
+                    tx, ty = self.centres[target.getID()]
+                    d = math.hypot(tx - ox, ty - oy)
+                    if d > best_d:
+                        best, best_d = target, d
+                    if d >= INTERIOR_MIN_TRIP_M:
+                        break
+                route, _ = self.net.getShortestPath(origin, best)
+                if route and len(route) > 1:
+                    paths.append(tuple(e.getID() for e in route))
+            self.interior_pool[edge_id] = paths or [(edge_id,)]
+        return self.interior_pool[edge_id]
 
     def routes(self, edge_id):
         if edge_id not in self.pool:
@@ -245,11 +310,16 @@ class BoundaryInflow:
 
     def until(self, time_s):
         while self.heap and self.heap[0][0] <= time_s:
-            depart,edge_id,rate=heapq.heappop(self.heap)
-            route=self.rng.choice(self.routes(edge_id))
+            depart,kind,edge_id,rate=heapq.heappop(self.heap)
+            if kind=='interior':
+                route=self.interior_rng.choice(self.interior_routes(edge_id))
+                gap=self.interior_rng.expovariate(rate)
+            else:
+                route=self.rng.choice(self.routes(edge_id))
+                gap=self.rng.expovariate(rate)
             self.generated+=1
             yield depart,Trip(f'inflow-{self.generated}',route,0,0)
-            heapq.heappush(self.heap,(depart+self.rng.expovariate(rate),edge_id,rate))
+            heapq.heappush(self.heap,(depart+gap,kind,edge_id,rate))
 
 
 class Simulation:
@@ -281,6 +351,7 @@ class Simulation:
         self.inflow = None
         self.future_entries = []
         self.entry_queue = {}
+        self.requeued = 0
         self.entry_route_cache = {}
         self.traci, binary, converter = runtime()
         try:
@@ -460,6 +531,8 @@ class Simulation:
                         c.lane.setAllowed(lane.getID(), original)
         previous_closed = self.closed
         self.closed = closed
+        if closed - previous_closed:
+            self.withhold(c, closed - previous_closed)
         self.last_factors = disruption.speed_factor.copy()
         # Retry after every chunk, including cars which were in internal junctions
         # during the last change and cars newly released from insertion queues.
@@ -577,6 +650,7 @@ class Simulation:
             'added_trips': len(self.trips)-getattr(self,'initial_trips',len(self.trips)),
             'entry_roads': inflow.origins if inflow else 0,
             'expected_entry_vph': round(inflow.expected_vph,1) if inflow else 0,
+            'interior_vph': round(inflow.interior_vph,1) if inflow else 0,
         }
         if {v[0] for v in vehicles} != active_ids:
             raise RuntimeError('SUMO replay is missing an active vehicle')
@@ -589,6 +663,27 @@ class Simulation:
             if state is not None:
                 signals.append([node, index, lon, lat, state[index], observed])
         return {'time_s': now, 'vehicles': vehicles, 'signals': signals, 'metrics': metrics}
+
+    def withhold(self, c, newly_closed):
+        """Take cars still waiting to enter on a newly closed road out of SUMO.
+
+        SUMO aborts the whole run when a queued car's departure road is
+        closed under it. These cars wait in `entry_queue` instead, counted as
+        pending, and enter once a route from their origin is open again.
+        """
+        trips = {t.id: t for t in self.trips}
+        departs = {}
+        for depart, trip in self.future_entries:
+            trips[trip.id] = trip
+            departs[trip.id] = depart
+        waiting = set(c.vehicle.getLoadedIDList()) - set(c.vehicle.getIDList())
+        for vid in sorted(waiting):
+            route = self.routes.get(vid)
+            if not route or route[0] not in newly_closed or vid not in trips:
+                continue
+            c.vehicle.remove(vid)
+            # Cars not in `future_entries` were already due: queue them as overdue.
+            self.entry_queue[vid] = (departs.get(vid, -1.0), trips[vid])
 
     def unstick(self, index, c):
         """Move gridlocked front-of-queue cars further along their route.
@@ -659,17 +754,20 @@ class Simulation:
             remaining = round(seconds * 5)
             while remaining:
                 ticks = min(5, remaining)
+                for vid,(_,trip) in list(self.entry_queue.items()):
+                    route=self.entry_route(trip)
+                    if route:
+                        # A withheld car's first route id is still taken in SUMO.
+                        self.requeued+=1
+                        route_id=f'{vid}#{self.requeued}'
+                        self.connections[0].route.add(route_id,route)
+                        self.connections[0].vehicle.add(vid,route_id,depart='now',departLane='best',
+                                                        departPos='base',departSpeed='max', typeID=self.type_for(vid))
+                        self.routes[vid]=route
+                        if route!=trip.route:
+                            self.rerouted.add(vid)
+                        del self.entry_queue[vid]
                 if self.inflow:
-                    for vid,(_,trip) in list(self.entry_queue.items()):
-                        route=self.entry_route(trip)
-                        if route:
-                            self.connections[0].route.add(vid,route)
-                            self.connections[0].vehicle.add(vid,vid,depart='now',departLane='best',
-                                                            departPos='base',departSpeed='max', typeID=self.type_for(vid))
-                            self.routes[vid]=route
-                            if route!=trip.route:
-                                self.rerouted.add(vid)
-                            del self.entry_queue[vid]
                     target = self.connections[0].simulation.getTime()+ticks*.2
                     for depart,trip in self.inflow.until(target):
                         depart=math.ceil(depart*5-1e-9)/5

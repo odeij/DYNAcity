@@ -87,7 +87,13 @@ ratio is now 1.28 at 08:00 and 1.21 at 17:00: simulated traffic runs too fast
 because the city empties. The initial fleet finishes its trips, new trips
 start only at the map edge, and those edges are congested, so active cars fall
 from about 27,000 to 3,500 at 08:00 within ten minutes. Calibrating speeds
-needs trips that also start inside the modelled area. The optional pilot adds typed vehicles and
+needs trips that also start inside the modelled area.
+
+Interior trips (about 4 km, see [traffic-sumo.md](traffic-sumo.md#trips-inside-the-area))
+stop the drain: after ten simulated minutes the median ratio is 1.14 at 08:00,
+0.96 at 13:00 (not used for any setting) and 0.87 at 17:00. The fleet is still
+rising at that point, so these are not steady-state values and the model is
+not yet calibrated. The optional pilot adds typed vehicles and
 controller-state replay, while pedestrian demand and parking occupancy are missing.
 
 ## Primary sources checked

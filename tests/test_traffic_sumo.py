@@ -332,7 +332,8 @@ def test_closed_inflow_origin_queues_new_trips_and_reopens_without_losses(networ
     except RuntimeError as exc: pytest.skip(str(exc))
     sim=Simulation(network,trips=[],continuous=True,seed=7)
     try:
-        entry_roads=sorted({int(edge.split(':')[0]) for _,edge,_ in sim.inflow.heap})
+        # Every road a trip can start on, at the fringe or inside.
+        entry_roads=sorted({int(edge.split(':')[0]) for _,_,edge,_ in sim.inflow.heap})
         for _ in range(6):
             result=sim.advance(road_events(network,closed=entry_roads),10)
             for frame in result['frames']:
@@ -344,6 +345,28 @@ def test_closed_inflow_origin_queues_new_trips_and_reopens_without_losses(networ
             result=sim.advance(road_events(network),10)
             assert_accounting(result['frames'][-1])
         assert result['frames'][-1]['metrics']['arrived']>0
+    finally: sim.close()
+
+
+def test_closing_a_road_with_cars_waiting_to_enter_on_it_does_not_abort_sumo(network):
+    """SUMO aborts if a queued car's departure road closes; such cars wait in the entry queue instead."""
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    trips=[Trip(f'queued-{i}',('6:1','0:1','1:1','5:1'),0,0) for i in range(40)]
+    sim=Simulation(network,trips=trips)
+    try:
+        sim.advance(road_events(network),1)
+        assert sim.connections[0].simulation.getPendingVehicles()
+        for _ in range(3):
+            result=sim.advance(road_events(network,closed=[6]),5)
+            for frame in result['frames']:
+                assert_accounting(frame)
+        assert sim.entry_queue
+        for _ in range(20):
+            result=sim.advance(road_events(network),5)
+            assert_accounting(result['frames'][-1])
+        m=result['frames'][-1]['metrics']
+        assert not sim.entry_queue and m['arrived']>0 and m['total']==40
     finally: sim.close()
 
 
