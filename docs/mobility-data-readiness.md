@@ -47,6 +47,7 @@ and `beirut-traffic.json`. Raw inputs remain outside Git.
 | Input | Checked content | What it supports | What it does not establish |
 | --- | --- | --- | --- |
 | Saved OSM roads | 5,569 ways; OSM base timestamp 3 October 2026; no node elements | Mapped road shapes and available way tags | Signal locations, crossings or absence of either: this extract contains ways only |
+| Re-fetched OSM roads (23 October 2026) | 5,570 ways, 186 `highway=traffic_signals` nodes, 42 turn-restriction relations; OSM base timestamp 23 October 2026 | Mapped signal locations (138 junctions after snapping) and 26 via-node turn bans | Phase timing, whether the lights operate, unmapped signals, crossings |
 | Saved OSM transit | 30 route relations; 30 routes in the built model, all labelled `bus` | Candidate route geometry and identifiers | Actual vehicle category, active service, timetable, frequency or stopping behaviour |
 | Saved OSM parking/sidewalk tags | 18 ways with at least one parking-prefixed tag; two with a `sidewalk` tag | Sparse candidate infrastructure evidence | Parking space counts, occupancy, turnover, curb blocking or pedestrian demand |
 | Built traffic model | Historical speed period 2014–2019; route records retain paths, not stop coordinates or schedules | Existing historical speed context | Current traffic, vehicle class shares, pedestrian counts or pickup events |
@@ -56,10 +57,27 @@ their coordinates are not present in the saved relations-only response. A route
 tagged `bus` may name private vans in its operator field; it cannot by itself
 decide the simulated vehicle type.
 
-The default passenger-only mode is retained. `export_network`
-assigns a traffic light to every node with at least four incident road segments;
-SUMO supplies the programs. These are explicitly documented assumptions, not
-mapped or surveyed Beirut controls. The optional pilot adds typed vehicles and
+The default passenger-only mode is retained. With a road file that carries signal
+nodes, `export_network` puts traffic lights only where OSM maps them: 186 signal
+nodes snap to 138 junctions (`traffic.SIGNAL_SNAP_M`), against 1,269 junctions the
+old four-way rule would light. 100 of the 138 are four-way junctions and 38 are
+three-way. Older road files without signal nodes still fall back to the four-way
+guess. SUMO supplies the programs either way, so locations are mapped but timings
+remain assumptions. 36 of the 42 restrictions go through a single junction and are
+applied (26 distinct banned movements); the 6 via-way restrictions are left out.
+
+Speed check, 10 simulated minutes per run in continuous mode, median of per-road
+simulated over observed (Tari'ak 2014–2019) speed:
+
+| Hour | Four-way guess (1,269 lights) | OSM lights (138) | Observed median |
+| --- | --- | --- | --- |
+| 08:00 | 17.5 km/h, ratio 0.86 | 24.5 km/h, ratio 1.18 | 20.6 km/h |
+| 17:00 | 12.1 km/h, ratio 0.63 | 18.0 km/h, ratio 0.93 | 19.3 km/h |
+
+The OSM lights bring the evening median close to observed and overshoot the
+morning one. Per-road error stays near 13 km/h in all four runs, and about 90%
+of active cars are stopped at the 10-minute mark in every run, so demand and
+junction behaviour are not calibrated by this change. The optional pilot adds typed vehicles and
 controller-state replay, while pedestrian demand and parking occupancy are missing.
 
 ## Primary sources checked
@@ -116,10 +134,10 @@ No usable pickup location, arrival-rate or dwell-time records were obtained.
 ### Traffic lights and crossings
 
 No accepted local phase plan, cycle length, offset, movement mapping or current
-operational-status record was obtained. A bounded query for OSM signal and
-crossing nodes in an approximate Mar Mikhael box timed out and was skipped;
-no response file was produced and no mirror retry was made. This is an access
-failure, not evidence that the area has no signals or crossings.
+operational-status record was obtained. An earlier bounded query for OSM signal
+and crossing nodes in an approximate Mar Mikhael box timed out. The citywide road
+query on 23 October 2026 did return signal nodes (see the table above); crossing
+nodes were not requested. Missing mapping is still not evidence of absence.
 
 Even a successful OSM signal-location query would not establish present-day
 operation or the phase timing. Each accepted junction needs dated movement-level
