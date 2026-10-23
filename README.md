@@ -68,15 +68,38 @@ viewer; playback speed follows the simulation's on-screen indicator.
 | --- | --- | --- |
 | Buildings | [Beirut Built Environment Database (BBED), Beirut Urban Lab at AUB](https://beiruturbanlab.com/en/Details/845) | Building footprints, heights, uses and status changes in 2018, 2022 and 2024. |
 | Elevation | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/) | Approximate ground elevation for the city view. Resampling does not add street-level detail. |
-| Roads and bus routes | [OpenStreetMap](https://www.openstreetmap.org/), downloaded through the [Overpass API](https://overpass-api.de/api/interpreter) | Road layout, lane information and mapped public transport routes. |
+| Roads and bus routes | [OpenStreetMap](https://www.openstreetmap.org/), downloaded through the [Overpass API](https://overpass-api.de/api/interpreter) | Road layout, lanes, one-way streets, traffic lights, painted crossings, turn restrictions, bridge and tunnel levels, and mapped public transport routes. |
 | Historical traffic speeds | [Tari’ak Lebanon Traffic Dataset](https://github.com/ramikay/lebanon-traffic-dataset) | Typical hourly speeds from 2014–2019, rather than live traffic. |
 | Traffic counts | [CDR / ELARD BRT study, 2017, Table 4-4](https://documents1.worldbank.org/curated/en/648821508851766209/pdf/SFG3708-EA-P160224-Box405306B-PUBLIC-Disclosed-10-24-2017.pdf) | Peak-hour road counts used to estimate traffic volumes. |
 | 3D point clouds | Existing local AlMasar Al Akhdar / AUB project files; no confirmed public download link | Detailed 3D views and surface/ground reviews. See [point-cloud provenance](#point-cloud-provenance). |
 | Rainfall | [NOAA Integrated Surface Database](https://www.ncei.noaa.gov/products/land-based-station/integrated-surface-database), Beirut airport station 401000-99999 | Historical rainfall records for 2005, 2010, 2018 and 2023. Missing records limit flood modelling. |
 | Ponding and street drainage conditions | [UN-Habitat Lebanon neighbourhood geoportal](https://lebanonportal.unhabitat.org/geoportal/) | Mapped ponding points and street-condition observations, not a connected drainage-pipe network. |
 | Hamra reference maps | [UN-Habitat / RELIEF Centre Hamra neighbourhood profile, 2020](https://unhabitat.org/sites/default/files/2020/11/hamraneighbourhoodprofilebeirutlebanonoct2020_0_1.pdf) | Documentary stormwater and neighbourhood context. |
+| Bridge heights (evaluated, not used yet) | [Beirut 001 3D model by Salim al-Kadi](https://www.salimalkadi.com/07_beirut-001), free Rhino download, January 2020 | Measured deck heights above ground for some bridges. See [coverage](#data-coverage). |
 
 Panels, snapshots, trained models, forecasts and planning results are generated locally from these inputs. They are not additional observed datasets. Raw data and generated artifacts stay outside Git, as described below.
+
+## Data coverage
+
+What each dataset actually covers in the current local build. Missing mapping in a source is not evidence that something does not exist on the ground.
+
+**Area.** The building snapshot spans 35.4686–35.5371 E, 33.8620–33.9075 N, about 6.3 km × 5.0 km of central Beirut. Roads and traffic extend 800 m beyond it (35.4598–35.5459 E, 33.8546–33.9149 N), so trips can enter from outside the building area.
+
+| Data | Period or date | Coverage | Gaps |
+| --- | --- | --- | --- |
+| BBED buildings | Surveys of 2018, 2022 and 2024 | 3,349 buildings in the snapshot; 3,345 have usable footprints | Only the allowlisted fields are fetched; 4 footprints are invalid |
+| Roads (OpenStreetMap) | Downloaded 23 October 2026 | 5,570 mapped roads, split into 10,818 road pieces, 809 km | Lane counts are missing on about 6,100 pieces and filled from road-class defaults |
+| Traffic lights (OpenStreetMap) | 23 October 2026 | 186 mapped lights, placed at 138 junctions; mid-block lights are dropped | No light timings anywhere; whether lights operate is unknown |
+| Painted crossings (OpenStreetMap) | 23 October 2026 | 182 crossing points, placed as 253 crossings on roads | Drawn only; pedestrians are not simulated |
+| Turn restrictions (OpenStreetMap) | 23 October 2026 | 42 mapped; 26 applied as banned turns | The 6 that pass through a road rather than a junction are skipped |
+| Bridges and tunnels (OpenStreetMap) | 23 October 2026 | 124 bridges and 62 tunnels (135 and 63 road pieces), mainly the motorway flyovers and the Saëb Salam and Corniche underpasses | OpenStreetMap stores no bridge heights; each level is drawn 6 m up |
+| Bus routes (OpenStreetMap) | Downloaded 24 July 2026 | 30 route lines | No timetables or stop positions; a route tagged "bus" may be run by vans |
+| Traffic speeds (Tari'ak) | 2014–2019 | Hourly median speeds: 5,006 road pieces have their own readings, about 2.9 million readings in total | The other 5,812 pieces use their road class's profile; no live or post-2019 traffic |
+| Traffic counts (CDR / ELARD) | 2016–17 | Peak-hour counts by road class at the study's count stations | Not a measured origin-destination matrix; trip patterns are generated |
+| Elevation (Copernicus GLO-30) | Global 30 m surface model | Ground height over the snapshot area | Too coarse for street-level detail, kerbs or bridge decks |
+| Bridge heights (Beirut 001) | Model published January 2020 | Usable heights for 31 of the 135 bridge pieces, about 6.6 km of 23.3 km of bridges; their median is 6.1 m, half between about 5 and 9 m | The model has no map position: alignment to BBED is inferred (median 2.8 m off). No named licence, so measured values stay in private data and are not published |
+
+The model's simulated traffic is checked against the Tari'ak speeds; its calibration status is in [docs/traffic-sumo.md](docs/traffic-sumo.md) and [docs/mobility-data-readiness.md](docs/mobility-data-readiness.md).
 
 ## Point-cloud provenance
 
