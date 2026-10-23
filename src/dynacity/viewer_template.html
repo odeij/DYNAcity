@@ -792,6 +792,27 @@ function tilesUnavailable(msg) {
 // Actual source points; this visual layer never supplies hydraulic ground.
 const pointCloud = { metadata: null, data: null, visible: false, loading: null };
 function cloudActive() { return pointCloud.visible && !!pointCloud.data; }
+// deck.gl rebuilds a layer's geometry whenever its data array changes, so
+// hand back the same arrays until the buildings or the point cloud change.
+const cloudKey = () => (cloudActive() ? pointCloud.metadata : null);
+let buildingData = { rings: null, cloud: null, data: null };
+function buildingsData() {
+  const rings = mainRings(), cloud = cloudKey();
+  if (buildingData.rings !== rings || buildingData.cloud !== cloud)
+    buildingData = { rings, cloud, data: rings.filter(d => !cloudOverlaps(d.ring)) };
+  return buildingData.data;
+}
+const contextCache = new WeakMap();
+function contextData(features, tile) {
+  const cloud = cloudKey();
+  let hit = contextCache.get(features);
+  if (!hit) contextCache.set(features, hit = { all: contextBuildings(features, tile), cloud: undefined, data: null });
+  if (hit.cloud !== cloud) {
+    hit.cloud = cloud;
+    hit.data = cloud ? hit.all.filter(f => !cloudOverlaps(f.geometry.coordinates[0].map(tileToLngLat(tile.bbox)))) : hit.all;
+  }
+  return hit.data;
+}
 function cloudOverlaps(ring) {
   if (!cloudActive()) return false;
   const [w,s,e,n] = ringBox(ring), [[cw,cs],[ce,cn]] = pointCloud.metadata.bounds;
@@ -893,7 +914,7 @@ function layers() {
       loadOptions: { mvt: { layers: ['building'] } },
       renderSubLayers: (props) => new deck.GeoJsonLayer({
         ...props,
-        data: contextBuildings(props.data || [], props.tile).filter(f => !cloudOverlaps(f.geometry.coordinates[0].map(tileToLngLat(props.tile.bbox)))),
+        data: props.data ? contextData(props.data, props.tile) : [],
         extruded: true, stroked: false, filled: true, pickable: false,
         getElevation: (f) => Math.max(Number(f.properties?.render_height) || 6, 3),
         getFillColor: isDark() ? [92, 104, 116, 235] : [...CONTEXT_RGB, 235], material: MATERIAL,
@@ -906,7 +927,7 @@ function layers() {
   out.push(...floodNativeLayers());
   out.push(new deck.SolidPolygonLayer({
     id: 'buildings',
-    data: mainRings().filter(d => !cloudOverlaps(d.ring)),
+    data: buildingsData(),
     getPolygon: (d) => d.ring, extruded: true, getElevation: (d) => elevation(d.b), getFillColor: (d) => fill(d.b),
     // While a road tool is on, clicks go through buildings to the roads.
     pickable: !ui.roadTool, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL,
@@ -1210,11 +1231,13 @@ function setTrafficStyle(style) {
   if(!['street','colours'].includes(style))return;
   ui.trafficStyle=style;renderTraffic();render();
 }
+// Built once: a new array would make deck.gl re-lay out every road path.
+let roadItems = null, busLines = null;
 function roadLayers() {
   if (!DATA.traffic) return [];
   const impact = indexImpact(roadImpact());
   const closed = [...new Set([...(impact?.closed ?? []), ...ui.closedRoads, ...ui.crashes])];
-  const roads = DATA.traffic.roads.map((r, i) => ({ r, i }));
+  const roads = (roadItems ??= DATA.traffic.roads.map((r, i) => ({ r, i })));
   const drape = photoreal() ? { extensions: [new deck._TerrainExtension()] } : {};
   const street=ui.trafficStyle==='street';
   const out = [];
@@ -1228,7 +1251,7 @@ function roadLayers() {
     updateTriggers: { getColor: [street, ui.hour, impact, closed.join(',')] }, parameters: SOFT, pickable: true, ...drape,
   }));
   if (ui.buses && DATA.traffic.bus_routes?.length) {
-    const lines = DATA.traffic.bus_routes.flatMap((bus) => bus.paths.map((path) => ({ bus, path })));
+    const lines = (busLines ??= DATA.traffic.bus_routes.flatMap((bus) => bus.paths.map((path) => ({ bus, path }))));
     out.push(new deck.PathLayer({
       id: 'bus-routes', data: lines, getPath: (d) => d.path, widthUnits: 'pixels', getWidth: (d) => (impact?.busHit.has(d.bus.id) ? 4 : 2.5),
       getColor: (d) => (impact?.busHit.has(d.bus.id) ? [...busCutRgb(), 235] : [...BUS_RGB, 215]), capRounded: true, jointRounded: true,
