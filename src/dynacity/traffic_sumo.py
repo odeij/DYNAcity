@@ -215,6 +215,9 @@ class BoundaryInflow:
         self.interior_rng = random.Random(seed + 7919)
         self.heap, self.pool, self.exits = [], {}, []
         self.interior_pool = {}
+        # Routes new interior trips; sumolib until the simulation hands over
+        # SUMO's own (much faster) router.
+        self.router = None
         self.generated, self.expected_vph, self.interior_vph = 0, 0.0, 0.0
         (west, south), (east, north) = net.getBBoxXY()
         margin = max(25, min(east-west, north-south)*.03)
@@ -278,9 +281,13 @@ class BoundaryInflow:
                         best, best_d = target, d
                     if d >= INTERIOR_MIN_TRIP_M:
                         break
-                route, _ = self.net.getShortestPath(origin, best)
-                if route and len(route) > 1:
-                    paths.append(tuple(e.getID() for e in route))
+                if self.router:
+                    route = self.router(edge_id, best.getID())
+                else:
+                    found, _ = self.net.getShortestPath(origin, best)
+                    route = tuple(e.getID() for e in found) if found else ()
+                if len(route) > 1:
+                    paths.append(route)
             self.interior_pool[edge_id] = paths or [(edge_id,)]
         return self.interior_pool[edge_id]
 
@@ -443,6 +450,16 @@ class Simulation:
                 c.simulationStep()
                 c.junction.subscribeContext(self.context_node, constants.CMD_GET_VEHICLE_VARIABLE,
                                             self.context_radius, variables if kind == 'scenario' else self.baseline_variables)
+            if self.inflow:
+                # Route interior trips with SUMO's router on the baseline run, which is never
+                # closed, so both runs keep the same schedule.
+                baseline = self.connections[1]
+                def route(origin, target):
+                    try:
+                        return tuple(baseline.simulation.findRoute(origin, target).edges)
+                    except self.traci.TraCIException:
+                        return ()
+                self.inflow.router = route
             c = self.connections[0]
             type_ids = [t.id for t in self.mobility.types] if mixed else ['DEFAULT_VEHTYPE']
             declared = {t.id: t for t in self.mobility.types} if self.mobility else {}
