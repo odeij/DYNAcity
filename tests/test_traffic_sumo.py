@@ -4,6 +4,41 @@ import pytest
 from dynacity.traffic import TrafficModel, road_events
 from dynacity.traffic_sumo import Simulation, Trip, runtime
 
+
+def test_comparison_counts_include_unfinished_trips_and_ignore_internal_roads():
+    """Known subscription samples verify comparison accounting without optional binaries."""
+    from types import SimpleNamespace as NS
+    constants = NS(VAR_POSITION=1, VAR_ANGLE=2, VAR_SPEED=3, VAR_ROAD_ID=4, VAR_LANE_INDEX=5)
+    states = {
+        'a': {1:(733000,3750000), 2:90, 3:0, 4:'1:1', 5:0},
+        'b': {1:(733010,3750000), 2:90, 3:6, 4:':junction_0', 5:0},
+        'c': {1:(733020,3750000), 2:90, 3:0.05, 4:'2:-1', 5:0},
+    }
+    scenario = NS(junction=NS(getContextSubscriptionResults=lambda _:states),
+                  vehicle=NS(getIDList=lambda:list(states)),
+                  simulation=NS(getPendingVehicles=lambda:['e'], getTime=lambda:10,
+                                getStartingTeleportNumber=lambda:0))
+    baseline = NS(junction=NS(getContextSubscriptionResults=lambda _:{'b':{3:5}, 'c':{3:0}}),
+                  vehicle=NS(getIDCount=lambda:2), simulation=NS(getPendingVehicles=lambda:['e']))
+    sim = Simulation.__new__(Simulation)
+    sim.connections = [scenario, baseline]
+    sim.traci = NS(constants=constants)
+    sim.context_node = 'junction'
+    sim.offset, sim.zone, sim.north = (0,0), 36, True
+    sim.trips = list('abcde')
+    sim.trip_ids = set(sim.trips)
+    sim.arrivals = [{'d':9}, {'a':6, 'd':7}]
+    sim.held, sim.blocked, sim.rerouted = {'a'}, {'a'}, {'b','c'}
+    frame = sim.frame()
+    assert_accounting(frame)
+    m = frame['metrics']
+    assert m['baseline'] == {'active':2, 'pending':1, 'arrived':2, 'stopped':1}
+    assert m['stopped_roads'] == [(1,1), (2,1)]
+    assert m['detour'] == [(2,1)]
+    assert m['overdue'] == 1
+    assert m['paired_arrivals'] == 1
+    assert m['mean_completed_delay_s'] == 2
+
 @pytest.fixture
 def network():
     # Directed diamond with a shared destination edge, plus a second origin.
@@ -30,6 +65,10 @@ def assert_accounting(frame):
     m=frame['metrics']
     assert m['total']==m['active']+m['pending']+m['arrived']
     assert len(frame['vehicles'])==m['active']
+    b = m['baseline']
+    assert m['total'] == b['active'] + b['pending'] + b['arrived']
+    assert 0 <= b['stopped'] <= b['active']
+    assert m['stopped'] == sum(v[4] < 0.1 for v in frame['vehicles'])
 
 
 @pytest.mark.parametrize('oneway', [1, -1, 0])
@@ -68,6 +107,10 @@ def test_closed_destination_retains_fleet_and_reopen_completes(simulation,networ
     frame=result['frames'][-1]; assert_accounting(frame)
     assert frame['metrics']['arrived']==0
     assert frame['metrics']['no_detour']==2
+    assert frame['metrics']['baseline']['arrived']==2
+    assert frame['metrics']['overdue']==2
+    assert frame['metrics']['stopped']==2
+    assert sum(n for _, n in frame['metrics']['stopped_roads'])==2
     assert {v[0] for v in frame['vehicles']}=={'a','b'}
     for _ in range(10): result=simulation.advance(opened,10)
     frame=result['frames'][-1]; assert_accounting(frame)
@@ -126,7 +169,12 @@ def test_limits_are_free_flow_and_hourly_speeds_check_the_run(network,tmp_path,m
     finally: sim.close()
 
 def test_identical_baseline_has_zero_delay(simulation,network):
-    for _ in range(8): result=simulation.advance(road_events(network),10)
+    for _ in range(8):
+        result=simulation.advance(road_events(network),10)
+        for frame in result['frames']:
+            assert_accounting(frame)
+            m = frame['metrics']
+            assert m['baseline'] == {key:m[key] for key in ('active','pending','arrived','stopped')}
     m=result['frames'][-1]['metrics']
     assert m['arrived']==2 and m['mean_completed_delay_s']==0
 
@@ -178,8 +226,8 @@ def test_real_session_api_reuses_fleet_and_releases_runtime(network,monkeypatch)
     except RuntimeError as exc: pytest.skip(str(exc))
     original=adapter.Simulation
     made=[]
-    def small_fleet(model,hour):
-        sim=original(model,hour,trips=[Trip('api-car',('0:1','1:1','5:1'),0,20)])
+    def small_fleet(model,hour,**kwargs):
+        sim=original(model,hour,trips=[Trip('api-car',('0:1','1:1','5:1'),0,20)],**kwargs)
         made.append(sim); return sim
     monkeypatch.setattr(adapter,'Simulation',small_fleet)
     app=FastAPI();adapter.install_routes(app,network,None)
@@ -195,6 +243,82 @@ def test_real_session_api_reuses_fleet_and_releases_runtime(network,monkeypatch)
         assert frame['metrics']['rerouted']==1
         assert frame['vehicles'][0][0]=='api-car'
         assert client.post(f'/v1/viewer/traffic/simulation/{key}',json={'hour':9}).status_code==409
+        assert client.post(f'/v1/viewer/traffic/simulation/{key}',json={'continuous':True}).status_code==409
         assert client.delete(f'/v1/viewer/traffic/simulation/{key}').status_code==200
         assert client.post(f'/v1/viewer/traffic/simulation/{key}',json={}).status_code==404
         assert made[0].connections==[]
+        continuous=client.post('/v1/viewer/traffic/simulation',json={'continuous':True,'seconds':.2})
+        assert continuous.status_code==200
+        assert continuous.json()['frames'][-1]['metrics']['demand']['mode']=='boundary_inflow'
+        assert made[-1].continuous is True
+
+
+def test_continuous_entries_keep_arriving_with_identical_paired_demand(network):
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    with_entries=Simulation(network,trips=[],continuous=True,seed=7)
+    try:
+        early=0
+        for i in range(12):
+            result=with_entries.advance(road_events(network),10)
+            for frame in result['frames']:
+                assert_accounting(frame)
+                m=frame['metrics']
+                assert m['baseline']=={k:m[k] for k in ('active','pending','arrived','stopped')}
+                assert m['mean_completed_delay_s'] in (None,0)
+            if i==5:
+                early=result['frames'][-1]['metrics']['total']
+        m=result['frames'][-1]['metrics']
+        assert m['total']>early>0
+        assert m['demand']['mode']=='boundary_inflow'
+        assert m['demand']['added_trips']==m['total']
+        assert m['arrived']>0
+    finally: with_entries.close()
+
+
+def test_continuous_demand_is_independent_of_request_chunk_size(network):
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    runs=[]
+    for seconds in (10,.4):
+        sim=Simulation(network,trips=[],continuous=True,seed=31)
+        try:
+            for _ in range(round(40/seconds)):
+                result=sim.advance(road_events(network),seconds)
+                assert_accounting(result['frames'][-1])
+            runs.append((dict(sim.routes),set(sim.trip_ids),result['frames'][-1]['metrics']['arrived']))
+        finally: sim.close()
+    assert runs[0]==runs[1]
+
+
+def test_closed_inflow_origin_queues_new_trips_and_reopens_without_losses(network):
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    sim=Simulation(network,trips=[],continuous=True,seed=7)
+    try:
+        entry_roads=sorted({int(edge.split(':')[0]) for _,edge,_ in sim.inflow.heap})
+        for _ in range(6):
+            result=sim.advance(road_events(network,closed=entry_roads),10)
+            for frame in result['frames']:
+                assert_accounting(frame)
+        m=result['frames'][-1]['metrics']
+        assert m['pending']>0 and m['active']==0
+        assert m['pending']==m['total']
+        for _ in range(6):
+            result=sim.advance(road_events(network),10)
+            assert_accounting(result['frames'][-1])
+        assert result['frames'][-1]['metrics']['arrived']>0
+    finally: sim.close()
+
+
+def test_new_entries_reroute_around_an_existing_interior_closure(network):
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    sim=Simulation(network,trips=[],continuous=True,seed=7)
+    try:
+        for _ in range(10):
+            result=sim.advance(road_events(network,closed=[1]),5)
+            for frame in result['frames']:
+                assert_accounting(frame)
+        assert result['frames'][-1]['metrics']['total']>0
+    finally: sim.close()

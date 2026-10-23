@@ -167,6 +167,11 @@ button { cursor: pointer; touch-action: manipulation; }
 .road-row { display: grid; grid-template-columns: 22px 1fr; align-items: center; gap: 9px; padding: 3px 0; font-size: 12px; }
 .road-row .ln { height: 4px; border-radius: 2px; }
 .road-row[data-station] { grid-template-columns: 40px 1fr; }
+.mobility-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 10px 0; font-variant-numeric: tabular-nums; }
+.mobility-table th, .mobility-table td { padding: 6px 3px; border-bottom: 1px solid var(--line); text-align: right; }
+.mobility-table th:first-child { text-align: left; font-weight: 500; }
+[data-mobility-road] { display: block; width: 100%; text-align: left; padding: 6px; white-space: normal; border: 1px solid var(--line); border-radius: 6px; background: var(--control); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
+[data-mobility-restart] { margin-top: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--control); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
 .panel .sev { margin: 4px 0 10px; }
 .note { margin-top: 10px; color: var(--ink-3); font-size: 11.5px; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; margin: 8px 0 10px; }
@@ -577,7 +582,8 @@ const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
 const metres = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
 
 const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, mode: 'scenario', answer: null, answerIds: null, tilesFailed: false, drops: [], traffic: false, hour: 8, roadHighlight: null, buses: false, stationsOpen: false,
-  trafficImpact: null, roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map() };
+  trafficImpact: null, trafficStyle: 'street', mobilityMap: true, showSignals: false, mixed: false,
+  roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map() };
 // Photorealistic mode: Google 3D Tiles through the server's key-holding proxy,
 // with BBED footprints draped onto the mesh instead of extruded beside it.
 const GOOGLE = !!DATA?.basemap?.tiles_3d;
@@ -977,7 +983,7 @@ function drawFx() {
   if (!deckgl) return;
   fxScreen = { flash: 0, shake: 0, warm: 0 };
   const now = performance.now();
-  deckgl.setProps({ layers: [...baseLayers, ...carLayers(now), ...fxLayers(now)] });
+  deckgl.setProps({ layers: [...baseLayers, ...streetDetailLayers(), ...carLayers(now), ...mobilityLayers(), ...fxLayers(now)] });
   applyScreen();
 }
 // What the effects of this frame ask of the whole screen; applied once per frame.
@@ -1127,18 +1133,100 @@ function indexImpact(impact) {
   impact.detourMax = Math.max(1, ...impact.detour.map((d) => d[1]));
   return impact;
 }
+// Visual road details follow the simulated carriageway widths. They are
+// illustrative markings, not a survey of Beirut's paint or kerbs.
+function offsetRoadPath(path, offset) {
+  const lat = path[0][1], sx = 111320 * Math.cos(lat * Math.PI / 180), sy = 111320;
+  const points = path.map(p => [(p[0]-path[0][0])*sx, (p[1]-lat)*sy]);
+  const normal = (a,b) => { const dx=b[0]-a[0], dy=b[1]-a[1], n=Math.hypot(dx,dy); return n > 0.001 ? [-dy/n,dx/n] : null; };
+  return points.map((p,i) => {
+    const a = (i && normal(points[i-1],p)) || normal(p,points[Math.min(i+1,points.length-1)]) || [0,1];
+    const b = (i+1 < points.length && normal(p,points[i+1])) || a;
+    let nx=a[0]+b[0], ny=a[1]+b[1], norm=Math.hypot(nx,ny);
+    if (norm < 0.01) { nx=a[0];ny=a[1];norm=1; }
+    nx/=norm;ny/=norm;
+    const distance=offset/Math.max(0.5,nx*a[0]+ny*a[1]);
+    return [path[0][0]+(p[0]+nx*distance)/sx,lat+(p[1]+ny*distance)/sy,0.025];
+  });
+}
+function roadPathSlice(path, start, end) {
+  const out=[];let distance=0;
+  for (let i=1;i<path.length;i++) {
+    const a=path[i-1],b=path[i],length=metresBetween(a,b),next=distance+length;
+    if (length > 0 && next > start && distance < end) {
+      const point=t=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,0.025];
+      if (!out.length) out.push(point(Math.max(0,(start-distance)/length)));
+      out.push(point(Math.min(1,(end-distance)/length)));
+    }
+    distance=next;if(distance>=end)break;
+  }
+  return out;
+}
+function roadMarkings(r) {
+  const length=r.path.slice(1).reduce((s,p,i)=>s+metresBetween(r.path[i],p),0);
+  if (length < 16) return [];
+  const width=roadWidth(r),trim=Math.min(length*.2,width*.7+2),out=[];
+  const add=(offset,kind,dashed=false)=>{
+    const path=offsetRoadPath(r.path,offset);
+    if (dashed) {
+      for (let d=trim;d<length-trim;d+=9) {
+        const piece=roadPathSlice(path,d,Math.min(d+3,length-trim));
+        if(piece.length>1)out.push({path:piece,kind});
+      }
+    } else {
+      const piece=roadPathSlice(path,trim,length-trim);
+      if(piece.length>1)out.push({path:piece,kind});
+    }
+  };
+  add(-width/2+.25,'edge');add(width/2-.25,'edge');
+  const lanes=Math.min(12,Math.max(1,Math.round(width/3.2)));
+  for(let lane=1;lane<lanes;lane++) {
+    const centre=!r.oneway && lane===lanes/2;
+    add(-width/2+lane*width/lanes,centre?'centre':'lane',!centre);
+  }
+  return out;
+}
+let streetDetailsCache=null;
+function streetDetailLayers() {
+  if (!ui.traffic || ui.trafficStyle !== 'street' || !DATA.traffic) return [];
+  const vp = !map && deckgl?.getViewports()[0];
+  const zoom=map?map.getZoom():vp?.zoom??0,centre=map?map.getCenter().toArray():vp&&[vp.longitude,vp.latitude];
+  if(zoom<16.5 || !centre)return [];
+  if(!streetDetailsCache || metresBetween(streetDetailsCache.centre,centre)>100) {
+    const sx=111320*Math.cos(centre[1]*Math.PI/180),sy=111320;
+    const nearby=DATA.traffic.roads.filter(r=>{
+      const xs=r.path.map(p=>(p[0]-centre[0])*sx),ys=r.path.map(p=>(p[1]-centre[1])*sy);
+      return Math.min(...xs)<800&&Math.max(...xs)>-800&&Math.min(...ys)<800&&Math.max(...ys)>-800;
+    });
+    streetDetailsCache={centre:centre.slice(),data:nearby.flatMap(roadMarkings)};
+  }
+  return [new deck.PathLayer({id:'street-markings',data:streetDetailsCache.data,getPath:d=>d.path,
+    getColor:d=>d.kind==='centre'?[225,202,143,190]:d.kind==='edge'?[221,222,215,125]:[238,236,222,195],
+    getWidth:d=>d.kind==='edge'?.10:.13,widthUnits:'meters',widthMinPixels:.5,
+    jointRounded:true,pickable:false,parameters:SOFT,
+    ...(photoreal()&&{extensions:[new deck._TerrainExtension()]})})];
+}
+function setTrafficStyle(style) {
+  if(!['street','colours'].includes(style))return;
+  ui.trafficStyle=style;renderTraffic();render();
+}
 function roadLayers() {
   if (!DATA.traffic) return [];
   const impact = indexImpact(roadImpact());
   const closed = [...new Set([...(impact?.closed ?? []), ...ui.closedRoads, ...ui.crashes])];
   const roads = DATA.traffic.roads.map((r, i) => ({ r, i }));
   const drape = photoreal() ? { extensions: [new deck._TerrainExtension()] } : {};
-  const out = [new deck.PathLayer({
+  const street=ui.trafficStyle==='street';
+  const out = [];
+  if(street)out.push(new deck.PathLayer({id:'road-edges',data:roads,getPath:d=>d.r.path,
+    getWidth:d=>roadWidth(d.r)+.65,widthUnits:'meters',widthMinPixels:1.2,
+    getColor:[104,105,99,255],capRounded:true,jointRounded:true,pickable:false,...drape}));
+  out.push(new deck.PathLayer({
     id: 'roads', data: roads, getPath: (d) => d.r.path, widthUnits: 'meters', widthMinPixels: 1.2, capRounded: true, jointRounded: true,
     getWidth: (d) => roadWidth(d.r),
-    getColor: (d) => roadClosed(d.i, impact) ? [...CLOSED_RGB, 235] : [...flowColor(flowRatio(d.i, impact)), 210],
-    updateTriggers: { getColor: [ui.hour, impact, closed.join(',')] }, parameters: SOFT, pickable: true, ...drape,
-  })];
+    getColor: (d) => roadClosed(d.i, impact) ? [...CLOSED_RGB, 235] : street ? [53,57,60,255] : [...flowColor(flowRatio(d.i, impact)), 210],
+    updateTriggers: { getColor: [street, ui.hour, impact, closed.join(',')] }, parameters: SOFT, pickable: true, ...drape,
+  }));
   if (ui.buses && DATA.traffic.bus_routes?.length) {
     const lines = DATA.traffic.bus_routes.flatMap((bus) => bus.paths.map((path) => ({ bus, path })));
     out.push(new deck.PathLayer({
@@ -1184,8 +1272,10 @@ function roadLayers() {
 let trafficSession = null, trafficFrames = [], trafficClock = null, trafficFetch = false;
 let trafficGeneration = 0, trafficMetrics = null, trafficError = null, trafficRevision = '', trafficNetwork = null, trafficMetricSecond = -1;
 let trafficPlaybackRate = TRAFFIC_INITIAL_RATE, trafficEffectiveRate = TRAFFIC_INITIAL_RATE;
+let trafficPoseA=null,trafficPoseB=null,trafficPoseRows=[];
 function simulationRequest() {
-  return {hour:ui.hour, seconds:2, closed:[...ui.closedRoads], crashes:[...ui.crashes], hazards:currentHazards()};
+  return {hour:ui.hour, seconds:2, continuous:true, mixed:!!ui.mixed,
+    closed:[...ui.closedRoads], crashes:[...ui.crashes], hazards:currentHazards()};
 }
 function simulationRevision() {
   const r = simulationRequest(); delete r.seconds; return JSON.stringify(r);
@@ -1194,6 +1284,7 @@ function closeTrafficSession() {
   if (trafficSession) fetch(`/v1/viewer/traffic/simulation/${trafficSession}`, {method:'DELETE'}).catch(() => {});
   trafficSession = null; trafficFrames = []; trafficClock = null; trafficMetrics = null; trafficMetricSecond = -1;
   trafficRevision = ''; trafficNetwork = null; trafficError = null; carTime = null;
+  trafficPoseA=null;trafficPoseB=null;trafficPoseRows=[];
   trafficPlaybackRate = TRAFFIC_INITIAL_RATE; trafficEffectiveRate = TRAFFIC_INITIAL_RATE;
   trafficGeneration++; trafficFetch = false;
 }
@@ -1259,20 +1350,27 @@ function advanceCars(now) {
   while (trafficFrames.length > 1 && trafficFrames[1].time_s <= trafficClock) trafficFrames.shift();
   const a = trafficFrames[0], b = trafficFrames[1] ?? a;
   const f = b.time_s > a.time_s ? clamp01((trafficClock-a.time_s)/(b.time_s-a.time_s)) : 0;
-  const next = new Map(b.vehicles.map(v => [v[0], v]));
-  const existing = new Map(cars.map(c => [c.key, c]));
-  let membershipChanged = cars.length !== a.vehicles.length;
-  const updated = a.vehicles.map(v => {
-    const w = next.get(v[0]) ?? v;
+  // Build identity lookups only when the authoritative frame pair changes.
+  // Keep the same pose arrays between samples instead of allocating them for
+  // every vehicle at every screen refresh.
+  if(a!==trafficPoseA || b!==trafficPoseB) {
+    const next=new Map(b.vehicles.map(v=>[v[0],v])),existing=new Map(cars.map(c=>[c.key,c]));
+    let membershipChanged=cars.length!==a.vehicles.length;
+    trafficPoseRows=a.vehicles.map(v=>{
+      const w=next.get(v[0])??v,c=existing.get(v[0])??{key:v[0],pose:{position:[0,0,.04],orientation:[0,0,0]}};
+      if(!existing.has(v[0]))membershipChanged=true;
+      c.i=Number(v[5].split(':')[0]);c.lane=v[6];c.type=v[7]??'DEFAULT_VEHTYPE';
+      return {v,w,c,delta:((w[3]-v[3]+540)%360)-180};
+    });
+    if(membershipChanged)cars=trafficPoseRows.map(row=>row.c);
+    trafficPoseA=a;trafficPoseB=b;
+  }
+  for(const {v,w,c,delta} of trafficPoseRows) {
+    c.speed=v[4]+(w[4]-v[4])*f;c.braking=w[4]<v[4]-.3 || v[4]<.1;
+    c.pose.position[0]=v[1]+(w[1]-v[1])*f;c.pose.position[1]=v[2]+(w[2]-v[2])*f;
     // SUMO angle is clockwise from north; deck mesh heading is from east.
-    const delta = ((w[3] - v[3] + 540) % 360) - 180;
-    const c = existing.get(v[0]);
-    if (!c) membershipChanged = true;
-    return Object.assign(c ?? {}, {key:v[0], i:Number(v[5].split(':')[0]), speed:v[4], lane:v[6], pose:{
-      position:[v[1]+(w[1]-v[1])*f,v[2]+(w[2]-v[2])*f,0.15],
-      orientation:[0,90-(v[3]+delta*f),0]}});
-  });
-  if (membershipChanged) cars = updated;
+    c.pose.orientation[1]=90-(v[3]+delta*f);
+  }
   trafficMetrics = a.metrics;
   if (trafficFrames.at(-1).time_s - trafficClock < 1.8 || trafficRevision !== simulationRevision()) fetchTrafficFrames();
   // Metrics follow the displayed frame rather than the server's buffer head.
@@ -1283,13 +1381,45 @@ function simulationSummary() {
   if (trafficError) return `<div class="note">Traffic simulation unavailable: ${esc(trafficError)}</div>`;
   const m = trafficMetrics;
   if (!m) return '<div class="note">Starting SUMO traffic simulation…</div>';
-  return `<div class="note">${m.active.toLocaleString()} driving · ${m.pending.toLocaleString()} awaiting space · ${m.arrived.toLocaleString()} arrived / ${m.total.toLocaleString()} trips.<br>
+  return `<div class="note">${m.active.toLocaleString()} driving · ${m.pending.toLocaleString()} awaiting entry · ${m.arrived.toLocaleString()} arrived / ${m.total.toLocaleString()} trips.<br>
     ${m.rerouted} rerouted · ${m.no_detour} without a detour · ${m.stopped_on_closed ?? 0} stopped within closures · ${m.overdue} still travelling after their baseline arrival.
     ${m.mean_completed_delay_s === null ? 'Completed-trip delay pending.' : `Mean completed-trip delay: ${m.mean_completed_delay_s.toFixed(1)} s (${m.paired_arrivals} matched trips).`}${m.speed_check ? `<br>Simulated speed ${m.speed_check.simulated_kmh} km/h against ${m.speed_check.observed_kmh} observed at ${hourLabel(ui.hour)} (median ${m.speed_check.ratio_p50}×, ${m.speed_check.roads.toLocaleString()} roads).` : ''}${trafficNetwork?.excluded_roads?.length ? `<br>${trafficNetwork.excluded_roads.length} unsupported road geometry excluded; see integration notes.` : ''}</div>`;
 }
+function mobilityComparison() {
+  const selected = [...ui.closedRoads].map(i => `<bdi>${esc(DATA.traffic.roads[i]?.name || `Road segment ${i}`)}</bdi>`);
+  const m = trafficMetrics;
+  const row = (label, key) => `<tr><th scope="row">${label}</th><td>${m.baseline[key].toLocaleString()}</td><td>${m[key].toLocaleString()}</td></tr>`;
+  const roads = new Map();
+  for (const [i, n] of m?.detour ?? []) roads.set(i, {diverted:n, stopped:0});
+  for (const [i, n] of m?.stopped_roads ?? []) roads.set(i, {...(roads.get(i) ?? {diverted:0}), stopped:n});
+  const affected = [...roads].sort((a,b) => b[1].diverted-a[1].diverted || b[1].stopped-a[1].stopped).slice(0,5);
+  return `<div class="lever" aria-label="Mobility comparison"><div class="t">Normal traffic vs your changes</div>
+    <div class="m">Choose “Make car-free”, then click road segments on the map. Click again to reopen.</div>
+    <div class="m">${selected.length ? `Selected car-free segments: ${selected.join(', ')}.` : 'No car-free segments selected.'}</div>
+    ${ui.crashes.size || currentHazards().length ? '<div class="m">This comparison also includes active crashes or disaster effects. Clear those separately for a mobility-only trial.</div>' : ''}
+    ${m?.baseline ? `<div class="m">At ${Math.floor(trafficClock ?? 0)} simulated seconds · same trips, destinations and incoming demand.</div>
+      <table class="mobility-table"><thead><tr><th scope="col">Trips / cars</th><th scope="col">Normal</th><th scope="col">Your changes</th></tr></thead><tbody>
+      ${row('Completed', 'arrived')}${row('On the road', 'active')}${row('Awaiting entry', 'pending')}${row('Stopped now', 'stopped')}</tbody></table>
+      <div class="m">${m.mean_completed_delay_s === null ? 'Extra travel time: waiting for trips to finish in both runs.' : `Extra travel time: ${m.mean_completed_delay_s.toFixed(1)} seconds on average (${m.paired_arrivals} trips finished in both runs).`}
+      ${m.overdue} trips finished in normal traffic but are still travelling with your changes. ${m.no_detour} active trip${m.no_detour === 1 ? ' has' : 's have'} no available detour.</div>
+      <div class="m">${affected.length ? 'Roads with diverted or stopped cars right now:' : 'No diverted or stopped cars on road segments right now.'}</div>
+      ${affected.map(([i, n]) => `<button type="button" class="more" data-mobility-road="${i}"><bdi>${esc(DATA.traffic.roads[i]?.name || `Road segment ${i}`)}</bdi> · ${n.diverted} diverted · ${n.stopped} stopped</button>`).join('')}
+      <div class="m">Stopped cars include signals and cars starting up. Delay excludes unfinished trips.</div>` : '<div class="m">Comparison appears when traffic simulation is available.</div>'}
+    <button type="button" class="more" data-mobility-restart>Restart comparison</button>
+    <div class="m">Restart keeps your selected roads and starts both runs again.</div>
+    <details><summary>About this comparison</summary><div class="m">Reopening during a run retains the earlier closure’s effects. These are simulated cars, not measured traffic.
+    ${m?.demand?.mode==='boundary_inflow' ? `New traffic enters through ${m.demand.entry_roads} network-fringe road directions; ${m.demand.added_trips.toLocaleString()} trips added so far. Both runs receive the same scheduled entries. Entry rates use historical estimates and destinations are assumed.` : 'This run uses a finite fleet that drains as trips finish.'}
+    Car-free here restricts cars; walking activity is not yet modelled. Stopped means below 0.1 m/s.</div></details></div>`;
+}
 const CAR_PAINT = [[235, 239, 243], [65, 117, 157], [181, 63, 49], [209, 180, 111], [109, 131, 120], [102, 110, 123]];
+const carPaintIndex = c => Math.min(CAR_PAINT.length-1,Math.floor(hash01(c.key,29)*CAR_PAINT.length));
 let carBuckets = null, carBucketSource = null, carBucketTime = 0, carBucketZoom = 0, carBucketCentre = null;
 function carDetail(c, zoom, centre) {
+  const cls=trafficNetwork?.vehicle_types?.[c.type]?.class;
+  if(cls==='bus')return 'bus';
+  if(cls==='truck')return 'truck';
+  if(cls==='delivery')return 'van';
+  if(cls==='motorcycle')return 'motorcycle';
   if (zoom < 16.5 || !centre || metresBetween(c.pose.position, centre) > 450) return 'simple';
   return hash01(c.key, 31) < 0.7 ? 'sedan' : 'suv';
 }
@@ -1304,26 +1434,108 @@ function carLayers(now) {
   for (const c of cars) c.pose = carPose(c);
   if (!carBuckets || cars !== carBucketSource || now - carBucketTime > 500 ||
       Math.abs(zoom - carBucketZoom) > 0.1 || (centre && carBucketCentre && metresBetween(centre, carBucketCentre) > 50)) {
-    carBuckets = { simple: [], sedan: [], suv: [] };
-    for (const c of cars) carBuckets[simpleTraffic ? 'simple' : carDetail(c, zoom, centre)].push(c);
+    carBuckets = { simple: [] };
+    const bounds=map?map.getBounds().toArray():vp?.getBounds?.();
+    const flat=bounds && (Array.isArray(bounds[0])?[...bounds[0],...bounds[1]]:bounds);
+    const marginY=100/111320,marginX=marginY/Math.cos((centre?.[1]??34)*Math.PI/180);
+    for (const c of cars) {
+      const [lon,lat]=c.pose.position;
+      if(flat && (lon<flat[0]-marginX || lon>flat[2]+marginX || lat<flat[1]-marginY || lat>flat[3]+marginY))continue;
+      const kind=simpleTraffic?'simple':carDetail(c,zoom,centre),key=kind==='simple'?'simple':`${kind}-${carPaintIndex(c)}`;
+      (carBuckets[key]??=[]).push(c);
+    }
     carBucketSource = cars; carBucketTime = now; carBucketZoom = zoom; carBucketCentre = centre;
   }
   const buckets = carBuckets;
   if (trafficDebug) {
     $('scene').dataset.trafficCars = cars.length;
-    $('scene').dataset.trafficDetailed = buckets.sedan.length + buckets.suv.length;
+    const visible=Object.values(buckets).reduce((sum,data)=>sum+data.length,0);
+    $('scene').dataset.trafficVisibleCars = visible;
+    $('scene').dataset.trafficDetailed = visible-buckets.simple.length;
     $('scene').dataset.trafficZoom = zoom.toFixed(2);
     $('scene').dataset.trafficRate = trafficEffectiveRate.toFixed(3);
     $('scene').dataset.trafficClock = (trafficClock ?? 0).toFixed(3);
     $('scene').dataset.trafficBuffer = trafficFrames.length ? Math.max(0, trafficFrames.at(-1).time_s - trafficClock).toFixed(3) : '0';
   }
-  return Object.entries(buckets).filter(([, data]) => data.length).map(([kind, data]) => new deck.SimpleMeshLayer({
-    id: `cars-${kind}`, data, mesh: kind === 'simple' ? mesh('car', carMesh) : importedCarMesh(kind),
-    getPosition: (c) => c.pose.position, getOrientation: (c) => c.pose.orientation,
-    getColor: kind === 'simple' ? (c) => CAR_PAINT[Math.min(CAR_PAINT.length - 1, Math.floor(hash01(c.key, 29) * CAR_PAINT.length))] : [255, 255, 255],
-    material: { ambient: 0.65, diffuse: 0.6, shininess: 32, specularColor: [90, 90, 90] },
-    updateTriggers: { getPosition: t, getOrientation: t }, ...(photoreal() && { extensions: [new deck._TerrainExtension()] }),
-  }));
+  const detailed=Object.entries(buckets).filter(([key])=>key!=='simple').flatMap(([,data])=>data);
+  const drape=photoreal()?{extensions:[new deck._TerrainExtension()]}:{};
+  const out=detailed.length?[new deck.SimpleMeshLayer({id:'car-contact-shadows',data:detailed,mesh:mesh('car-shadow',carShadowMesh),
+    getPosition:c=>{const p=vehicleMeshPosition(c);return [p[0],p[1],.018];},getOrientation:c=>c.pose.orientation,
+    getScale:c=>{const d=trafficNetwork?.vehicle_types?.[c.type];return d?[d.length_m/4.6,d.width_m/2.06,1]:[1,1,1];},
+    getColor:[9,14,17,75],material:false,parameters:SOFT,
+    updateTriggers:{getPosition:t,getOrientation:t},...drape})]:[];
+  out.push(...Object.entries(buckets).filter(([, data]) => data.length).map(([key, data]) => {
+    const [kind,paint]=key.split('-');
+    return new deck.SimpleMeshLayer({
+    id: `cars-${key}`, data, mesh: kind === 'simple' ? mesh('car', carMesh) :
+      ['bus','truck','van','motorcycle'].includes(kind)?mesh(`vehicle-${kind}`,()=>utilityVehicleMesh(kind)):importedCarMesh(kind,Number(paint)),
+    getPosition: vehicleMeshPosition, getOrientation: (c) => c.pose.orientation,
+    getScale: c => vehicleScale(c,kind),
+    getColor: kind === 'simple' ? c => CAR_PAINT[carPaintIndex(c)] : [255, 255, 255],
+    material: { ambient: 0.42, diffuse: 0.72, shininess: 72, specularColor: [150, 155, 165] },
+    updateTriggers: { getPosition: t, getOrientation: t }, ...drape,
+  });}));
+  const braking=detailed.filter(c=>c.braking&&!['bus','truck','delivery','motorcycle'].includes(trafficNetwork?.vehicle_types?.[c.type]?.class));
+  if(braking.length)out.push(new deck.SimpleMeshLayer({id:'car-brake-lights',data:braking,mesh:mesh('car-brakes',carBrakeMesh),
+    getPosition:vehicleMeshPosition,getOrientation:c=>c.pose.orientation,
+    getScale:c=>{const d=trafficNetwork?.vehicle_types?.[c.type];return d?[d.length_m/4.4,d.width_m/1.85,d.height_m/1.55]:[1,1,1];},
+    getColor:[255,35,21],material:false,updateTriggers:{getPosition:t,getOrientation:t},...drape}));
+  return out;
+}
+function vehicleScale(c,kind) {
+  const dimensions=trafficNetwork?.vehicle_types?.[c.type];
+  if(!dimensions)return [1,1,1];
+  const original=kind==='sedan'?[4.4,1.85,1.55]:kind==='suv'?[4.6,1.95,1.85]:kind==='simple'?[4.46,2.06,1.55]:[1,1,1];
+  return [dimensions.length_m/original[0],dimensions.width_m/original[1],dimensions.height_m/original[2]];
+}
+function vehicleMeshPosition(c) {
+  // TraCI supplies the front bumper. Centre a differently sized mesh behind it.
+  const p=c.pose.position,d=trafficNetwork?.vehicle_types?.[c.type];if(!d)return p;
+  const heading=c.pose.orientation[1]*Math.PI/180,half=d.length_m/2;
+  return [p[0]-Math.cos(heading)*half/(111320*Math.cos(p[1]*Math.PI/180)),
+    p[1]-Math.sin(heading)*half/111320,p[2]];
+}
+function setMixedTraffic(on) {
+  if(!DATA.traffic?.mobility?.fleet)return;
+  ui.mixed=!!on; closeTrafficSession();cars=[];prepareCars();renderTraffic();render();
+}
+function mobilityLayers() {
+  if(!ui.traffic || !DATA.traffic?.mobility)return [];
+  const out=[],features=ui.mobilityMap?DATA.traffic.mobility.features:[];
+  const areas=features.filter(f=>f.kind==='parking'&&f.path.length>1).map(feature=>({feature}));
+  const stops=features.filter(f=>f.path.length===1).map(feature=>({feature}));
+  if(areas.length)out.push(new deck.SolidPolygonLayer({id:'mobility-parking',data:areas,getPolygon:d=>d.feature.path,
+    getFillColor:[86,112,151,60],pickable:true,material:false}));
+  if(stops.length)out.push(new deck.ScatterplotLayer({id:'mobility-places',data:stops,
+    getPosition:d=>[...d.feature.path[0],.2],getRadius:2,radiusMinPixels:4,
+    getFillColor:d=>d.feature.kind==='bus_stop'?[33,151,146]:[98,124,164],
+    stroked:true,getLineColor:[255,255,255],lineWidthMinPixels:1,pickable:true}));
+  if(stops.length)out.push(new deck.TextLayer({id:'mobility-place-labels',data:stops,
+    getPosition:d=>[...d.feature.path[0],1],getText:d=>d.feature.label,getSize:12,
+    fontFamily:'Arial, sans-serif',getColor:[18,83,84],getPixelOffset:[0,-16],pickable:false}));
+  // Discrete light state at the displayed authoritative sample; never interpolate RGB.
+  const signals=ui.showSignals?(trafficFrames[0]?.signals??[]):[];
+  if(signals.length)out.push(new deck.ScatterplotLayer({id:'mobility-signals',data:signals.map(signal=>({signal})),
+    getPosition:d=>[d.signal[2],d.signal[3],3],getRadius:.55,radiusMinPixels:3,
+    getFillColor:d=>/[gG]/.test(d.signal[4])?[39,196,106]:/[yY]/.test(d.signal[4])?[255,185,48]:/[rR]/.test(d.signal[4])?[238,62,65]:[120,130,140],
+    stroked:true,getLineColor:[32,37,43],lineWidthMinPixels:1.5,pickable:true}));
+  return out;
+}
+function mobilityPilotPanel() {
+  const m=DATA.traffic?.mobility;if(!m)return '';
+  return `<div class="lever"><div class="t">${esc(m.title)}</div><div class="note">Separate corridor network · ${DATA.traffic.roads.length} road segments.</div>
+    <label class="road-row"><input type="checkbox" data-mobility-map ${ui.mobilityMap?'checked':''}>Mapped stops and parking</label>
+    <div class="note">${m.features.filter(f=>f.kind==='bus_stop').length} bus-stop markers · ${m.features.filter(f=>f.kind==='parking').length} parking locations. Occupancy unknown.</div>
+    ${m.fleet?`<label class="road-row"><input type="checkbox" data-mixed-traffic ${ui.mixed?'checked':''}>${esc(m.fleet.label)}</label>
+    <div class="note">${ui.mixed?'Historical mix scenario · SUMO default sizes and behaviour.':'Passenger-car baseline. Changing the mix starts a new run.'} Motorcycles unmeasured.</div>`:''}
+    <label class="road-row"><input type="checkbox" data-signal-states ${ui.showSignals?'checked':''}>Show simulated traffic lights</label>
+    <div class="note">${m.surveyed_signal_programs} surveyed signal programs loaded. Other timings and control locations are assumed; markers show SUMO stop lines.</div>
+    <details><summary>Data sources and missing observations</summary>
+      ${m.sources.map(s=>`<div class="note"><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a> · ${esc(s.as_of)}<br>${esc(s.limitations)}</div>`).join('')}
+      ${m.fleet?`<div class="note">${esc(m.fleet.scope)}</div>`:''}
+      ${m.gaps.map(g=>`<div class="note">${esc(g)}</div>`).join('')}
+      <div class="note">${m.observed_stop_events} observed pickup/parking events. Pedestrian demand unavailable; no generated people or occupied spaces are presented as observations.</div>
+    </details></div>`;
 }
 function setTraffic(on) {
   ui.traffic = on && !!DATA.traffic;
@@ -1365,7 +1577,7 @@ function requestTraffic() {
 }
 function setRoadTool(tool) {
   ui.roadTool = ui.roadTool === tool ? null : tool;
-  $('progress').textContent = ui.roadTool === 'close' ? 'Click a road to close it · click a closed one to reopen it'
+  $('progress').textContent = ui.roadTool === 'close' ? 'Click a road segment to make it car-free · click again to reopen it'
     : ui.roadTool === 'crash' ? 'Click a road to put a crash on it · click the crash to clear it' : '';
   renderTraffic(); render();
 }
@@ -1423,7 +1635,7 @@ function renderTraffic() {
       <div class="sub">Historical speeds, ${esc(DATA.traffic.period)} · <span id="traffic-playback-rate"></span></div>
       <div class="sev"><div class="row"><label for="hour">Hour</label><b id="hour-label"></b></div>
         <input id="hour" type="range" min="0" max="23" step="1" value="${ui.hour}"></div>
-      <div id="traffic-body"></div>`;
+      <div id="traffic-controls"></div><div id="mobility-pilot"></div><div id="traffic-body"></div>`;
   }
   $('traffic-playback-rate').textContent = `adaptive ${trafficPlaybackRate.toFixed(2)}× playback; slows or pauses while buffering`;
   $('hour').value = ui.hour;
@@ -1435,13 +1647,26 @@ function renderTraffic() {
   const events = ui.closedRoads.size + ui.crashes.size;
   const tools = DATA.api ? `<div class="row" style="display:flex;align-items:center;gap:8px;margin:2px 0 10px">
       <div class="seg" role="group" aria-label="Road tools">
-        <button type="button" data-road-tool="close" aria-pressed="${ui.roadTool === 'close'}">Close a road</button>
+        <button type="button" data-road-tool="close" aria-pressed="${ui.roadTool === 'close'}">Make car-free</button>
         <button type="button" data-road-tool="crash" aria-pressed="${ui.roadTool === 'crash'}">Crash</button></div>
       ${events ? `<button type="button" class="more" data-road-clear style="border:1px solid var(--line);background:var(--control);border-radius:999px;padding:5px 10px;font-size:12px">Clear ${events}</button>` : ''}</div>` : '';
-  $('traffic-body').innerHTML = `${tools}
-    <div class="road-row"><span class="ln" style="background:${swatch(FLOW[0])}"></span><span>Near free-flow speed</span></div>
+  const appearance = `<div class="seg" role="group" aria-label="Road appearance" style="margin-bottom:10px">
+    <button type="button" data-traffic-style="street" aria-pressed="${ui.trafficStyle==='street'}">Street view</button>
+    <button type="button" data-traffic-style="colours" aria-pressed="${ui.trafficStyle!=='street'}">Traffic colours</button></div>`;
+  // Keep focused controls and expanded source details alive between replay samples.
+  const controls=appearance+tools,pilot=mobilityPilotPanel();
+  if($('traffic-controls').dataset.content!==controls) {
+    $('traffic-controls').innerHTML=controls;$('traffic-controls').dataset.content=controls;
+  }
+  if($('mobility-pilot').dataset.content!==pilot) {
+    $('mobility-pilot').innerHTML=pilot;$('mobility-pilot').dataset.content=pilot;
+  }
+  const entries=trafficMetrics?.demand;
+  const demandLabel=entries?`<div class="note">${entries.mode==='boundary_inflow'?`Continuous traffic entries · ${entries.added_trips.toLocaleString()} new trips since start`:'Finite fleet · no incoming traffic in this run'}</div>`:'';
+  $('traffic-body').innerHTML = `${demandLabel}${DATA.api ? mobilityComparison() : ''}
+    ${ui.trafficStyle==='street' ? '<div class="note">Asphalt and lane markings · illustrative street appearance. Switch to Traffic colours to read historical speeds.</div>' : `<div class="road-row"><span class="ln" style="background:${swatch(FLOW[0])}"></span><span>Near free-flow speed</span></div>
     <div class="road-row"><span class="ln" style="background:${swatch(FLOW[1])}"></span><span>About half speed</span></div>
-    <div class="road-row"><span class="ln" style="background:${swatch(FLOW[2])}"></span><span>Crawling</span></div>
+    <div class="road-row"><span class="ln" style="background:${swatch(FLOW[2])}"></span><span>Crawling</span></div>`}
     ${t ? `<div class="road-row"><span class="ln" style="background:${swatch(CLOSED_RGB)}"></span><span>Closed</span></div>
 
     ${ui.crashes.size ? `<div class="road-row"><span class="ln" style="background:${swatch(CRASH_RGB)}"></span><span>Crash · slows the queue up to 250 m behind it</span></div>` : ''}
@@ -1451,7 +1676,7 @@ function renderTraffic() {
     ${DATA.traffic.bus_routes?.length ? `<label class="road-row" style="cursor:pointer"><input type="checkbox" data-buses ${ui.buses ? 'checked' : ''} style="margin:0;accent-color:#0e8f7e"><span>Bus and van routes (${DATA.traffic.bus_routes.length}, OpenStreetMap)</span></label>
       ${ui.buses ? `<div class="road-row"><span class="ln" style="background:${swatch(BUS_RGB)}"></span><span>Route</span></div>${t?.bus_routes_hit?.length ? `<div class="road-row"><span class="ln" style="background:${swatch(busCutRgb())}"></span><span>Route cut by a closure</span></div>` : ''}` : ''}` : ''}
     ${stationRows()}
-    <div class="note">SUMO generates destination-based trips, car following, lane queues and junction controls. Closures reroute this same fleet; vehicles without detours remain accounted for and resume after reopening. Colour compares each road's median speed at this hour with its fastest hour. ${est.toLocaleString()} of ${DATA.traffic.roads.length.toLocaleString()} roads had too few readings and borrow their road class's profile. These are simulated trajectories, not measured GPS trips or a live vehicle count. Destinations and signal timing are assumptions. Demand uses 2016–17 class counts; speeds predate 2020. The finite fleet drains as trips finish.${t ? ' Closure and hazard slowdown rules are illustrative assumptions.' : ''}</div>`;
+    <div class="note">SUMO generates destination-based trips, car following, lane queues and junction controls. Closures reroute this same fleet; vehicles without detours remain accounted for and resume after reopening. Traffic colours shows each road's median speed at this hour compared with its fastest hour. ${est.toLocaleString()} of ${DATA.traffic.roads.length.toLocaleString()} roads had too few readings and borrow their road class's profile. These are simulated trajectories, not measured GPS trips or a live vehicle count. Destinations and signal timing are assumptions. Demand uses 2016–17 class counts; speeds predate 2020. ${trafficMetrics?.demand?.mode==='boundary_inflow' ? 'New cars continue entering through network-fringe roads at estimated historical rates.' : 'Waiting for continuous-entry demand information.'}${t ? ' Closure and hazard slowdown rules are illustrative assumptions.' : ''}</div>`;
 }
 
 // ---- meshes (metres; x east, y north, z up), flat-shaded triangle lists ----
@@ -1483,15 +1708,21 @@ function taper(out, bx, h, cz, apex, col) {
   for (let i = 0; i < 4; i++) tri(out, q[i], q[(i + 1) % 4], apex, col, [bx, 0, cz]);
 }
 const meshes = {};
-function importedCarMesh(name) {
-  if (meshes[name]) return meshes[name];
+function importedCarMesh(name, paintIndex = 0) {
+  const key=`${name}-paint-${paintIndex}`;
+  if (meshes[key]) return meshes[key];
   const source = IMPORTED_CARS[name];
   const bytes = value => Uint8Array.from(atob(value), c => c.charCodeAt(0));
-  return meshes[name] = {
+  const colours=bytes(source.colors), mask=source.paint?bytes(source.paint):null, paint=CAR_PAINT[paintIndex];
+  if(mask)for(let i=0;i<mask.length;i++)if(mask[i]) {
+    const shade=Math.max(.45,Math.max(...colours.slice(i*3,i*3+3))/(source.paint_reference??240));
+    for(let c=0;c<3;c++)colours[i*3+c]=Math.min(255,paint[c]*shade);
+  }
+  return meshes[key] = {
     attributes: {
     positions: { value: new Float32Array(bytes(source.positions).buffer), size: 3 },
     normals: { value: new Float32Array(bytes(source.normals).buffer), size: 3 },
-    colors: { value: Float32Array.from(bytes(source.colors), c => c / 255), size: 3 },
+    colors: { value: Float32Array.from(colours, c => c / 255), size: 3 },
     texCoords: { value: new Float32Array(source.vertices * 2), size: 2 },
     },
     indices: { value: new Uint16Array(bytes(source.indices).buffer), size: 1 },
@@ -1519,6 +1750,44 @@ function carMesh() {
     box(v, [2.2, y - 0.18, 0.65], [2.23, y + 0.18, 0.85], [1, 1, 0.85]);
     box(v, [-2.23, y - 0.18, 0.65], [-2.2, y + 0.18, 0.85], [0.8, 0.08, 0.05]);
   }
+  return meshOf(v);
+}
+function carShadowMesh() {
+  const v=[],p=a=>[2.3*Math.cos(a),1.03*Math.sin(a),0],centre=[0,0,0];
+  for(let i=0;i<20;i++)for(const point of [centre,p(i*Math.PI/10),p((i+1)*Math.PI/10)])v.push({p:point,n:[0,0,1],c:[1,1,1]});
+  return meshOf(v);
+}
+function utilityVehicleMesh(kind) {
+  // Unit dimensions; actual scale comes from the running SUMO type definition.
+  const v=[],body=[.78,.81,.82],glass=[.12,.24,.31],rubber=[.07,.08,.09];
+  if(kind==='motorcycle') {
+    box(v,[-.3,-.12,.25],[.3,.12,.55],[.19,.25,.29]);
+    for(const x of [-.32,.32])box(v,[x-.13,-.09,0],[x+.13,.09,.4],rubber);
+    box(v,[-.1,-.2,.45],[.1,.2,.75],[.22,.32,.42]);
+    box(v,[-.1,-.16,.75],[.1,.16,1],[.68,.7,.72]);
+  } else {
+    box(v,[-.5,-.48,.15],[.5,.48,.97],body);
+    for(const x of [-.32,.32])for(const y of [-.47,.47])box(v,[x-.07,y-.06,0],[x+.07,y+.06,.28],rubber);
+    box(v,[.495,-.4,.55],[.502,.4,.88],glass);
+    if(kind==='bus') {
+      for(let x=-.41;x<.42;x+=.12)for(const side of [-1,1])
+        box(v,[x,side<0?-.486:.48,.56],[x+.09,side<0?-.48:.486,.88],glass);
+    } else if(kind==='van') {
+      for(const side of [-1,1])box(v,[.19,side<0?-.486:.48,.58],[.43,side<0?-.48:.486,.87],glass);
+    } else {
+      box(v,[-.47,-.49,.3],[.16,.49,1],[.55,.62,.66]);
+      for(const side of [-1,1])box(v,[.25,side<0?-.486:.48,.6],[.43,side<0?-.48:.486,.86],glass);
+    }
+    for(const y of [-.36,.36]) {
+      box(v,[.5,y-.06,.25],[.505,y+.06,.35],[1,.98,.75]);
+      box(v,[-.505,y-.06,.25],[-.5,y+.06,.35],[.85,.07,.04]);
+    }
+  }
+  return meshOf(v);
+}
+function carBrakeMesh() {
+  const v=[];
+  for(const y of [-.65,.65])box(v,[-2.225,y-.16,.65],[-2.2,y+.16,.8],[1,1,1]);
   return meshOf(v);
 }
 // A generic airliner, nose along +x, ~55 m long.
@@ -2111,7 +2380,7 @@ const deckProps = () => ({
   onHover: showTip,
   // Roads are thin; a few pixels of slack makes them clickable.
   pickingRadius: 6,
-  onClick: ({ object, coordinate }) => { if (object?.bus || object?.survey) return; if (object?.r) { if (ui.roadTool) toggleRoadEvent(object.i, coordinate); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
+  onClick: ({ object, coordinate }) => { if (object?.bus || object?.survey || object?.feature || object?.signal) return; if (object?.r) { if (ui.roadTool) toggleRoadEvent(object.i, coordinate); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
 });
 
 function linkedMapCamera() {
@@ -2235,6 +2504,14 @@ function roadTip(tip, { r, i }, x, y) {
 function showTip({ object, x, y }) {
   const tip = $('tip');
   if (!object) { tip.hidden = true; return; }
+  if(object.feature || object.signal) {
+    const f=object.feature,s=object.signal;
+    tip.innerHTML=f?`<div class="h">${esc(f.label)}</div><div class="s">Mapped ${esc(f.kind.replace('_',' '))} · OpenStreetMap</div>
+      <div class="s">${f.capacity===null?'Capacity unrecorded':`Tagged capacity: ${f.capacity}`} · occupancy and current service unknown.</div><div class="s">${esc(f.id)}</div>`:
+      `<div class="h">Simulated signal · ${esc(s[4])}</div><div class="s">${s[5]?'Survey-sourced program':'Assumed control and timing'} · SUMO stop-line marker</div>`;
+    tip.hidden=false;tip.style.left=`${Math.max(8,Math.min(x+16,innerWidth-tip.offsetWidth-10))}px`;
+    tip.style.top=`${Math.max(8,Math.min(y+16,innerHeight-tip.offsetHeight-10))}px`;return;
+  }
   if (object.survey) { floodSurveyTip(tip, object.survey, x, y); return; }
   if (object.r) { roadTip(tip, object, x, y); return; }
   if (object.bus) {
@@ -3141,6 +3418,9 @@ function wire() {
   $('p-traffic').addEventListener('input', (e) => {
     if (e.target.id === 'hour') setHour(Number(e.target.value));
     if (e.target.matches('[data-buses]')) { ui.buses = e.target.checked; renderTraffic(); render(); }
+    if (e.target.matches('[data-mixed-traffic]')) { setMixedTraffic(e.target.checked); }
+    if (e.target.matches('[data-mobility-map]')) { ui.mobilityMap=e.target.checked;renderTraffic();render(); }
+    if (e.target.matches('[data-signal-states]')) { ui.showSignals=e.target.checked;renderTraffic();render(); }
   });
   $('p-traffic').addEventListener('mouseover', (e) => {
     const row = e.target.closest('[data-station]');
@@ -3148,6 +3428,13 @@ function wire() {
     if (next !== ui.roadHighlight && (next?.length || ui.roadHighlight)) { ui.roadHighlight = next?.length ? next : null; render(); }
   });
   $('p-traffic').addEventListener('click', (e) => {
+    const appearance=e.target.closest('[data-traffic-style]');
+    if(appearance){setTrafficStyle(appearance.dataset.trafficStyle);return;}
+    const road = e.target.closest('[data-mobility-road]');
+    if (road) { focusRoads([Number(road.dataset.mobilityRoad)]); return; }
+    if (e.target.closest('[data-mobility-restart]')) {
+      closeTrafficSession(); cars = []; prepareCars(); renderTraffic(); render(); return;
+    }
     const tool = e.target.closest('[data-road-tool]');
     if (tool) { setRoadTool(tool.dataset.roadTool); return; }
     if (e.target.closest('[data-road-clear]')) clearRoadEvents();
@@ -3245,6 +3532,7 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
   const hashLens = new URLSearchParams(location.hash.slice(1)).get('lens');
   const tab = hashLens && document.querySelector(`.tab[data-lens="${CSS.escape(hashLens)}"]:not([hidden])`);
   setLens(tab ? hashLens : ui.lens);
+  if(DATA.api && DATA.traffic && new URLSearchParams(location.search).get('traffic')==='1')setTraffic(true);
 }
 </script>
 </body>
