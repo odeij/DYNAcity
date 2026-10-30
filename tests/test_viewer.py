@@ -186,6 +186,14 @@ def test_evidence_distinguishes_source_wave_and_height_derivation(bbed_collectio
     assert fallback['height_source'] == 'Illustrative fallback (6 m)'
 
 
+def test_export_inlines_street_detail_modules(bbed_collection):
+    html = render_viewer(build_viewer_payload(bbed_collection, snapshot_for(bbed_collection)))
+    assert "/*__DYNACITY_DETAILS__*/" not in html
+    for function in ("streetEdgeDetailLayers", "intersectionDetailLayers", "buildingDetailLayers", "osmContextLayers"):
+        assert f"function {function}(" in html
+    assert '<script src="viewer_' not in html
+
+
 def test_forecast_evidence_survives_api_and_saved_result(bbed_collection):
     from dynacity.contracts import ForecastResult
     snapshot = snapshot_for(bbed_collection)

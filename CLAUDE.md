@@ -37,6 +37,7 @@ CLI entry point `dynacity` (`src/dynacity/cli.py`, registered via `[project.scri
 - `dynacity summarize-transitions --panel --output [--start-year --target-year]` — descriptive interval summary (default 2018→2024; excluded from the model benchmark)
 - `dynacity build-snapshot --bbed --snapshot-id --data-version --output`
 - `dynacity fetch-terrain --snapshot --output [--cell-m]` — approximate ground-elevation grid (`.npz`) from Copernicus GLO-30 over the snapshot extent (`terrain` extra: rasterio); floods follow it when served with `--terrain`
+- `dynacity pack-beirut001 --model --bbed --output [--cell-m]` — Beirut 001 Rhino model (~730 MB) → ~2.6 MB private `.npz` of building outlines, heights above model ground, BBED links, bridge levels and a ground grid (`beirut001_pack.py`, `overlay` extra); served with `serve --beirut001` (loopback only)
 - `dynacity build-traffic --snapshot --velocities [--roads --bus-routes] --output` — OSM road graph (Overpass, or a saved Overpass JSON) + Tari'ak hourly median speeds per road (`traffic.py`); served with `--traffic`, disasters close roads and report cut-off and delayed trips
 - `dynacity train --panel --output` — runs `temporal_benchmark`, writes the selected `ModelBundle` + a sibling `.metrics.json`
 - `dynacity compile-scenario --snapshot --text|--text-file --output [--request-output] [--provider anthropic|gemini --llm-model]` — planner prose → LLM draft → deterministic check (`scenario_compiler.check_draft`) → `ScenarioSpec`; providers in `providers.py` (`llm` extra + `ANTHROPIC_API_KEY`, or `gemini` extra + `GEMINI_API_KEY`)
@@ -44,7 +45,7 @@ CLI entry point `dynacity` (`src/dynacity/cli.py`, registered via `[project.scri
 - `dynacity forecast --model --request --output`
 - `dynacity plan --model --request --output` — `planning.plan`: backcast (least-intensive lever combination meeting KPI targets) + Pareto front, by enumerating/sampling lever settings through `ForecastEngine`
 - `dynacity export-viewer --bbed --snapshot [--forecast] --output` — self-contained deck.gl 3D page (`viewer.py` + `viewer_template.html`)
-- `dynacity serve --model [--snapshot --bbed --forecast --evidence --terrain --traffic] [--host --port]` — FastAPI app via uvicorn; with `--snapshot --bbed` it also serves the live 3D viewer at `/`, `/v1/viewer/scenario`, `/v1/viewer/ask`, `/v1/viewer/hazard` (drag-and-drop disasters, no LLM; needs a snapshot with centroids), and with `--traffic` `/v1/viewer/traffic` (road impact of disasters plus hand-placed closures/crashes at an hour, no forecast)
+- `dynacity serve --model [--snapshot --bbed --forecast --evidence --terrain --traffic --beirut001 --corridor] [--host --port]` — FastAPI app via uvicorn; with `--snapshot --bbed` it also serves the live 3D viewer at `/`, `/v1/viewer/scenario`, `/v1/viewer/ask`, `/v1/viewer/hazard` (drag-and-drop disasters, no LLM; needs a snapshot with centroids), and with `--traffic` `/v1/viewer/traffic` (road impact of disasters plus hand-placed closures/crashes at an hour, no forecast); `--corridor <line.geojson>` (`corridor.py`) cuts every input to a buffer around one corridor, currently Al Masar al Akhdar along the old railway (`docs/green-corridor.md`)
 
 ## Private data boundary
 

@@ -196,6 +196,23 @@ def test_crossings_and_signals_reach_the_page(model, tmp_path):
     assert payload["signals"] == model.signals and payload["crossings_mapped"]
 
 
+def test_fresh_context_adds_display_crossings_without_changing_signal_controls(model, tmp_path):
+    import json
+    from dynacity.cli import _landscape_view
+    from dynacity.viewer import utm_to_lonlat
+    a,b=model.geometry[0][:2]
+    lon,lat=utm_to_lonlat((a[0]+b[0])/2,(a[1]+b[1])/2,36,True)
+    path=tmp_path/'context.json'
+    path.write_text(json.dumps({'elements':[{'type':'node','id':999,'lon':lon,'lat':lat,
+        'tags':{'highway':'crossing','crossing':'marked'}}]}),encoding='utf-8')
+    controls=list(model.signals)
+    _landscape_view(str(path),model)
+    assert len(model.crossings)==1
+    assert model.signals==controls
+    _landscape_view(str(path),model)
+    assert len(model.crossings)==1
+
+
 def test_bridge_and_tunnel_levels_reach_the_page(model, tmp_path):
     data = overpass()
     tags = {e["id"]: e["tags"] for e in data["elements"] if e["type"] == "way"}
@@ -307,7 +324,8 @@ def test_impact_counts_cut_off_and_delayed_trips(model):
 def test_payload_is_aggregate_and_in_lonlat(model):
     payload = traffic_payload(model)
     road = payload["roads"][0]
-    assert set(road) == {"path", "len", "cls", "oneway", "u", "v", "speed", "free", "n", "est", "name", "lanes", "width_m", "qf"}
+    assert set(road) == {"path", "len", "cls", "oneway", "u", "v", "speed", "free", "n", "est", "name", "lanes", "width_m", "qf", "source_way"}
+    assert road['source_way'] == model.way_id[0]
     assert road["width_m"] > 0
     assert (road["u"], road["v"]) == (int(model.u[0]), int(model.v[0]))
     assert len(road["speed"]) == 24
@@ -513,3 +531,33 @@ def test_several_samples_report_their_range(model):
     assert lo <= out["delay_min"]["p50"] <= hi
     assert set(out["ranges"]) == {"affected", "cut_off", "delay_p50", "delay_p90", "diverted_vph", "spillover_trips"}
     assert traffic_impact(model, disruption, origins=6, per_origin=8)["samples"] == 1
+
+
+def test_building_coverage_flags_a_road_model_smaller_than_the_city(model):
+    from dynacity.traffic import building_coverage
+    city = snapshot()
+    assert building_coverage(model, city) == 1.0
+    far = city.model_copy(update={"objects": [*city.objects, building("far", X0 + 50_000, Y0)]})
+    assert building_coverage(model, far) == pytest.approx(2 / 3)
+    assert building_coverage(model, city.model_copy(update={"crs": "EPSG:4326"})) is None
+
+
+def test_quick_estimate_routes_respect_turn_bans(model):
+    from dataclasses import replace
+    from scipy.sparse.csgraph import dijkstra
+    from dynacity.traffic import _directed, _path_roads
+
+    source, via, target = model.turn_bans[0]
+    origin = int(model.u[source]) if int(model.v[source]) == via else int(model.v[source])
+    far = int(model.v[target]) if int(model.u[target]) == via else int(model.u[target])
+
+    def route(m):
+        graph, arcs = _directed(m, 8, None)
+        _, before = dijkstra(graph, indices=origin, return_predecessors=True)
+        return _path_roads(before, origin, far, arcs)[::-1]
+
+    banned = route(model)
+    assert banned and banned[0] == source
+    assert all((a, b) != (source, target) for a, b in zip(banned, banned[1:]))
+    # Without the ban the direct turn is the quickest way.
+    assert route(replace(model, turn_bans=[], _graph_cache={})) == [source, target]

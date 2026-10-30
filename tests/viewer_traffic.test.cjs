@@ -4,6 +4,100 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const html=fs.readFileSync(`${__dirname}/../src/dynacity/viewer_template.html`,'utf8');
+
+test('main-map signal markers follow replay and visibility without a mobility package',()=>{
+ const context=vm.createContext({ui:{traffic:true,showSignals:true},DATA:{traffic:{}},
+  map:{getZoom:()=>18,getCenter:()=>({toArray:()=>[35.5,33.9]})},
+  trafficFrames:[{signals:[['1',0,35.5,33.9,'r',false]]}],
+  deck:{ScatterplotLayer:class {constructor(props){this.props=props;}}}});
+ vm.runInContext(html.slice(html.indexOf('function mobilityLayers()'),html.indexOf('function mobilityPilotPanel()')),context);
+ const layers=()=>vm.runInContext('mobilityLayers()',context);
+ const red=layers()[0].props;
+ assert.equal(red.id,'mobility-signals');
+ assert.deepEqual(Array.from(red.getFillColor(red.data[0])),[238,62,65]);
+ vm.runInContext("trafficFrames[0].signals[0][4]='G'",context);
+ const green=layers()[0].props;
+ assert.deepEqual(Array.from(green.getFillColor(green.data[0])),[39,196,106]);
+ vm.runInContext('ui.showSignals=false',context);
+ assert.equal(layers().length,0);
+});
+
+test('street-level zoom replaces dots with poles and preserves separate movement lamps',()=>{
+ class Layer {constructor(props){Object.assign(this,props);}}
+ const context=vm.createContext({ui:{traffic:true,showSignals:true},DATA:{traffic:{roads:[{}]}},
+  trafficFrames:[{signals:[['1',0,35.5,33.9,'r',false,90,35.50002,33.9,0],
+    ['1',1,35.5,33.9,'G',false,90,35.50002,33.9,0]]}],
+  map:null,zoom:18,deckgl:{getViewports:()=>[{zoom:context.zoom,longitude:35.5,latitude:33.9}]},
+  metresBetween:()=>2,roadHeightAt:()=>0,mesh:(id)=>id,MATERIAL:{},signalPoleMesh:()=>{},signalHeadMesh:()=>{},
+  deck:{ScatterplotLayer:Layer,SimpleMeshLayer:Layer}});
+ vm.runInContext(html.slice(html.indexOf('function mobilityLayers()'),html.indexOf('function mobilityPilotPanel()')),context);
+ const layers=()=>vm.runInContext('mobilityLayers()',context);
+ assert.equal(layers()[0].data.length,2);
+ context.zoom=20;
+ const close=layers();
+ assert.equal(close[0].data.length,0);
+ assert.equal(close.find(l=>l.id==='traffic-signal-poles').data.length,1);
+ assert.equal(close.find(l=>l.id==='traffic-signal-head-r').data.length,1);
+ assert.equal(close.find(l=>l.id==='traffic-signal-head-G').data.length,1);
+ assert.equal(close.find(l=>l.id==='traffic-signal-poles').getOrientation(close[1].data[0])[1],90);
+ context.map={getZoom:()=>20,getCenter:()=>({toArray:()=>[35.5,33.9]})};
+ context.deckgl={}; // MapLibre's overlay has no getViewports method.
+ assert.equal(layers().find(l=>l.id==='traffic-signal-poles').data.length,1);
+ context.ui.showSignals=false;
+ assert.equal(layers().length,0);
+});
+
+test('traffic-light meshes have upright shafts and only the selected lens is bright',()=>{
+ const context=vm.createContext({});
+ vm.runInContext(html.slice(html.indexOf('function meshOf('),html.indexOf('const meshes =')),context);
+ vm.runInContext(html.slice(html.indexOf('function signalPoleMesh('),html.indexOf('// Unit funnel:')),context);
+ const pole=vm.runInContext('signalPoleMesh()',context);
+ const head=vm.runInContext("signalHeadMesh('r')",context);
+ assert.equal(Math.max(...pole.positions.value.filter((_,i)=>i%3===2)),Math.fround(3.7));
+ const colours=head.colors.value;
+ assert.ok(Array.from(colours).some((v,i)=>i%3===0&&v>.9));
+ assert.ok(!Array.from(colours).some((v,i)=>i%3===1&&v>.2));
+ const left=vm.runInContext("signalHeadMesh('G','l')",context);
+ const right=vm.runInContext("signalHeadMesh('G','r')",context);
+ assert.notDeepEqual(left.positions.value,right.positions.value);
+ assert.deepEqual(left.colors.value,right.colors.value);
+ for(const mesh of [left,right]) {
+  const points=[];
+  for(let i=0;i<mesh.colors.value.length;i+=3)if(mesh.colors.value[i+1]>.8)
+    points.push(Array.from(mesh.positions.value.slice(i,i+3)));
+  for(let i=0;i<points.length;i+=3) {
+    const [a,b,c]=points.slice(i,i+3);
+    assert.ok((b[1]-a[1])*(c[2]-a[2])-(b[2]-a[2])*(c[1]-a[1])<0,'arrow faces approaching traffic');
+  }
+ }
+});
+
+test('city overview hides signal boards, neighbourhood view groups junctions, close view retains movement arrows',()=>{
+ class Layer{constructor(p){Object.assign(this,p);}}
+ const c=vm.createContext({ui:{traffic:true,showSignals:true},DATA:{traffic:{}},trafficFrames:[{signals:[['1',0,35.5,33.9,'r',false,0,35.5,33.9,0,'l'],['1',1,35.5,33.9,'G',false,0,35.5,33.9,0,'r']]}],
+ map:{getZoom:()=>14,getCenter:()=>({toArray:()=>[35.5,33.9]})},deck:{ScatterplotLayer:Layer,TextLayer:Layer}});
+ vm.runInContext(html.slice(html.indexOf('function mobilityLayers()'),html.indexOf('function mobilityPilotPanel()')),c);
+ assert.equal(c.mobilityLayers().length,0);
+ c.map.getZoom=()=>17;const grouped=c.mobilityLayers();assert.equal(grouped.length,1);assert.equal(grouped[0].data.length,1);
+ assert.equal(grouped[0].data[0].signalJunction.signals.length,2);assert.ok(grouped[0].radiusMaxPixels<=2.5);
+ c.map.getZoom=()=>18;assert.ok(c.mobilityLayers().some(l=>l.id==='mobility-signal-arrows'));
+});
+
+test('overview turn arrows match the same movements and colours as close-up heads',()=>{
+ class Layer {constructor(props){Object.assign(this,props);}}
+ const context=vm.createContext({ui:{traffic:true,showSignals:true},DATA:{traffic:{}},
+  map:{getZoom:()=>18,getCenter:()=>({toArray:()=>[35.5,33.9]})},
+  trafficFrames:[{signals:[['1',0,35.5,33.9,'r',false,90,35.5,33.9,0,'l'],
+    ['1',1,35.5,33.9,'G',false,90,35.5,33.9,0,'r']]}],
+  deck:{ScatterplotLayer:Layer,TextLayer:Layer}});
+ vm.runInContext(html.slice(html.indexOf('function mobilityLayers()'),html.indexOf('function mobilityPilotPanel()')),context);
+ const layer=vm.runInContext('mobilityLayers()',context).find(l=>l.id==='mobility-signal-arrows');
+ assert.equal(layer.getText(layer.data[0]),'←');assert.equal(layer.getText(layer.data[1]),'→');
+ assert.deepEqual(Array.from(layer.characterSet),['←','↑','→']);
+ assert.deepEqual(Array.from(layer.getColor(layer.data[0])),[238,62,65]);
+ assert.deepEqual(Array.from(layer.getColor(layer.data[1])),[39,196,106]);
+ assert.notEqual(layer.getPixelOffset(layer.data[0])[0],layer.getPixelOffset(layer.data[1])[0]);
+});
 test('road overlay follows simulated carriageway width, with a legacy fallback',()=>{
  const run=s=>vm.runInNewContext(`${html.match(/^const ROAD_WIDTH = .*$/m)[0]}\n${html.match(/^const roadWidth = .*$/m)[0]}\n${s}`);
  assert.equal(run("roadWidth({cls:'residential',width_m:6.4})"),6.4);
@@ -75,14 +169,14 @@ test('pilot distinguishes mapped infrastructure, missing observations and transf
  const panel=run('mobilityPilotPanel()');
  assert.match(panel,/Occupancy unknown/);
  assert.match(panel,/0 surveyed signal programs/);
- assert.match(panel,/Other timings and control locations are assumed/);
+ assert.match(panel,/Other timings remain assumed/);
  assert.match(panel,/Motorcycle counts missing/);
  assert.match(panel,/Changing the mix starts a new run/);
 });
 
 test('signal colour follows the displayed sample, never the future buffer head',()=>{
  class Layer {constructor(props){Object.assign(this,props);}}
- const {run}=fixture({deck:{ScatterplotLayer:Layer,TextLayer:Layer,SolidPolygonLayer:Layer}});
+ const {run}=fixture({map:{getZoom:()=>18,getCenter:()=>({toArray:()=>[35,33]})},deck:{ScatterplotLayer:Layer,TextLayer:Layer,SolidPolygonLayer:Layer}});
  run(html.slice(html.indexOf('function mobilityLayers()'),html.indexOf('function mobilityPilotPanel()')));
  run(`DATA.traffic.mobility={features:[]};ui.showSignals=true;ui.mobilityMap=true;
  trafficFrames[0].signals=[['n',0,35,33,'r',false]];trafficFrames[1].signals=[['n',0,35,33,'G',false]]`);
@@ -225,7 +319,7 @@ test('road and hazard edits during a fetch keep the fleet and reach SUMO in the 
  run('advanceCars(250)');
  await settle();
  assert.equal(requests.length,2);
- assert.deepEqual(requests[1],{hour:8,seconds:2,continuous:true,mixed:false,closed:[3],crashes:[4],hazards});
+ assert.deepEqual(requests[1],{hour:8,seconds:2,continuous:true,mixed:false,closed:[3],crashes:[4],hazards,view:null,max_vehicles:8000});
  assert.equal(run('cars[0].key'),'a');
 });
 test('departures and replacements appear only at their authoritative frame, with shortest-turn interpolation',()=>{
@@ -248,7 +342,7 @@ test('traffic redraw updates the learned rate without rebuilding the hour slider
   for(const id of ['hour','hour-label','traffic-body','traffic-playback-rate','traffic-controls','mobility-pilot'])fields[id]={value:'',textContent:'',innerHTML:'',dataset:{},setAttribute(){}};
  }};
  const {run}=fixture({$:id=>fields[id],hourLabel:h=>`${h}:00`,roadImpact:()=>null,
-  FLOW:[[1,2,3],[4,5,6],[7,8,9]],simulationSummary:()=>'',stationRows:()=>''});
+  FLOW:[[1,2,3],[4,5,6],[7,8,9]],simulationSummary:()=>'',stationRows:()=>'',trafficExtent:()=>null});
  run(html.slice(html.indexOf('function renderTraffic()'),html.indexOf('// ---- meshes')));
  run('DATA.api=true;renderTraffic()');
  const slider=fields.hour;
@@ -397,4 +491,13 @@ test('close-up drawing culls only offscreen cars and preserves the full simulate
  assert.equal(scene.dataset.trafficCars,3);
  assert.equal(scene.dataset.trafficVisibleCars,2);
  assert.equal(run("layers.filter(l=>l.props.id.startsWith('cars-')).flatMap(l=>l.props.data).some(c=>c.key==='far')"),false);
+});
+
+test('road model outline appears only when the buildings reach well beyond the roads',()=>{
+ const code=html.slice(html.indexOf('let trafficExtentCache;'),html.indexOf('function roadLayers()'));
+ const extent=(roads,buildings)=>vm.runInNewContext(`${code};trafficExtent()`,{DATA:{traffic:{roads:[{path:roads}]},buildings:[{rings:[buildings]}]}});
+ // A pilot road box inside a much larger city: outlined.
+ assert.deepEqual(Array.from(extent([[1,1],[2,2]],[[0,0],[10,10]])),[1,1,2,2]);
+ // Roads covering the buildings: nothing to outline.
+ assert.equal(extent([[0,0],[10,10]],[[1,1],[9,9]]),null);
 });

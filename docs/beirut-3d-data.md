@@ -103,25 +103,9 @@ The access notice screenshot is `tmp/iconem-beirut-access.png`. Two concrete
 request drafts are saved in [data-requests/beirut-3d-access.md](data-requests/beirut-3d-access.md).
 No messages have been sent and no paid service has been ordered.
 
-### Beirut 001 standalone preview
+### Beirut 001 pack
 
-Converted original meshes and cached Brep render meshes to a 122 MB GLB for
-local inspection only. The preview includes 17,575 building geometry objects
-plus terrain, blocks, river, bridges and tunnels; curves and text are omitted.
-It contains 5,308,463 triangles after converting quad faces to triangles.
-Neutral display colours are added by layer. Geometry is only rotated from
-Rhino Z-up to glTF Y-up; no geographic transform is guessed and no photographic
-textures are generated. Open `http://127.0.0.1:8013/beirut-001.html` while the
-local inspection server runs. Original files and converted assets stay in
-`~/dynacity-private/data/`, outside Git. No change was made to the main app's
-building dataset.
-
-
-## BBED hover overlay pilot
-
-A separate local overlay is now available at `http://127.0.0.1:8013/bbed/`.
-It preserves original model geometry and provisionally links 709 objects to
-BBED by conservative footprint agreement. All remaining model objects stay
-unlinked. See [the pilot documentation](beirut-overlay-pilot.md) for thresholds,
-source/date boundaries, rebuild steps and limitations. The main forecasting
-app has not adopted these links or geometry.
+The source file is now reduced to a 2.6 MB private pack of building outlines,
+heights, BBED links, bridge levels and a ground grid, drawn on the main map
+with `serve --beirut001`. The earlier GLB preview and mesh overlay are
+replaced. See [beirut001-pack.md](beirut001-pack.md).

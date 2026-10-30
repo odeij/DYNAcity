@@ -112,7 +112,7 @@ def assert_accounting(frame):
 
 
 def test_replay_samples_each_step_and_keeps_junction_safety(simulation, network):
-    from dynacity.traffic_sumo import JUNCTION_BLOCKER_S, IMPATIENCE_S
+    from dynacity.traffic_sumo import JUNCTION_BLOCKER_S, IMPATIENCE_S, STEP_S
     assert JUNCTION_BLOCKER_S == -1
     assert IMPATIENCE_S == 0
     # Any old gridlock relocation call would turn this into an immediate failure.
@@ -124,8 +124,8 @@ def test_replay_samples_each_step_and_keeps_junction_safety(simulation, network)
     simulation.frame = checked_frame
     result = simulation.advance(road_events(network), 2)
     times = [f['time_s'] for f in result['frames']]
-    assert len(times) == 11
-    assert np.allclose(np.diff(times), .2)
+    assert len(times) == 3
+    assert np.allclose(np.diff(times), STEP_S)
     for frame in result['frames']:
         assert_accounting(frame)
     assert simulation.connections[0].simulation.getCollidingVehiclesNumber() == 0
@@ -218,7 +218,7 @@ def test_limits_are_free_flow_and_hourly_speeds_check_the_run(network,tmp_path,m
     monkeypatch.setattr(adapter,'SPEED_CHECK_MIN_SAMPLES',3)
     sim=Simulation(slow,trips=[Trip('lone',('6:1','0:1','1:1','5:1'),0,5)])
     try:
-        assert sim.advance(road_events(slow),0.2)['frames'][-1]['metrics']['speed_check'] is None
+        assert sim.advance(road_events(slow),1)['frames'][-1]['metrics']['speed_check'] is None
         check=sim.advance(road_events(slow),10)['frames'][-1]['metrics']['speed_check']
         assert check['roads']>=1 and check['observed_kmh']==18.0
         assert check['ratio_p50']>1
@@ -271,10 +271,17 @@ def test_generated_signal_holds_and_releases_vehicle(network):
         state=c.trafficlight.getRedYellowGreenState('1')
         c.trafficlight.setRedYellowGreenState('1','r'*len(state))
         for _ in range(3): sim.advance(road_events(m),10)
+        # Main-map replay must include lights without an optional mobility pilot.
+        red_signals = [s for s in sim.frame()['signals'] if s[0] == '1']
+        assert red_signals and all(s[4] == 'r' and not s[5] for s in red_signals)
+        assert all(len(s) == 11 and -180 <= s[6] <= 180 and 0 <= s[9] < len(m) for s in red_signals)
+        assert any('l' in s[10] for s in red_signals) and any('r' in s[10] for s in red_signals)
+        assert all((s[7], s[8]) != (s[2], s[3]) for s in red_signals)
         assert c.vehicle.getRoadID('signal')=='0:1'
         assert c.vehicle.getSpeed('signal')<0.1
         c.trafficlight.setRedYellowGreenState('1','G'*len(state))
         for _ in range(8): result=sim.advance(road_events(m),10)
+        assert all(s[4] == 'G' for s in result['frames'][-1]['signals'] if s[0] == '1')
         assert result['frames'][-1]['metrics']['arrived']==1
     finally: sim.close()
 
@@ -307,7 +314,7 @@ def test_real_session_api_reuses_fleet_and_releases_runtime(network,monkeypatch)
         assert client.delete(f'/v1/viewer/traffic/simulation/{key}').status_code==200
         assert client.post(f'/v1/viewer/traffic/simulation/{key}',json={}).status_code==404
         assert made[0].connections==[]
-        continuous=client.post('/v1/viewer/traffic/simulation',json={'continuous':True,'seconds':.2})
+        continuous=client.post('/v1/viewer/traffic/simulation',json={'continuous':True,'seconds':1})
         assert continuous.status_code==200
         assert continuous.json()['frames'][-1]['metrics']['demand']['mode']=='boundary_inflow'
         assert made[-1].continuous is True
@@ -332,6 +339,7 @@ def test_continuous_entries_keep_arriving_with_identical_paired_demand(network):
         assert m['total']>early>0
         assert m['demand']['mode']=='boundary_inflow'
         assert m['demand']['added_trips']==m['total']
+        assert 0<=m['demand']['interior_trips']<=m['demand']['added_trips']
         assert m['arrived']>0
     finally: with_entries.close()
 
@@ -340,7 +348,7 @@ def test_continuous_demand_is_independent_of_request_chunk_size(network):
     try: runtime()
     except RuntimeError as exc: pytest.skip(str(exc))
     runs=[]
-    for seconds in (10,.4):
+    for seconds in (10,1):
         sim=Simulation(network,trips=[],continuous=True,seed=31)
         try:
             for _ in range(round(40/seconds)):
@@ -409,19 +417,229 @@ def test_new_entries_reroute_around_an_existing_interior_closure(network):
 
 def test_route_setup_keeps_child_environment_after_worker_threads_exit():
     """pyproj empties the environment when its importing thread exits; the routes import it up front."""
+    import os
     import subprocess
     import sys
     pytest.importorskip("sumolib")
     script = (
-        "import subprocess, threading\n"
+        "import os, subprocess, sys, threading\n"
         "from fastapi import FastAPI\n"
         "from dynacity.traffic_sumo import install_routes\n"
         "install_routes(FastAPI(), None, None)\n"
         "t = threading.Thread(target=lambda: __import__('sumolib')); t.start(); t.join()\n"
-        "out = subprocess.run(['/usr/bin/env'], capture_output=True, text=True).stdout\n"
-        "print(sum('=' in line for line in out.splitlines()))\n"
+        "out = subprocess.run([sys.executable, '-c', \"import os; print(os.environ.get('DYNACITY_TEST_MARKER', ''))\"], capture_output=True, text=True, check=True).stdout\n"
+        "print(out.strip())\n"
     )
-    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120,
-                            env={"PATH": "/usr/bin:/bin", "DYNACITY_TEST_MARKER": "1", "HOME": "/tmp"})
+    env = dict(os.environ, DYNACITY_TEST_MARKER="retained")
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, timeout=120, env=env)
     assert result.returncode == 0, result.stderr
-    assert int(result.stdout.split()[-1]) >= 3
+    assert result.stdout.strip().splitlines()[-1] == "retained"
+
+
+def test_comparison_run_starts_as_an_exact_copy_at_the_first_disruption(network):
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    sim=Simulation(network,trips=[],continuous=True,seed=7)
+    try:
+        assert not sim.subscribed[1]
+        for _ in range(3):
+            sim.advance(road_events(network),5)
+        assert not sim.forked
+        assert not sim.subscribed[1]
+        assert len(sim.connections) == 1
+        # A closure on a road no car uses yet: the copy must match the scenario.
+        result=sim.advance(road_events(network,closed=[3]),5)
+        assert sim.forked and len(sim.connections) == 2
+        assert sim.connections[1].simulation.getTime() == sim.connections[0].simulation.getTime()
+        assert sim.subscribed[1]
+        for _ in range(4):
+            result=sim.advance(road_events(network,closed=[3]),5)
+            for frame in result['frames']:
+                assert_accounting(frame)
+        m=result['frames'][-1]['metrics']
+        assert m['total']>0 and m['baseline']['arrived']>0
+    finally: sim.close()
+
+
+def test_frames_send_only_cars_in_view_but_count_all(simulation,network):
+    everything=simulation.advance(road_events(network),2)['frames'][-1]
+    lons=sorted(v[1] for v in everything['vehicles'])
+    view=[lons[0]-1,-90,(lons[0]+lons[-1])/2 if lons[0]<lons[-1] else lons[0]-0.5,90]
+    frame=simulation.advance(road_events(network),2,view=view)['frames'][-1]
+    assert frame['metrics']['active']==everything['metrics']['active']
+    assert frame['metrics']['sent']==len(frame['vehicles'])<=frame['metrics']['active']
+    assert all(view[0]<=v[1]<=view[2] for v in frame['vehicles'])
+    capped=simulation.advance(road_events(network),2,limit=1)['frames']
+    assert all(len(f['vehicles'])<=1 for f in capped)
+    assert len({f['vehicles'][0][0] for f in capped if f['vehicles']})<=1
+
+
+def test_view_subscription_refreshes_on_steps_and_changes_only_with_view(simulation, network, monkeypatch):
+    poi = simulation.connections[0].poi
+    original = poi.subscribeContext
+    calls = []
+    def count_subscriptions(*args, **kwargs):
+        calls.append(args)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(poi, 'subscribeContext', count_subscriptions)
+    view = [35, 33, 36, 35]
+    first = simulation.advance(road_events(network), 2, view=view)['frames']
+    second = simulation.advance(road_events(network), 2, view=view)['frames']
+    assert len(calls) == 1
+    assert first[-1]['vehicles'] and second[-1]['vehicles']
+    assert first[-1]['vehicles'][0][1:3] != second[-1]['vehicles'][0][1:3]
+    shifted = [35.00001, 33, 36.00001, 35]
+    nearby = simulation.advance(road_events(network), 2, view=shifted)['frames'][-1]
+    assert len(calls) == 1
+    assert all(shifted[0] <= car[1] <= shifted[2] and shifted[1] <= car[2] <= shifted[3]
+               for car in nearby['vehicles'])
+    simulation.advance(road_events(network), 2, view=[34.9, 33, 36, 35])
+    assert len(calls) == 2
+    full = simulation.advance(road_events(network), 2, view=None)['frames'][-1]
+    assert not simulation.watching
+    assert len(full['vehicles']) == full['metrics']['active']
+
+
+def test_moving_view_reuse_matches_forced_refresh(network):
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    trips = [Trip('a', ('0:1', '1:1', '5:1'), 0, 20),
+             Trip('b', ('0:1', '1:1', '5:1'), 0, 5)]
+    results = []
+    for force_refresh in (False, True):
+        sim = Simulation(network, trips=trips)
+        try:
+            original = sim.watch
+            if force_refresh:
+                def watch(c):
+                    if sim.watching:
+                        sim.watch_centre = (float('inf'), float('inf'))
+                    return original(c)
+                sim.watch = watch
+            batches = []
+            for i, shift in enumerate((0, .00001, .00002, .00003)):
+                view = [35 + shift, 33, 36 + shift, 35]
+                disruption = road_events(network, closed=[3] if i >= 2 else [])
+                batches.append(sim.advance(disruption, 2, view=view)['frames'])
+            results.append(batches)
+        finally:
+            sim.close()
+    assert results[0] == results[1]
+
+
+def test_fitted_coordinates_match_the_exact_conversion():
+    from dynacity.traffic_sumo import lonlat_fit
+    from dynacity.viewer import utm_to_lonlat
+    # About Beirut's extent in UTM 36N, with a network offset.
+    offset=(-730000.0,-3740000.0)
+    fit=lonlat_fit(((0,0),(9500,8800)),offset,36,True)
+    assert fit is not None
+    rng=np.random.default_rng(1)
+    x,y=rng.uniform(0,9500,200),rng.uniform(0,8800,200)
+    exact=np.array([utm_to_lonlat(a-offset[0],b-offset[1],36,True) for a,b in zip(x,y)])
+    assert np.abs(fit(x,y)-exact).max()<1e-7
+
+
+def test_forked_copy_without_changes_matches_the_scenario_exactly(network):
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    sim=Simulation(network,trips=[],continuous=True,seed=11)
+    try:
+        sim.advance(road_events(network),5)
+        sim.fork()
+        for _ in range(8):
+            result=sim.advance(road_events(network),5)
+            for frame in result['frames']:
+                m=frame['metrics']
+                assert m['baseline']=={key:m[key] for key in ('active','pending','arrived','stopped')}
+        assert m['paired_arrivals']>0 and m['mean_completed_delay_s']==0
+    finally: sim.close()
+
+
+def test_edge_router_matches_sumolib_shortest_paths(network,tmp_path):
+    from dynacity.traffic_sumo import EdgeRouter, export_network
+    try: _, _, converter = runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    import sumolib
+    net=sumolib.net.readNet(str(export_network(network,tmp_path,converter)))
+    router=EdgeRouter(net)
+    for origin in net.getEdges():
+        for target in net.getEdges():
+            found,_=net.getShortestPath(origin,target)
+            expected=tuple(e.getID() for e in found) if found else ()
+            assert router(origin.getID(),target.getID())==expected
+
+
+def test_network_conversion_cache_reuses_only_matching_inputs(network, tmp_path, monkeypatch):
+    from dataclasses import replace
+    import dynacity.traffic_sumo as adapter
+    try:
+        _, _, converter = runtime()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+    with adapter._NETWORK_CACHE_LOCK:
+        adapter._NETWORK_CACHE.clear()
+    original = adapter.subprocess.run
+    calls = []
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(adapter.subprocess, 'run', counted)
+    paths = [tmp_path / str(i) for i in range(3)]
+    for path in paths: path.mkdir()
+    first = adapter.export_network(network, paths[0], converter).read_bytes()
+    second = adapter.export_network(network, paths[1], converter).read_bytes()
+    changed = replace(network, free_kmh=network.free_kmh + 1)
+    third = adapter.export_network(changed, paths[2], converter).read_bytes()
+    assert first == second
+    assert first != third
+    assert len(calls) == 2
+
+
+def test_cached_network_preserves_simulation_frames(network, monkeypatch):
+    import dynacity.traffic_sumo as adapter
+    try:
+        runtime()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+    with adapter._NETWORK_CACHE_LOCK:
+        adapter._NETWORK_CACHE.clear()
+    converter_calls = []
+    original_run = adapter.subprocess.run
+    def counted(args, *rest, **kwargs):
+        if '--node-files' in args:
+            converter_calls.append(1)
+        return original_run(args, *rest, **kwargs)
+    monkeypatch.setattr(adapter.subprocess, 'run', counted)
+    frames = []
+    for _ in range(2):
+        sim = Simulation(network, trips=[Trip('a', ('0:1', '1:1', '5:1'), 0, 20)])
+        try:
+            frames.append(sim.advance(road_events(network), 3)['frames'])
+        finally:
+            sim.close()
+    assert len(converter_calls) == 1
+    assert frames[0] == frames[1]
+
+
+def test_prewarmed_network_is_reused_by_first_session(network, monkeypatch):
+    import dynacity.traffic_sumo as adapter
+    try:
+        runtime()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+    with adapter._NETWORK_CACHE_LOCK:
+        adapter._NETWORK_CACHE.clear()
+    calls = []
+    original = adapter.subprocess.run
+    def counted(args, *rest, **kwargs):
+        if '--node-files' in args: calls.append(1)
+        return original(args, *rest, **kwargs)
+    monkeypatch.setattr(adapter.subprocess, 'run', counted)
+    assert adapter.prewarm_network(network)
+    sim = Simulation(network, trips=[Trip('a', ('0:1', '1:1', '5:1'), 0, 20)])
+    try:
+        assert sim.advance(road_events(network), 2)['frames']
+    finally:
+        sim.close()
+    assert len(calls) == 1

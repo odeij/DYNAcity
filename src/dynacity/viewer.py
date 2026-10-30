@@ -224,6 +224,7 @@ def build_viewer_payload(
     api: bool = False,
     basemap: str = "carto",
     traffic: dict[str, Any] | None = None,
+    landscape: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Join geometry, snapshot, and forecast into the viewer's data contract.
 
@@ -309,6 +310,7 @@ def build_viewer_payload(
         # [[west, south], [east, north]] of the drawn footprints.
         "bounds": [[min(lons), min(lats)], [max(lons), max(lats)]],
         "basemap": BASEMAPS[basemap],
+        "landscape": landscape,
         "states": [state.value for state in CanonicalState],
         "buildings": buildings,
         "coverage": {
@@ -443,4 +445,10 @@ def render_viewer(payload: dict[str, Any], *, title: str = "DynaCITY · Beirut")
     if _PLACEHOLDER not in template:
         raise RuntimeError("viewer template is missing its data placeholder")
     car_models = files("dynacity").joinpath("assets/cars/meshes.json").read_text(encoding="utf-8") if payload.get("traffic") else "{}"
-    return template.replace(_PLACEHOLDER, data).replace("__DYNACITY_CARS__", car_models).replace("__DYNACITY_TITLE__", title)
+    # Inline detail modules so exported viewers remain a single portable HTML file.
+    details = "\n".join(
+        files("dynacity").joinpath(name).read_text(encoding="utf-8")
+        for name in ("viewer_street_edges.js", "viewer_intersections.js", "viewer_building_details.js", "viewer_osm_context.js", "viewer_camera.js")
+    )
+    return (template.replace(_PLACEHOLDER, data).replace("__DYNACITY_CARS__", car_models)
+            .replace("/*__DYNACITY_DETAILS__*/", details).replace("__DYNACITY_TITLE__", title))

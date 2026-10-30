@@ -161,7 +161,7 @@ Limits:
 - **Old data:** the speeds are typical pre-2020 conditions, before the 2019 crisis and the 2020 port blast.
 - **Volumes:** they come from one 2016–17 survey, per road class scaled by lanes, and are assumed (0.6 of capacity) on uncounted classes.
 - **Capacities** are typical values, not Beirut measurements.
-- **No traffic behaviour beyond rerouting:** the sampled-trip routing has no signals, turn restrictions or parking (SUMO has OSM signals and turn bans; see below). There is no demand response: nobody cancels a trip or leaves earlier.
+- **No traffic behaviour beyond rerouting:** the sampled-trip routing respects OSM turn bans (it routes over road directions and the turns allowed between them) but has no signals or parking (SUMO has OSM signals too; see below). A road file built before turn bans were kept, such as the 8 October 2026 citywide one, has none to respect. There is no demand response: nobody cancels a trip or leaves earlier.
 - **Partial equilibrium:** only the detouring trips are rebalanced; everyone else keeps their usual route.
 - **Uncalibrated rules:** closure rules are not calibrated against any observed disruption. Read the output as a picture of the consequence, not a traffic model.
 

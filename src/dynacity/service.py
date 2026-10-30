@@ -13,11 +13,10 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from typing import Any, Literal
-from pathlib import Path
 import re
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .contracts import ForecastRequest, ForecastResult, HazardEvent, HazardKind, ScenarioSpec, UrbanStateSnapshot
@@ -113,7 +112,7 @@ def create_app(
     flood_context: dict | None = None,
     flood_jobs: Any | None = None,
     point_cloud: Any | None = None,
-    beirut_overlay_dir: Path | None = None,
+    beirut001: dict | None = None,
 ) -> FastAPI:
     def spend_llm_call() -> None:
         # Checked before any model call; a refused request costs nothing.
@@ -377,19 +376,17 @@ def create_app(
         return Response(content=getattr(point_cloud, buffer), media_type="application/octet-stream",
                         headers={"Cache-Control": "private, no-store"})
 
-    @app.get("/v1/beirut-overlay")
-    def beirut_overlay_status():
-        return {"available": beirut_overlay_dir is not None}
+    # Beirut 001 buildings from a pack (`beirut001_pack.viewer_payload`); the
+    # source names no licence, so it is served privately and never cached.
+    @app.get("/v1/beirut001")
+    def beirut001_status():
+        return {"available": beirut001 is not None}
 
-    @app.get("/v1/beirut-overlay/{asset}")
-    def beirut_overlay_asset(asset: str):
-        allowed = {"data.json", "indices.bin", "map-positions.bin", "map-normals.bin", "map-picking.bin"}
-        if beirut_overlay_dir is None or asset not in allowed:
-            raise HTTPException(status_code=404, detail="Overlay asset unavailable")
-        path = Path(beirut_overlay_dir) / asset
-        if not path.is_file():
-            raise HTTPException(status_code=404, detail="Overlay asset unavailable")
-        return FileResponse(path, media_type="application/json" if asset.endswith('.json') else "application/octet-stream", headers={"Cache-Control": "private, no-store"})
+    @app.get("/v1/beirut001/buildings")
+    def beirut001_buildings():
+        if beirut001 is None:
+            raise HTTPException(status_code=404, detail="No Beirut 001 pack loaded")
+        return JSONResponse(beirut001, headers={"Cache-Control": "private, no-store"})
 
     # Viewer mode: the 3D page is served from the same origin as the API, and
     # scenarios run against the snapshot held here. The browser only ever sends

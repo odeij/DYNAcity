@@ -43,6 +43,8 @@ SEA_LEVEL_M = 0.0
 # Ground filter: low percentile over a window this wide, then a light blur.
 GROUND_WINDOW_M = 150.0
 GROUND_PERCENTILE = 10.0
+# `GroundModel.provenance` codes.
+SRC_NONE, SRC_PACK, SRC_BLENDED, SRC_GLO30, SRC_EXTRAPOLATED = 0, 1, 2, 3, 4
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,8 @@ class GroundModel:
     cell_m: float
     ground: np.ndarray
     source: str = ATTRIBUTION
+    # Optional per-cell origin of `ground` (`SRC_*` codes), set by `merge_ground`; not saved.
+    provenance: np.ndarray | None = None
 
     def sample(self, x: np.ndarray | Sequence[float], y: np.ndarray | Sequence[float]) -> np.ndarray:
         """Bilinear ground elevation at snapshot-CRS points; NaN off the grid or at sea."""
@@ -81,6 +85,18 @@ class GroundModel:
             + g[r1, c0] * (1 - fc) * fr + g[r1, c1] * fc * fr
         )
         return np.where(inside, value, np.nan)
+
+    def source_at(self, x: np.ndarray | Sequence[float], y: np.ndarray | Sequence[float]) -> np.ndarray:
+        """`SRC_*` code of the nearest cell (`SRC_PACK` for a model without provenance, `SRC_NONE` off the grid)."""
+
+        x = np.asarray(x, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
+        rows, cols = self.ground.shape
+        c = np.floor((x - self.x0) / self.cell_m).astype(int)
+        r = np.floor((self.y0 - y) / self.cell_m).astype(int)
+        inside = (c >= 0) & (r >= 0) & (c < cols) & (r < rows)
+        grid = self.provenance if self.provenance is not None else np.where(np.isfinite(self.ground), SRC_PACK, SRC_NONE)
+        return np.where(inside, grid[np.clip(r, 0, rows - 1), np.clip(c, 0, cols - 1)], SRC_NONE)
 
     def centres(self, x_min: float, y_min: float, x_max: float, y_max: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Cell centres (x, y) and ground, as 2D north-up arrays, for the cells whose centres lie in the box."""
@@ -111,6 +127,95 @@ class GroundModel:
                 crs=str(data["crs"]), x0=float(data["x0"]), y0=float(data["y0"]), cell_m=float(data["cell_m"]),
                 ground=data["ground"].astype(np.float64), source=str(data["source"]),
             )
+
+
+def merge_ground(
+    primary: GroundModel, fallback: GroundModel, *, blend_m: float = 60.0, offset_window_m: float = 150.0,
+    extrapolate_m: float = 0.0,
+) -> GroundModel:
+    """`primary` where it is known, `fallback` (shifted onto it) everywhere else.
+
+    The result lies on `primary`'s cell lattice over the union of both extents. Primary samples are
+    kept untouched. Elsewhere the fallback is used plus an offset: right at the seam it is the local
+    primary-minus-fallback difference (so the surfaces meet without a step), fading over `blend_m`
+    into a regional offset, the smoothed difference over primary cells within `offset_window_m` of the
+    seam. Cells where the fallback is NaN (sea, or no coverage) stay NaN, except that with
+    `extrapolate_m` > 0 the grid grows by that margin and cells beyond *both* extents take the nearest
+    known value. `provenance` records which source each cell came from.
+    """
+
+    from scipy import ndimage
+
+    if primary.crs != fallback.crs:
+        raise ValueError(f"ground models differ in CRS: {primary.crs} vs {fallback.crs}")
+    cell = primary.cell_m
+    p_rows, p_cols = primary.ground.shape
+    f_rows, f_cols = fallback.ground.shape
+    margin = int(math.ceil(max(extrapolate_m, 0.0) / cell))
+    west = min(primary.x0, fallback.x0)
+    east = max(primary.x0 + p_cols * cell, fallback.x0 + f_cols * fallback.cell_m)
+    north = max(primary.y0, fallback.y0)
+    south = min(primary.y0 - p_rows * cell, fallback.y0 - f_rows * fallback.cell_m)
+    c_lo = math.floor((west - primary.x0) / cell) - margin
+    c_hi = math.ceil((east - primary.x0) / cell) + margin
+    r_lo = math.floor((primary.y0 - north) / cell) - margin
+    r_hi = math.ceil((primary.y0 - south) / cell) + margin
+    rows, cols = r_hi - r_lo, c_hi - c_lo
+    x0, y0 = primary.x0 + c_lo * cell, primary.y0 - r_lo * cell
+
+    base = np.full((rows, cols), np.nan)
+    base[-r_lo:-r_lo + p_rows, -c_lo:-c_lo + p_cols] = primary.ground
+    xx, yy = np.meshgrid(x0 + (np.arange(cols) + 0.5) * cell, y0 - (np.arange(rows) + 0.5) * cell)
+    est = fallback.sample(xx.ravel(), yy.ravel()).reshape(rows, cols)
+    known = np.isfinite(base)
+    have = np.isfinite(est)
+
+    # Seam: known cells next to a cell the primary does not know.
+    seam = known & ~ndimage.binary_erosion(known, structure=np.ones((3, 3), bool), border_value=1) & have
+    dist, nearest = ndimage.distance_transform_edt(~seam, sampling=cell, return_indices=True)
+    if seam.any():
+        diff = np.where(seam, base - est, 0.0)
+        local = diff[tuple(nearest)]
+        # Regional offset: smoothed difference over the primary cells in a band along the seam.
+        band = known & have & (ndimage.distance_transform_edt(known, sampling=cell) <= offset_window_m)
+        sigma = max(offset_window_m / 2.0 / cell, 1.0)
+        num = ndimage.gaussian_filter(np.where(band, base - est, 0.0), sigma)
+        den = ndimage.gaussian_filter(band.astype(float), sigma)
+        smooth = np.where(den > 1e-3, num / np.maximum(den, 1e-3), np.nan)
+        ok = np.isfinite(smooth)
+        if ok.any():
+            regional = smooth[tuple(ndimage.distance_transform_edt(~ok, return_indices=True)[1])]
+        else:
+            regional = np.full(base.shape, float(np.median((base - est)[band])) if band.any() else 0.0)
+        # Weight ramps 0 -> 1 with distance from the seam.
+        dist_known = ndimage.distance_transform_edt(~known, sampling=cell)
+        weight = np.clip(dist_known / max(blend_m, cell), 0.0, 1.0)
+        offset = (1 - weight) * local + weight * regional
+    else:  # nothing in common: nothing to anchor to
+        weight = np.ones(base.shape)
+        offset = np.zeros(base.shape)
+
+    merged = np.where(known, base, np.where(have, est + offset, np.nan))
+    prov = np.full(base.shape, SRC_NONE, dtype=np.uint8)
+    prov[~known & have] = np.where(weight[~known & have] < 1.0, SRC_BLENDED, SRC_GLO30)
+    prov[known] = SRC_PACK
+
+    if margin:
+        # Beyond both extents only: nearest known value, never into the sea inside the fallback's extent.
+        inside_f = (xx >= fallback.x0) & (xx <= fallback.x0 + f_cols * fallback.cell_m)             & (yy <= fallback.y0) & (yy >= fallback.y0 - f_rows * fallback.cell_m)
+        inside_p = np.zeros(base.shape, bool)
+        inside_p[-r_lo:-r_lo + p_rows, -c_lo:-c_lo + p_cols] = True
+        outside = ~inside_f & ~inside_p
+        valid = np.isfinite(merged)
+        if valid.any():
+            d, idx = ndimage.distance_transform_edt(~valid, sampling=cell, return_indices=True)
+            fill = outside & ~valid & (d <= extrapolate_m)
+            merged = np.where(fill, merged[tuple(idx)], merged)
+            prov[fill] = SRC_EXTRAPOLATED
+
+    source = (primary.source + " Gaps filled from: " + fallback.source
+              + " Approximate filtered surface model offset onto the primary ground; not surveyed.")
+    return GroundModel(primary.crs, float(x0), float(y0), cell, merged, source, prov)
 
 
 def attach_ground_elevation(snapshot: UrbanStateSnapshot, ground: GroundModel) -> UrbanStateSnapshot:

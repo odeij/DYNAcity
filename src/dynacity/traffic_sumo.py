@@ -6,6 +6,8 @@ All working XML/net files live in temporary directories outside the repository.
 from __future__ import annotations
 
 import importlib
+import hashlib
+import json
 import heapq
 import math
 from pathlib import Path
@@ -14,8 +16,11 @@ import shutil
 import subprocess
 import tempfile
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 import uuid
+import zlib
+from collections import OrderedDict
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
@@ -38,6 +43,20 @@ ASSUMPTIONS = (
     "Junction blockers remain obstacles; gridlocked vehicles are not relocated and queues can persist."
 )
 
+
+def road_identity(model):
+    """Identify the ordered road IDs and geometry used by the SUMO API."""
+    roads = [[int(way), [[float(x), float(y)] for x, y in geometry]]
+             for way, geometry in zip(model.way_id, model.geometry)]
+    return hashlib.sha256(json.dumps(roads, separators=(',', ':'), allow_nan=False).encode()).hexdigest()
+
+
+# SUMO's integration step, its default. A full city stepped at 0.2 s ran at
+# half real time on one PC; the browser interpolates between samples.
+STEP_S = 1.0
+
+# The point of interest that carries the subscription for cars around the view.
+WATCH_POI = 'dynacity-view'
 
 # The speed check ignores the first minute (the fleet starts at rest) and
 # roads with fewer vehicle-second samples than this.
@@ -94,6 +113,12 @@ def runtime():
         raise RuntimeError('SUMO unavailable: install eclipse-sumo and traci and put SUMO binaries on PATH or set SUMO_HOME') from exc
 
 
+# Reuse only byte-identical converter inputs in this process; never persist private roads.
+_NETWORK_CACHE = OrderedDict()
+_NETWORK_CACHE_LOCK = threading.Lock()
+_NETWORK_CACHE_LIMIT = 32 * 1024 * 1024
+
+
 def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mixed=False) -> Path:
     """Preserve directed road identities and OSM connectivity, including parallel arcs.
 
@@ -148,6 +173,22 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mix
     for name, root in (('nodes', nodes), ('edges', edges), ('connections', connections)):
         ET.ElementTree(root).write(directory / f'{name}.xml')
     net = directory / 'network.net.xml'
+    converter = Path(shutil.which(netconvert) or netconvert).resolve()
+    converter_stat = converter.stat()
+    digest = hashlib.sha256()
+    for value in (str(converter), str(converter_stat.st_size), str(converter_stat.st_mtime_ns)):
+        digest.update(value.encode()); digest.update(b'\0')
+    for name in ('nodes', 'edges', 'connections'):
+        data = (directory / f'{name}.xml').read_bytes()
+        digest.update(len(data).to_bytes(8, 'big')); digest.update(data)
+    key = digest.digest()
+    with _NETWORK_CACHE_LOCK:
+        cached = _NETWORK_CACHE.get(key)
+        if cached is not None:
+            _NETWORK_CACHE.move_to_end(key)
+    if cached is not None:
+        net.write_bytes(cached)
+        return net
     result = subprocess.run([netconvert, '--node-files', str(directory / 'nodes.xml'),
                              '--edge-files', str(directory / 'edges.xml'),
                              '--connection-files', str(directory / 'connections.xml'), '-o', str(net),
@@ -155,7 +196,60 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mix
                             capture_output=True, text=True, timeout=120)
     if result.returncode:
         raise RuntimeError(f'SUMO network conversion failed: {result.stderr[-2000:]}')
+    data = net.read_bytes()
+    if len(data) <= _NETWORK_CACHE_LIMIT:
+        with _NETWORK_CACHE_LOCK:
+            _NETWORK_CACHE[key] = data
+            _NETWORK_CACHE.move_to_end(key)
+            while sum(map(len, _NETWORK_CACHE.values())) > _NETWORK_CACHE_LIMIT:
+                _NETWORK_CACHE.popitem(last=False)
     return net
+
+
+
+def prewarm_network(model: TrafficModel, *, mixed=False) -> bool:
+    """Prepare this process's default network before a viewer connects.
+
+    Conversion happens in a temporary directory and is retained only in the
+    bounded in-memory cache. Return False if it exceeds the cache budget.
+    """
+    _, _, converter = runtime()
+    with tempfile.TemporaryDirectory(prefix='dynacity-network-prewarm-') as directory:
+        path = export_network(model, Path(directory), converter, mixed=mixed)
+        return path.stat().st_size <= _NETWORK_CACHE_LIMIT
+
+
+def _cubic(src, dst):
+    """Least-squares cubic from 2-D `src` points to 2-D `dst` points."""
+    centre, scale = src.mean(axis=0), np.ptp(src, axis=0) / 2
+    def terms(x, y):
+        u, v = (np.asarray(x, float) - centre[0]) / scale[0], (np.asarray(y, float) - centre[1]) / scale[1]
+        return np.stack([u**i * v**j for i in range(4) for j in range(4 - i)], axis=-1)
+    coef = np.linalg.lstsq(terms(src[:, 0], src[:, 1]), dst, rcond=None)[0]
+    return lambda x, y: terms(x, y) @ coef
+
+
+def _utm_samples(bounds, offset, zone, north, n):
+    (x0, y0), (x1, y1) = bounds
+    x, y = np.meshgrid(np.linspace(x0 - 100, x1 + 100, n), np.linspace(y0 - 100, y1 + 100, n))
+    xy = np.column_stack([x.ravel(), y.ravel()])
+    return xy, np.array([utm_to_lonlat(a - offset[0], b - offset[1], zone, north) for a, b in xy])
+
+
+def lonlat_fit(bounds, offset, zone, north, *, inverse=False):
+    """A cubic in network metres standing in for `utm_to_lonlat`, so a whole
+    fleet converts in one array operation; with `inverse`, from lon/lat back
+    to network metres. None unless it matches the exact conversion between
+    its fitting points to 1e-7 degrees, or 1 cm, about the same.
+    """
+    xy, lonlat = _utm_samples(bounds, offset, zone, north, 12)
+    src, dst, tolerance = (lonlat, xy, 0.01) if inverse else (xy, lonlat, 1e-7)
+    fit = _cubic(src, dst)
+    xy, lonlat = _utm_samples(bounds, offset, zone, north, 11)
+    src, dst = (lonlat, xy) if inverse else (xy, lonlat)
+    if np.abs(fit(src[:, 0], src[:, 1]) - dst).max() > tolerance:
+        return None
+    return fit
 
 
 @dataclass(frozen=True)
@@ -166,36 +260,92 @@ class Trip:
     position: float
 
 
-def demand(model, net, hour, seed=42):
+def demand(model, net, hour, seed=42, router=None):
     """Full estimated initial fleet, with fixed reachable destinations.
 
-    Reachable edge walks choose an OD destination; SUMO then computes a legal
-    shortest route. Separate route per trip also allows parallel streets.
+    Reachable edge walks choose an OD destination, then the fastest legal
+    route to it. Separate route per trip also allows parallel streets. One
+    search per origin road, bounded by its longest walk, routes all its trips.
     """
     rng = random.Random(seed)
+    router = router or EdgeRouter(net)
     flow = background_flow(model)[:, hour]
     trips = []
+    outgoing = {}
     for edge in sorted(net.getEdges(), key=lambda e: e.getID()):
         i = int(edge.getID().split(':')[0])
         expected = float(flow[i]) * float(model.length_m[i]) / 1000 / max(3, float(model.speed_kmh[i, hour]))
         count = int(expected) + (rng.random() < expected % 1)
+        targets, walked = [], []
         for k in range(count):
-            target = edge
+            target, cost = edge, 0.0
             for _ in range(rng.randint(4, 12)):
-                exits = list(target.getOutgoing())
+                if target not in outgoing:
+                    outgoing[target] = sorted(target.getOutgoing(), key=lambda e: e.getID())
+                exits = outgoing[target]
                 if not exits:
                     break
-                target = rng.choice(sorted(exits, key=lambda e: e.getID()))
-            route, _ = net.getShortestPath(edge, target)
-            if route is None:
-                route = [edge]
+                target = rng.choice(exits)
+                cost += router.cost[router.index[target.getID()]]
+            targets.append(target)
+            walked.append(cost)
+        before = router.search(edge.getID(), limit=max(walked) * 1.001 + 1) if count else None
+        for k, target in enumerate(targets):
+            route = router.path(before, edge.getID(), target.getID()) or (edge.getID(),)
             lane = k % edge.getLaneNumber()
             # Ordered spatial seeding, safety insertion queues surplus demand.
             row = k // edge.getLaneNumber()
             rows = math.ceil(count / edge.getLaneNumber())
             position = min(edge.getLength() - 0.1, (row + 0.5) * edge.getLength() / rows)
-            trips.append(Trip(f'vehicle-{len(trips)}', tuple(e.getID() for e in route), lane, max(0, position)))
+            trips.append(Trip(f'vehicle-{len(trips)}', route, lane, max(0, position)))
     return trips
+
+
+class EdgeRouter:
+    """Fastest routes on SUMO's edge graph, one search per origin road.
+
+    Arcs are the network's connections, so turn bans hold; an arc costs the
+    free-flow time of the road it enters. A single Dijkstra search from an
+    origin serves every destination from it, where SUMO's `findRoute` costs
+    6-8 ms a call on the full city whatever its routing algorithm.
+    """
+    def __init__(self, net, cached_origins=64):
+        from scipy.sparse import csr_matrix
+        edges = sorted(net.getEdges(), key=lambda e: e.getID())
+        self.ids = [e.getID() for e in edges]
+        self.index = {eid: i for i, eid in enumerate(self.ids)}
+        # Cost of entering each road: its free-flow travel time.
+        self.cost = np.array([max(1e-3, e.getLength() / max(0.1, e.getSpeed())) for e in edges])
+        rows, cols = [], []
+        for e in edges:
+            for out in e.getOutgoing():
+                rows.append(self.index[e.getID()])
+                cols.append(self.index[out.getID()])
+        self.graph = csr_matrix((self.cost[cols], (rows, cols)), shape=(len(edges), len(edges)))
+        self.cached_origins = cached_origins
+        self.predecessors = {}
+
+    def search(self, origin, limit=np.inf):
+        """Predecessors of every road reachable from `origin` within `limit` seconds."""
+        from scipy.sparse.csgraph import dijkstra
+        return dijkstra(self.graph, indices=self.index[origin], return_predecessors=True, limit=limit)[1]
+
+    def path(self, before, origin, target):
+        start, end = self.index[origin], self.index[target]
+        path = [end]
+        while path[-1] != start:
+            previous = before[path[-1]]
+            if previous < 0:
+                return ()
+            path.append(previous)
+        return tuple(self.ids[i] for i in reversed(path))
+
+    def __call__(self, origin, target):
+        if origin not in self.predecessors:
+            if len(self.predecessors) >= self.cached_origins:
+                self.predecessors.pop(next(iter(self.predecessors)))
+            self.predecessors[origin] = self.search(origin)
+        return self.path(self.predecessors[origin], origin, target)
 
 
 class BoundaryInflow:
@@ -205,16 +355,17 @@ class BoundaryInflow:
     This is a transparent demand assumption, not an observed OD matrix. The
     schedule is shared by both runs and never responds to scenario arrivals.
     """
-    def __init__(self, model, net, hour, seed, *, interior=True):
+    def __init__(self, model, net, hour, seed, *, interior=True, router=None):
         self.net = net
         self.rng = random.Random(seed + 104729)
         self.interior_rng = random.Random(seed + 7919)
         self.heap, self.pool, self.exits = [], {}, []
         self.interior_pool = {}
-        # Routes new interior trips; sumolib until the simulation hands over
-        # SUMO's own (much faster) router.
-        self.router = None
+        # Routes new trips; shared by both runs, so they keep the same schedule.
+        self.router = router or EdgeRouter(net)
         self.generated, self.expected_vph, self.interior_vph = 0, 0.0, 0.0
+        # Trips started inside the area, told apart from boundary entries for the panel.
+        self.interior_ids = set()
         (west, south), (east, north) = net.getBBoxXY()
         margin = max(25, min(east-west, north-south)*.03)
         flow = background_flow(model)[:, hour]
@@ -265,7 +416,6 @@ class BoundaryInflow:
     def interior_routes(self, edge_id):
         """A few legal routes from this road to destinations at least `INTERIOR_MIN_TRIP_M` away."""
         if edge_id not in self.interior_pool:
-            origin = self.net.getEdge(edge_id)
             ox, oy = self.centres[edge_id]
             paths = []
             for _ in range(3):
@@ -277,11 +427,7 @@ class BoundaryInflow:
                         best, best_d = target, d
                     if d >= INTERIOR_MIN_TRIP_M:
                         break
-                if self.router:
-                    route = self.router(edge_id, best.getID())
-                else:
-                    found, _ = self.net.getShortestPath(origin, best)
-                    route = tuple(e.getID() for e in found) if found else ()
+                route = self.router(edge_id, best.getID())
                 if len(route) > 1:
                     paths.append(route)
             self.interior_pool[edge_id] = paths or [(edge_id,)]
@@ -293,9 +439,9 @@ class BoundaryInflow:
             candidates = [e for e in self.exits if e.getID()!=edge_id]
             paths=[]
             for target in self.rng.sample(candidates,min(12,len(candidates))):
-                route,_ = self.net.getShortestPath(origin,target)
-                if route and len(route)>1:
-                    paths.append(tuple(e.getID() for e in route))
+                route=self.router(edge_id,target.getID())
+                if len(route)>1:
+                    paths.append(route)
                     if len(paths)==4:
                         break
             # A disconnected fringe still gets accountable local trips.
@@ -321,6 +467,8 @@ class BoundaryInflow:
                 route=self.rng.choice(self.routes(edge_id))
                 gap=self.rng.expovariate(rate)
             self.generated+=1
+            if kind=='interior':
+                self.interior_ids.add(f'inflow-{self.generated}')
             yield depart,Trip(f'inflow-{self.generated}',route,0,0)
             heapq.heappush(self.heap,(depart+gap,kind,edge_id,rate))
 
@@ -335,6 +483,7 @@ class Simulation:
         if mixed and (not self.mobility or not self.mobility.fleet):
             raise ValueError('Mixed traffic requires a sourced vehicle-count profile')
         self.lock = threading.RLock()
+        self.stepper = ThreadPoolExecutor(max_workers=1, thread_name_prefix='dynacity-sumo')
         self.last_used = time.monotonic()
         self.directory = tempfile.TemporaryDirectory(prefix='dynacity-sumo-')
         self.connections = []
@@ -344,7 +493,13 @@ class Simulation:
         self.retry = set()
         self.blocked = set()
         self.rerouted = set()
-        self.arrivals = [{}, {}]
+        # The comparison run starts as a copy of this one at the first disruption
+        # (`fork`); until then both runs are the same run and share arrivals.
+        self.forked = False
+        shared = {}
+        self.arrivals = [shared, shared]
+        # Optional [west, south, east, north] box and cap on the cars a frame sends.
+        self.view, self.limit = None, None
         # Cars moved past a gridlock, per run (`unstick`).
         self.unstuck = [0, 0]
         # Simulated speed per road (km/h sums and samples) while nothing is disrupted.
@@ -353,6 +508,7 @@ class Simulation:
         self.continuous = continuous
         self.inflow = None
         self.future_entries = []
+        self.interior_added = 0
         self.entry_queue = {}
         self.requeued = 0
         self.entry_route_cache = {}
@@ -363,6 +519,7 @@ class Simulation:
             self.net = sumolib.net.readNet(str(path))
             represented = {int(e.getID().split(':')[0]) for e in self.net.getEdges()}
             self.network_quality = {'edges': len(self.net.getEdges()),
+                                    'road_identity_sha256': road_identity(model),
                                     'signals': len(self.net.getTrafficLights()),
                                     'signal_source': 'osm' if model.signals is not None else 'guessed',
                                     'turn_bans': len(model.turn_bans),
@@ -376,9 +533,10 @@ class Simulation:
             self.network_quality['surveyed_signals'] = len(programs)
             self.network_quality['vehicle_types'] = {}
             self.network_quality['vehicle_mix'] = self.mobility.fleet.model_dump() if mixed else None
-            self.trips = demand(model, self.net, hour, seed) if trips is None else list(trips)
+            router = EdgeRouter(self.net)
+            self.trips = demand(model, self.net, hour, seed, router) if trips is None else list(trips)
             self.initial_trips = len(self.trips)
-            self.inflow = BoundaryInflow(model,self.net,hour,seed) if continuous else None
+            self.inflow = BoundaryInflow(model,self.net,hour,seed,router=router) if continuous else None
             self.trip_ids = {t.id for t in self.trips}
             self.routes = {t.id: t.route for t in self.trips}
             self.held = set()
@@ -409,6 +567,8 @@ class Simulation:
             ET.ElementTree(routes_xml).write(routes_path)
             self.offset = self.net.getLocationOffset()
             self.zone, self.north = _utm_zone(model.crs)
+            self.lonlat = lonlat_fit(self.net.getBBoxXY(), self.offset, self.zone, self.north)
+            self.to_xy = lonlat_fit(self.net.getBBoxXY(), self.offset, self.zone, self.north, inverse=True)
             self.context_node = self.net.getNodes()[0].getID()
             bounds = self.net.getBBoxXY()
             self.context_radius = math.hypot(bounds[1][0] - bounds[0][0], bounds[1][1] - bounds[0][1]) + 100
@@ -417,17 +577,24 @@ class Simulation:
                          constants.VAR_ROAD_ID, constants.VAR_LANE_INDEX, constants.VAR_ROUTE_INDEX,
                          constants.VAR_WAITING_TIME, constants.VAR_SIGNALS)
             self.variables = variables
+            # With a view, the whole fleet reports only what the metrics need;
+            # cars around the view report everything (`watch`).
+            self.fleet_variables = (constants.VAR_SPEED, constants.VAR_ROAD_ID, constants.VAR_ROUTE_INDEX)
+            self.watching = False
+            self.subscribed = [True, False]
             self.baseline_variables = (constants.VAR_SPEED, constants.VAR_WAITING_TIME)
-            for kind in ('scenario', 'baseline'):
-                label = f'dynacity-{uuid.uuid4().hex}'
-                self.traci.start([binary, '-n', str(path), '-r', str(routes_path), '--step-length', '0.2', '--seed', str(seed),
+            self._sumo_command = [binary, '-n', str(path), '-r', str(routes_path), '--step-length', str(STEP_S), '--seed', str(seed),
+                                  '--save-state.rng', 'true', '--routing-algorithm', 'CH',
                                   '--time-to-teleport', '-1', '--time-to-teleport.disconnected', '-1',
                                   '--ignore-junction-blocker', str(JUNCTION_BLOCKER_S),
                                   '--time-to-impatience', str(IMPATIENCE_S),
                                   '--collision.check-junctions', 'true',
                                   '--collision.action', 'warn', '--no-step-log', 'true',
-                                  '--duration-log.disable', 'true', '--no-warnings', 'true'], label=label,
-                                 stdout=subprocess.DEVNULL)
+                                  '--duration-log.disable', 'true', '--no-warnings', 'true']
+            self._signal_programs = programs
+            for kind in ('scenario',):
+                label = f'dynacity-{uuid.uuid4().hex}'
+                self.traci.start(self._sumo_command, label=label, stdout=subprocess.DEVNULL)
                 c = self.traci.getConnection(label)
                 self.connections.append(c)
                 for node, program in programs.items():
@@ -445,18 +612,12 @@ class Simulation:
                             break
                         elapsed -= phase.duration_s
                 c.simulationStep()
-                c.junction.subscribeContext(self.context_node, constants.CMD_GET_VEHICLE_VARIABLE,
-                                            self.context_radius, variables if kind == 'scenario' else self.baseline_variables)
-            if self.inflow:
-                # Route interior trips with SUMO's router on the baseline run, which is never
-                # closed, so both runs keep the same schedule.
-                baseline = self.connections[1]
-                def route(origin, target):
-                    try:
-                        return tuple(baseline.simulation.findRoute(origin, target).edges)
-                    except self.traci.TraCIException:
-                        return ()
-                self.inflow.router = route
+                # Before a disruption, comparison metrics come from the scenario.
+                # The baseline is overwritten and subscribed in fork(), so a
+                # city-wide subscription here would only read data we discard.
+                if kind == 'scenario':
+                    c.junction.subscribeContext(self.context_node, constants.CMD_GET_VEHICLE_VARIABLE,
+                                                self.context_radius, variables)
             c = self.connections[0]
             type_ids = [t.id for t in self.mobility.types] if mixed else ['DEFAULT_VEHTYPE']
             declared = {t.id: t for t in self.mobility.types} if self.mobility else {}
@@ -469,6 +630,7 @@ class Simulation:
                     'parameters': 'SUMO class defaults; not measured Beirut vehicle dimensions or behaviour',
                 }
             self.signal_links = []
+            self.signal_geometry = {}
             for node in c.trafficlight.getIDList():
                 for index, connections in enumerate(c.trafficlight.getControlledLinks(node)):
                     if not connections:
@@ -478,10 +640,23 @@ class Simulation:
                     x, y = lane.getShape()[-1]
                     lon, lat = utm_to_lonlat(x-self.offset[0], y-self.offset[1], self.zone, self.north)
                     bounds = self.mobility.bounds if self.mobility else None
-                    if bounds and bounds[0] <= lon <= bounds[2] and bounds[1] <= lat <= bounds[3]:
+                    if bounds is None or (bounds[0] <= lon <= bounds[2] and bounds[1] <= lat <= bounds[3]):
                         self.signal_links.append((node, index, round(lon, 7), round(lat, 7), node in programs))
-            for node in {link[0] for link in self.signal_links}:
-                c.trafficlight.subscribe(node, [constants.TL_RED_YELLOW_GREEN_STATE])
+                        shape = lane.getShape()
+                        dx, dy = x-shape[-2][0], y-shape[-2][1]
+                        angle = math.atan2(dy, dx)
+                        # Illustrative roadside placement, not a surveyed pole position.
+                        offset = lane.getWidth()/2 + .45
+                        px, py = x + math.sin(angle)*offset, y - math.cos(angle)*offset
+                        plon, plat = utm_to_lonlat(px-self.offset[0], py-self.offset[1], self.zone, self.north)
+                        road = int(lane.getEdge().getID().split(':')[0])
+                        directions = ''.join(sorted({connection.getDirection().lower()
+                            for connection in lane.getOutgoing()
+                            if connection.getTLSID() == node and connection.getTLLinkIndex() == index}))
+                        self.signal_geometry[node, index] = [round(math.degrees(angle), 2), round(plon, 7), round(plat, 7), road, directions]
+            # Signal states are read per frame for the signals in view
+            # (`finish`): subscribing to every signal took half a minute to
+            # set up on the full city, and SUMO cannot subscribe to them as a group.
             self.last_factors = np.ones(len(model))
             self.seen = set(self.connections[0].vehicle.getIDList())
             # Preserve positive allowed classes; computing a negative complement includes
@@ -493,6 +668,8 @@ class Simulation:
             raise
 
     def close(self):
+        if getattr(self, 'stepper', None):
+            self.stepper.shutdown(wait=True)
         for c in self.connections:
             try:
                 c.close()
@@ -558,15 +735,19 @@ class Simulation:
         if changed:
             self.blocked.clear()
         states = c.junction.getContextSubscriptionResults(self.context_node) or {}
+        # Only cars whose remaining route crosses a road that closed or reopened
+        # need their lane choice refreshed; refreshing the whole fleet one car
+        # at a time stalled the full city for seconds.
+        toggled = closed ^ previous_closed
         for vid in candidates:
-            if changed:
-                c.vehicle.updateBestLanes(vid)
             state = states.get(vid, {})
             road = state.get(self.traci.constants.VAR_ROAD_ID)
             index = state.get(self.traci.constants.VAR_ROUTE_INDEX)
             before = self.routes[vid]
             if index is None:
                 index = c.vehicle.getRouteIndex(vid)
+            if changed and toggled.intersection(before[index:]):
+                c.vehicle.updateBestLanes(vid)
             needs_route = bool(closed.intersection(before[index + 1:])) or (bool(previous_closed - closed) and vid in (self.rerouted | previously_blocked))
             if not needs_route and road not in closed and vid not in self.held:
                 continue
@@ -604,16 +785,33 @@ class Simulation:
         # thousands of per-vehicle socket round trips.
         constants = self.traci.constants
         states = c.junction.getContextSubscriptionResults(self.context_node) or {}
-        for vid, state in states.items():
-            x, y = state[constants.VAR_POSITION]
-            lon, lat = utm_to_lonlat(x - self.offset[0], y - self.offset[1], self.zone, self.north)
-            vehicles.append([vid, round(lon, 7), round(lat, 7),
+        watched = states
+        if getattr(self, 'watching', False):
+            watched = c.poi.getContextSubscriptionResults(WATCH_POI) or {}
+            west, south, east, north = self.view
+            box = self.to_xy([west, east], [south, north])
+            (x0, x1), (y0, y1) = sorted(box[:, 0]), sorted(box[:, 1])
+            watched = {vid: state for vid, state in watched.items()
+                       if x0 <= state[constants.VAR_POSITION][0] <= x1 and y0 <= state[constants.VAR_POSITION][1] <= y1}
+        xy = np.array([state[constants.VAR_POSITION] for state in watched.values()], float).reshape(-1, 2)
+        fit = getattr(self, 'lonlat', None)
+        if fit is not None and len(xy):
+            lonlat = np.round(fit(xy[:, 0], xy[:, 1]), 7).tolist()
+        else:
+            lonlat = [[round(v, 7) for v in utm_to_lonlat(x - self.offset[0], y - self.offset[1], self.zone, self.north)]
+                      for x, y in xy]
+        for (vid, state), (lon, lat) in zip(watched.items(), lonlat):
+            vehicles.append([vid, lon, lat,
                              state[constants.VAR_ANGLE], state[constants.VAR_SPEED],
                              state[constants.VAR_ROAD_ID], state[constants.VAR_LANE_INDEX],
                              self.type_for(vid) if hasattr(self, 'mixed') else 'DEFAULT_VEHTYPE',
                              # SUMO's own light bits (1 right, 2 left indicator, 8 brake),
                              # set by its turn and lane-change rules: drawn, not observed.
                              int(state.get(constants.VAR_SIGNALS, 0))])
+        if getattr(self, 'watching', False) and not getattr(self, 'fleet_fresh', True):
+            # Between request boundaries only the cars near the view are read;
+            # the fleet's figures are those of the last full reading.
+            return self.finish(c, vehicles, dict(self.last_metrics))
         active_ids = set(c.vehicle.getIDList())
         now = c.simulation.getTime()
         pending_ids = set(c.simulation.getPendingVehicles())
@@ -629,57 +827,163 @@ class Simulation:
         overdue = sum(v not in self.arrivals[0] for v in self.arrivals[1])
         detour_counts = {}
         stopped_roads = {}
-        for vehicle in vehicles:
-            if vehicle[4] < 0.1 and not vehicle[5].startswith(':'):
-                road = int(vehicle[5].split(':')[0])
+        # (id, speed, road) for the whole fleet, drawn or not.
+        fleet = [(vid, state[constants.VAR_SPEED], state[constants.VAR_ROAD_ID]) for vid, state in states.items()]
+        for vid, speed, road_id in fleet:
+            if road_id.startswith(':'):
+                continue
+            if speed < 0.1:
+                road = int(road_id.split(':')[0])
                 stopped_roads[road] = stopped_roads.get(road, 0) + 1
-            if vehicle[0] in self.rerouted and not vehicle[5].startswith(':'):
-                road = int(vehicle[5].split(':')[0])
+            if vid in self.rerouted:
+                road = int(road_id.split(':')[0])
                 detour_counts[road] = detour_counts.get(road, 0) + 1
         factors = getattr(self, 'last_factors', None)
         undisturbed = not getattr(self, 'closed', None) and (factors is None or bool(np.all(factors == 1)))
         if undisturbed and now >= SPEED_CHECK_WARMUP_S and hasattr(self, 'speed_sum'):
-            for vehicle in vehicles:
-                if not vehicle[5].startswith(':'):
-                    road = int(vehicle[5].split(':')[0])
-                    self.speed_sum[road] += vehicle[4] * 3.6
+            for _, speed, road_id in fleet:
+                if not road_id.startswith(':'):
+                    road = int(road_id.split(':')[0])
+                    self.speed_sum[road] += speed * 3.6
                     self.speed_samples[road] += 1
         metrics = {'detour': sorted(detour_counts.items()), 'total': len(self.trips), 'active': active, 'pending': pending,
                    'arrived': arrived, 'stopped_on_closed': len(self.held & active_ids), 'no_detour': len(self.blocked), 'rerouted': len(self.rerouted),
                    'paired_arrivals': len(paired), 'overdue': overdue,
                    'mean_completed_delay_s': float(np.mean(delays)) if delays else None,
                    'speed_check': self.speed_check(), 'unstuck': getattr(self, 'unstuck', [0])[0]}
-        baseline = self.connections[1]
-        baseline_states = baseline.junction.getContextSubscriptionResults(self.context_node) or {}
-        metrics['baseline'] = {
-            'active': baseline.vehicle.getIDCount(),
-            'pending': len(baseline.simulation.getPendingVehicles()),
-            'arrived': len(self.arrivals[1]),
-            'stopped': sum(s[constants.VAR_SPEED] < 0.1 for s in baseline_states.values()),
-        }
-        metrics['stopped'] = sum(v[4] < 0.1 for v in vehicles)
+        metrics['stopped'] = sum(speed < 0.1 for _, speed, _ in fleet)
+        # Just after `fork` SUMO lists no queued cars until its next step; the copy
+        # is then exactly the scenario, so it reports the scenario's figures.
+        if getattr(self, 'forked', True) and not getattr(self, 'fresh_fork', False):
+            baseline = self.connections[1]
+            baseline_states = baseline.junction.getContextSubscriptionResults(self.context_node) or {}
+            metrics['baseline'] = {
+                'active': baseline.vehicle.getIDCount(),
+                'pending': len(baseline.simulation.getPendingVehicles()),
+                'arrived': len(self.arrivals[1]),
+                'stopped': sum(s[constants.VAR_SPEED] < 0.1 for s in baseline_states.values()),
+            }
+        else:
+            metrics['baseline'] = {key: metrics[key] for key in ('active', 'pending', 'arrived', 'stopped')}
         metrics['stopped_roads'] = sorted(stopped_roads.items())
-        metrics['vehicle_types'] = {tid: sum(v[7] == tid for v in vehicles) for tid in {v[7] for v in vehicles}}
+        types = [self.type_for(vid) if hasattr(self, 'mixed') else 'DEFAULT_VEHTYPE' for vid, _, _ in fleet]
+        metrics['vehicle_types'] = {tid: types.count(tid) for tid in set(types)}
         inflow = getattr(self,'inflow',None)
         metrics['demand'] = {
             'mode': 'boundary_inflow' if inflow and inflow.origins else 'finite',
             'initial_trips': getattr(self,'initial_trips',len(self.trips)),
             'added_trips': len(self.trips)-getattr(self,'initial_trips',len(self.trips)),
+            'interior_trips': getattr(self,'interior_added',0),
             'entry_roads': inflow.origins if inflow else 0,
             'expected_entry_vph': round(inflow.expected_vph,1) if inflow else 0,
             'interior_vph': round(inflow.interior_vph,1) if inflow else 0,
         }
-        if {v[0] for v in vehicles} != active_ids:
+        if states.keys() != active_ids:
             raise RuntimeError('SUMO replay is missing an active vehicle')
         if pending < 0 or c.simulation.getStartingTeleportNumber():
             raise RuntimeError('SUMO vehicle accounting invariant failed')
-        tls = c.trafficlight.getAllSubscriptionResults() if getattr(self, 'signal_links', []) else {}
-        signals = []
-        for node, index, lon, lat, observed in getattr(self, 'signal_links', []):
-            state = tls.get(node, {}).get(constants.TL_RED_YELLOW_GREEN_STATE)
-            if state is not None:
-                signals.append([node, index, lon, lat, state[index], observed])
-        return {'time_s': now, 'vehicles': vehicles, 'signals': signals, 'metrics': metrics}
+        self.last_metrics = metrics
+        return self.finish(c, vehicles, metrics)
+
+    def finish(self, c, vehicles, metrics):
+        """Add signal states and the cars to send to a frame's metrics."""
+        links = getattr(self, 'signal_links', [])
+        if getattr(self, 'view', None):
+            west, south, east, north = self.view
+            links = [link for link in links if west <= link[2] <= east and south <= link[3] <= north]
+        states = {node: c.trafficlight.getRedYellowGreenState(node) for node in {link[0] for link in links}}
+        signals = [[node, index, lon, lat, states[node][index], observed,
+                    *getattr(self, 'signal_geometry', {}).get((node, index), [])]
+                   for node, index, lon, lat, observed in links]
+        sent = self.visible(vehicles)
+        metrics['sent'] = len(sent)
+        return {'time_s': c.simulation.getTime(), 'vehicles': sent, 'signals': signals, 'metrics': metrics}
+
+    def visible(self, vehicles):
+        """The cars inside `view`, at most `limit` of them; metrics still count the whole fleet.
+
+        Over the limit the same cars are kept from frame to frame (lowest ID
+        checksum), so playback can follow them.
+        """
+        view, limit = getattr(self, 'view', None), getattr(self, 'limit', None)
+        if view:
+            west, south, east, north = view
+            vehicles = [v for v in vehicles if west <= v[1] <= east and south <= v[2] <= north]
+        if limit is not None and len(vehicles) > limit:
+            vehicles = sorted(vehicles, key=lambda v: zlib.crc32(v[0].encode()))[:limit]
+        return vehicles
+
+    def watch(self, c):
+        """Subscribe every variable for the cars around `view`, the fleet for metrics only.
+
+        A point of interest at the view centre carries a context subscription
+        over the view's half-diagonal; `frame` trims it to the box.
+        """
+        constants = self.traci.constants
+        if self.watching and self.view and self.to_xy is not None:
+            west, south, east, north = self.view
+            box = self.to_xy([west, east], [south, north])
+            (x0, y0), (x1, y1) = box.min(axis=0), box.max(axis=0)
+            cx, cy = self.watch_centre
+            # Reuse only when every corner of the new view is inside the
+            # subscribed circle. SUMO refreshes that subscription each step;
+            # frame() still filters to the exact current view.
+            if max(math.hypot(x-cx, y-cy) for x in (x0, x1) for y in (y0, y1)) <= self.watch_radius:
+                return
+        if self.watching:
+            c.poi.unsubscribeContext(WATCH_POI, constants.CMD_GET_VEHICLE_VARIABLE, self.watch_radius)
+        if not self.view or self.to_xy is None:
+            if self.watching:
+                # The fleet subscription carries only metric variables; restore all.
+                c.junction.subscribeContext(self.context_node, constants.CMD_GET_VEHICLE_VARIABLE,
+                                            self.context_radius, self.variables)
+                self.subscribed[0] = True
+            self.watching = False
+            return
+        west, south, east, north = self.view
+        box = self.to_xy([west, east], [south, north])
+        (x0, y0), (x1, y1) = box.min(axis=0), box.max(axis=0)
+        if WATCH_POI not in c.poi.getIDList():
+            c.poi.add(WATCH_POI, (x0 + x1) / 2, (y0 + y1) / 2, (0, 0, 0, 0))
+        c.poi.setPosition(WATCH_POI, (x0 + x1) / 2, (y0 + y1) / 2)
+        self.watch_centre = ((x0 + x1) / 2, (y0 + y1) / 2)
+        # A small bounded margin avoids re-subscribing on every car movement.
+        self.watch_radius = math.hypot(x1 - x0, y1 - y0) / 2 + 50
+        c.poi.subscribeContext(WATCH_POI, constants.CMD_GET_VEHICLE_VARIABLE, self.watch_radius, self.variables)
+        self.watching = True
+
+    def fork(self):
+        """Start the undisrupted comparison run as an exact copy of this one.
+
+        Until something is closed or slowed the two runs would be identical,
+        so only one is stepped. Just before the first disruption its state,
+        random number generators included, is copied into the second.
+        """
+        c = self.connections[0]
+        state = Path(self.directory.name) / 'fork.xml'
+        c.simulation.saveState(str(state))
+        label = f'dynacity-{uuid.uuid4().hex}'
+        self.traci.start(self._sumo_command, label=label, stdout=subprocess.DEVNULL)
+        baseline = self.traci.getConnection(label)
+        try:
+            # Saved signal phases refer to these custom programs, so install
+            # their definitions before loading the scenario's state.
+            for node, program in self._signal_programs.items():
+                logic = self.traci.trafficlight.Logic('observed', 0, 0,
+                    [self.traci.trafficlight.Phase(p.duration_s, p.state) for p in program.phases])
+                baseline.trafficlight.setProgramLogic(node, logic)
+                baseline.trafficlight.setProgram(node, 'observed')
+            baseline.simulationStep()
+            baseline.simulation.loadState(str(state))
+            baseline.junction.subscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE,
+                                               self.context_radius, self.baseline_variables)
+        except Exception:
+            baseline.close()
+            raise
+        self.connections.append(baseline)
+        self.subscribed[1] = True
+        self.arrivals[1] = dict(self.arrivals[0])
+        self.forked = self.fresh_fork = True
 
     def withhold(self, c, newly_closed):
         """Take cars still waiting to enter on a newly closed road out of SUMO.
@@ -763,12 +1067,23 @@ class Simulation:
                 'ratio_p50': round(float(np.median(simulated / np.maximum(observed, 1.0))), 2),
                 'mae_kmh': round(float(np.mean(np.abs(simulated - observed))), 1)}
 
-    def advance(self, disruption, seconds=2, *, include_initial=True):
+    def advance(self, disruption, seconds=2, *, include_initial=True, view=None, limit=None):
         with self.lock:
             self.last_used = time.monotonic()
+            self.view, self.limit = view, limit
+            self.watch(self.connections[0])
+            c = self.connections[0]
+            if not self.subscribed[0]:
+                c.junction.subscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE, self.context_radius,
+                                            self.fleet_variables if self.watching else self.variables)
+                self.subscribed[0] = True
+            self.fleet_fresh = True
+            if not self.forked and (disruption.closed.any() or (disruption.speed_factor != 1).any()):
+                self.fork()
             self.apply(disruption)
             frames = [self.frame()] if include_initial else []
-            remaining = round(seconds * 5)
+            remaining = max(1, round(seconds / STEP_S))
+            runs = self.connections if self.forked else self.connections[:1]
             while remaining:
                 ticks = 1
                 for vid,(_,trip) in list(self.entry_queue.items()):
@@ -785,13 +1100,13 @@ class Simulation:
                             self.rerouted.add(vid)
                         del self.entry_queue[vid]
                 if self.inflow:
-                    target = self.connections[0].simulation.getTime()+ticks*.2
+                    target = self.connections[0].simulation.getTime()+ticks*STEP_S
                     for depart,trip in self.inflow.until(target):
-                        depart=math.ceil(depart*5-1e-9)/5
+                        depart=math.ceil(depart/STEP_S-1e-9)*STEP_S
                         if trip.id in self.routes:
                             raise RuntimeError('Duplicate inflow vehicle identity')
                         self.routes[trip.id]=trip.route
-                        for index,c in enumerate(self.connections):
+                        for index,c in enumerate(runs):
                             route=self.entry_route(trip) if index==0 else trip.route
                             if not route:
                                 self.entry_queue[trip.id]=(depart,trip)
@@ -804,18 +1119,34 @@ class Simulation:
                                     if route!=trip.route:
                                         self.rerouted.add(trip.id)
                         self.future_entries.append((depart,trip))
-                for index, c in enumerate(self.connections):
-                    # Replay each 0.2 s integration step so interpolation cannot
-                    # shortcut a whole second of turning through a junction.
-                    c.junction.unsubscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE,
-                                                  self.context_radius)
-                    c.simulationStep(c.simulation.getTime() + ticks * 0.2)
-                    variables = self.variables if index == 0 else self.baseline_variables
-                    c.junction.subscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE,
-                                                self.context_radius, variables)
+                # With a view, the whole fleet is read once per request, for its
+                # metrics; every step reads only the cars around the view.
+                self.fleet_fresh = remaining == ticks or not self.watching
+                def step(index, c):
+                    if self.subscribed[index]:
+                        c.junction.unsubscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE,
+                                                      self.context_radius)
+                    c.simulationStep(c.simulation.getTime() + ticks * STEP_S)
+                # The two runs are separate SUMO processes: step the copy alongside.
+                stepping = self.stepper.submit(step, 1, runs[1]) if len(runs) > 1 else None
+                step(0, runs[0])
+                if stepping:
+                    stepping.result()
+                for index, c in enumerate(runs):
+                    if index:
+                        variables = self.baseline_variables
+                    else:
+                        variables = self.fleet_variables if self.watching else self.variables
+                        if self.watching:
+                            self.watch(c)
+                    self.subscribed[index] = self.fleet_fresh
+                    if self.fleet_fresh:
+                        c.junction.subscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE,
+                                                    self.context_radius, variables)
                     self.arrivals[index].update({v: c.simulation.getTime() for v in c.simulation.getArrivedIDList()})
                     # Keep queues in place; relocating a gridlocked car to a
                     # later road creates visible jumps through other vehicles.
+                self.fresh_fork = False
                 now=self.connections[0].simulation.getTime()
                 # SUMO can retain a departure exactly at the sample boundary
                 # for its next integration step. Do not count future demand as
@@ -825,6 +1156,7 @@ class Simulation:
                     if depart < now-1e-7:
                         self.trips.append(trip)
                         self.trip_ids.add(trip.id)
+                        self.interior_added+=trip.id in self.inflow.interior_ids
                     else:
                         still_future.append((depart,trip))
                 self.future_entries=still_future
@@ -853,7 +1185,10 @@ def install_routes(app, model, snapshot, ground=None):
     class Request(BaseModel):
         model_config = ConfigDict(extra='forbid')
         hour: int = Field(default=8, ge=0, le=23)
-        seconds: float = Field(default=2, ge=0.2, le=10)
+        seconds: float = Field(default=2, ge=STEP_S, le=10)
+        # Frames send only the cars in this [west, south, east, north] box, at most max_vehicles.
+        view: list[float] | None = Field(default=None, min_length=4, max_length=4)
+        max_vehicles: int | None = Field(default=None, ge=0, le=100000)
         continuous: bool = False
         mixed: bool = False
         closed: list[int] = Field(default_factory=list, max_length=1000)
@@ -885,7 +1220,8 @@ def install_routes(app, model, snapshot, ground=None):
                 key = uuid.uuid4().hex
                 sessions[key] = sim
             try:
-                return {'session': key, **sim.advance(changes, request.seconds)}
+                return {'session': key, **sim.advance(changes, request.seconds,
+                                                      view=request.view, limit=request.max_vehicles)}
             except Exception:
                 with registry_lock:
                     sessions.pop(key, None)
@@ -911,7 +1247,8 @@ def install_routes(app, model, snapshot, ground=None):
                 raise HTTPException(409, 'Create a new session when changing traffic demand')
             if sim.mixed != request.mixed:
                 raise HTTPException(409, 'Create a new session when changing vehicle mix')
-            return sim.advance(disruption(request), request.seconds, include_initial=False)
+            return sim.advance(disruption(request), request.seconds, include_initial=False,
+                               view=request.view, limit=request.max_vehicles)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         except (RuntimeError, OSError, subprocess.SubprocessError) as exc:

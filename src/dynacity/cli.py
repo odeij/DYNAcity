@@ -11,6 +11,7 @@ files rather than in-process state:
     summarize-transitions → descriptive interval JSON (never modelled)
     build-snapshot  → present-state snapshot JSON
     fetch-terrain   → approximate ground-elevation grid (.npz) for terrain-following floods
+    pack-beirut001  → Beirut 001 Rhino model → small private pack (.npz) of outlines, heights, ground
     build-traffic   → OSM road graph + Tari'ak hourly speeds (.json) for traffic and road closures
     freeze-evidence → registry JSON → content-hashed EvidenceBundle
     compile-scenario→ planner prose → checked ScenarioSpec + audit trail
@@ -62,8 +63,9 @@ from .service import create_app
 from .flood_pilot import PilotBundle, require_documented_pilot
 from .snapshot import snapshot_from_bbed
 from .terrain import GroundModel, attach_ground_elevation, fetch_ground_model
-from .traffic import TrafficModel, build_traffic_model, traffic_payload
+from .traffic import TrafficModel, build_traffic_model, building_coverage, traffic_payload
 from .viewer import build_viewer_payload, render_viewer
+from .landscape import apply_context_buildings, landscape_payload
 from .transitions import summarize_interval
 
 
@@ -373,11 +375,34 @@ def command_plan(args: argparse.Namespace) -> None:
     )
 
 
+def _landscape_view(path: str | None, traffic: TrafficModel | None = None, context_buildings: str | None = None,
+                    bounds: tuple[float, float, float, float] | None = None) -> dict | None:
+    if not path:
+        if context_buildings:
+            raise SystemExit('--context-buildings requires --landscape')
+        return None
+    raw = _json(path)
+    companion = _json(context_buildings) if context_buildings else None
+    if bounds is not None:
+        from .corridor import crop_context_buildings, crop_osm
+        raw = crop_osm(raw, bounds)
+        companion = crop_context_buildings(companion, bounds) if companion else None
+    if traffic is not None:
+        from .traffic import road_crossings
+        crossings = road_crossings(raw, traffic.geometry, traffic.crs)
+        if crossings is not None:
+            traffic.crossings = sorted(set((traffic.crossings or []) + crossings))
+    payload = landscape_payload(raw)
+    return apply_context_buildings(payload, companion) if companion else payload
+
+
 def command_export_viewer(args: argparse.Namespace) -> None:
     snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
     forecast = ForecastResult.model_validate(_json(args.forecast)) if args.forecast else None
-    traffic = traffic_payload(TrafficModel.load(args.traffic)) if args.traffic else None
-    payload = build_viewer_payload(_json(args.bbed), snapshot, forecast, basemap=args.basemap, traffic=traffic)
+    model = TrafficModel.load(args.traffic) if args.traffic else None
+    landscape = _landscape_view(getattr(args, 'landscape', None), model, getattr(args, 'context_buildings', None))
+    traffic = traffic_payload(model) if model is not None else None
+    payload = build_viewer_payload(_json(args.bbed), snapshot, forecast, basemap=args.basemap, traffic=traffic, landscape=landscape)
     destination = Path(args.output)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(render_viewer(payload), encoding="utf-8")
@@ -394,6 +419,45 @@ def command_fetch_terrain(args: argparse.Namespace) -> None:
     ground.save(destination)
     rows, cols = ground.ground.shape
     print(f"terrain -> {args.output} ({cols}x{rows} cells of {ground.cell_m:g} m in {ground.crs})")
+
+
+def command_pack_beirut001(args: argparse.Namespace) -> None:
+    from .beirut001_pack import build_pack
+    pack = build_pack(args.model, args.bbed, cell_m=args.cell_m)
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    pack.save(destination)
+    counts = pack.meta["counts"]
+    print(f"Beirut 001 pack -> {args.output} ({destination.stat().st_size / 1e6:.1f} MB): "
+          f"{counts['buildings']} buildings, {counts['linked']} provisionally linked to BBED, "
+          f"{counts['bridges']} bridge/tunnel pieces; alignment inferred "
+          f"(median {pack.meta['registration']['bbed_to_model_percentiles_m'][2]:.1f} m)")
+
+
+def _traffic_view(traffic: TrafficModel, pack_path: str | None) -> dict:
+    """The viewer's roads, with bridge decks at their Beirut 001 height where the pack has them."""
+    view = traffic_payload(traffic)
+    if pack_path and traffic.level is not None:
+        from .beirut001_pack import Beirut001Pack, bridge_decks
+        decks = bridge_decks(Beirut001Pack.load(pack_path), traffic)
+        for road, height in decks.items():
+            view["roads"][road]["deck"] = height
+        print(f"bridge decks: {len(decks)} of {int((traffic.level > 0).sum())} bridge roads at their "
+              "Beirut 001 height; the rest at the assumed 6 m per level")
+    return view
+
+
+def _beirut001_payload(pack_path: str | None, bbed_path: str | None,
+                       bounds: tuple[float, float, float, float] | None = None) -> dict | None:
+    if not pack_path:
+        return None
+    from .beirut001_pack import Beirut001Pack, viewer_payload
+    payload = viewer_payload(Beirut001Pack.load(pack_path), _json(bbed_path) if bbed_path else None)
+    if bounds is not None:
+        from .corridor import crop_beirut001
+        payload = crop_beirut001(payload, bounds)
+    print(f"Beirut 001 buildings loaded from {pack_path} ({len(payload['buildings'])} buildings)")
+    return payload
 
 
 def command_build_traffic(args: argparse.Namespace) -> None:
@@ -423,6 +487,8 @@ def _business_as_usual(engine: ForecastEngine, snapshot: UrbanStateSnapshot) -> 
 def command_serve(args: argparse.Namespace) -> None:
     import uvicorn
 
+    if getattr(args, 'prewarm_traffic', False) and not args.traffic:
+        raise SystemExit('--prewarm-traffic requires --traffic')
     flood_context = None
     if args.flood_context:
         from .flood_context import load_flood_context
@@ -442,11 +508,25 @@ def command_serve(args: argparse.Namespace) -> None:
             raise SystemExit("--point-cloud-dir requires a loopback host for private local viewing")
         from .point_cloud import PointCloudView
         point_cloud = PointCloudView.load(args.point_cloud_dir)
-    if args.beirut_overlay_dir and args.host not in {"127.0.0.1", "::1", "localhost"}:
-        raise SystemExit("--beirut-overlay-dir requires a loopback host for private local viewing")
-    viewer_html = snapshot = baseline = None
+    if args.beirut001 and args.host not in {"127.0.0.1", "::1", "localhost"}:
+        raise SystemExit("--beirut001 requires a loopback host: the model names no licence for web serving")
+    viewer_html = snapshot = baseline = corridor = None
+    if getattr(args, 'corridor', None) and not (args.snapshot and args.bbed):
+        raise SystemExit('--corridor needs --snapshot and --bbed')
+    if args.snapshot:
+        snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
+    if getattr(args, 'corridor', None):
+        from .corridor import Corridor, crop_snapshot
+        corridor = Corridor.load(args.corridor, snapshot.crs, args.corridor_buffer_m)
+        snapshot = crop_snapshot(snapshot, corridor)
+    focus = corridor.bounds() if corridor is not None else None
     ground = GroundModel.load(args.terrain) if args.terrain else None
     traffic = TrafficModel.load(args.traffic) if args.traffic else None
+    if traffic is not None and corridor is not None:
+        from .mobility_inputs import pilot_network
+        traffic, _ = pilot_network(traffic, list(focus), note=f'Whole-road subset around {corridor.name}; '
+                                   'cars enter and leave at its edge; not a citywide run.')
+    landscape = _landscape_view(getattr(args, 'landscape', None), traffic, getattr(args, 'context_buildings', None), focus)
     if args.mobility_inputs:
         if traffic is None:
             raise SystemExit('--mobility-inputs requires --traffic')
@@ -454,26 +534,41 @@ def command_serve(args: argparse.Namespace) -> None:
         traffic.mobility = MobilityInputs.load(args.mobility_inputs)
     if traffic is not None and not args.snapshot:
         raise SystemExit("--traffic needs --snapshot")
-    if args.snapshot:
-        snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
+    if snapshot is not None:
         if ground is not None:
             # Ground levels only steer floods; the transition model never sees them.
             snapshot = attach_ground_elevation(snapshot, ground)
             print("viewer terrain loaded from " + args.terrain + "; hydraulic runs require their own documented mesh")
+    if traffic is not None and snapshot is not None and corridor is None:
+        covered = building_coverage(traffic, snapshot)
+        if covered is not None and covered < 0.5:
+            print(f"warning: the traffic model covers {covered:.0%} of the snapshot's buildings; "
+                  "simulated roads and cars appear only in that area. Use the citywide road model for the whole city.")
     if args.bbed:
         if snapshot is None:
             raise SystemExit("--bbed needs --snapshot so footprints can be joined to states")
+        collection = _json(args.bbed)
+        if corridor is not None:
+            from .corridor import crop_bbed
+            collection = crop_bbed(collection, snapshot)
+            if args.forecast:
+                print("--forecast is citywide; the corridor's baseline is recomputed for its own buildings")
         baseline = (
             ForecastResult.model_validate(_json(args.forecast))
-            if args.forecast
+            if args.forecast and corridor is None
             else _business_as_usual(engine, snapshot)
         )
-        viewer_html = render_viewer(
-            build_viewer_payload(
-                _json(args.bbed), snapshot, baseline, api=True, basemap=args.basemap,
-                traffic=traffic_payload(traffic) if traffic is not None else None,
-            )
+        payload = build_viewer_payload(
+            collection, snapshot, baseline, api=True, basemap=args.basemap,
+            traffic=_traffic_view(traffic, args.beirut001) if traffic is not None else None,
+            landscape=landscape,
         )
+        if corridor is not None:
+            payload["corridor"] = corridor.payload({
+                "buildings": len(snapshot.objects), "roads": len(traffic) if traffic is not None else 0})
+            print(f"corridor {corridor.name}: {len(snapshot.objects)} buildings, "
+                  f"{len(traffic) if traffic is not None else 0} roads within {corridor.buffer_m:g} m")
+        viewer_html = render_viewer(payload)
         print(f"3D viewer at http://{args.host}:{args.port}/")
     provider = None
     if snapshot is not None:
@@ -498,10 +593,19 @@ def command_serve(args: argparse.Namespace) -> None:
         flood_context=flood_context,
         flood_jobs=flood_jobs,
         point_cloud=point_cloud,
-        beirut_overlay_dir=Path(args.beirut_overlay_dir) if args.beirut_overlay_dir else None,
+        beirut001=_beirut001_payload(args.beirut001, args.bbed, focus),
     )
     print(f"language-model requests capped at {args.llm_request_limit} per run, "
           f"{args.llm_requests_per_minute} a minute")
+    if getattr(args, 'prewarm_traffic', False):
+        import subprocess
+        from .traffic_sumo import prewarm_network
+        try:
+            retained = prewarm_network(traffic)
+        except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+            raise SystemExit('Traffic network prewarm failed: ' + str(exc)) from exc
+        print('Traffic network ready in memory' if retained else
+              'Traffic network exceeds the in-memory cache; first connection will convert it again')
     uvicorn.run(app, host=args.host, port=args.port)
 
 
@@ -698,6 +802,13 @@ def build_parser() -> argparse.ArgumentParser:
     terrain.add_argument("--cell-m", type=float, default=10.0)
     terrain.set_defaults(func=command_fetch_terrain)
 
+    beirut001 = subparsers.add_parser("pack-beirut001")
+    beirut001.add_argument("--model", required=True, help="Beirut 001 Rhino .3dm (private; read once)")
+    beirut001.add_argument("--bbed", required=True, help="BBED GeoJSON in EPSG:32636, for alignment and links")
+    beirut001.add_argument("--output", required=True)
+    beirut001.add_argument("--cell-m", type=float, default=10.0, help="ground grid cell size")
+    beirut001.set_defaults(func=command_pack_beirut001)
+
     traffic = subparsers.add_parser("build-traffic")
     traffic.add_argument("--snapshot", required=True, help="snapshot with building centroids; sets the extent")
     traffic.add_argument("--velocities", required=True, help="Tari'ak velocities.csv")
@@ -753,6 +864,8 @@ def build_parser() -> argparse.ArgumentParser:
     viewer.add_argument("--output", required=True)
     viewer.add_argument("--basemap", choices=["carto", "none"], default="carto")
     viewer.add_argument("--traffic", help="traffic model from build-traffic; draws roads and moving cars")
+    viewer.add_argument("--landscape", help="private OSM context JSON: surfaces, trees, paths, places and structures")
+    viewer.add_argument("--context-buildings", help="Overture companion from engine_context_buildings --web-output: estimated heights and extra footprints")
     viewer.set_defaults(func=command_export_viewer)
 
     serve = subparsers.add_parser("serve")
@@ -762,13 +875,19 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--forecast")
     serve.add_argument("--evidence")
     serve.add_argument("--terrain", help="ground model from fetch-terrain; floods then follow it")
-    serve.add_argument("--beirut-overlay-dir", help="private prepared Beirut 001 / BBED overlay directory")
+    serve.add_argument("--beirut001", help="private pack from pack-beirut001; the map then draws its buildings")
     serve.add_argument("--point-cloud-dir", help="private export-point-cloud directory for local RGB point viewing")
     serve.add_argument("--flood-pilot", help="private neighborhood model-output bundle JSON; separate from illustrative hazards")
     serve.add_argument("--flood-context", help="verified private real-input-handoff.json for local survey mapping")
     serve.add_argument("--flood-runs", help="private directory outside Git for local ANUGA input packages and runs")
     serve.add_argument("--traffic", help="traffic model from build-traffic; disasters then close roads")
+    serve.add_argument("--prewarm-traffic", action="store_true",
+                       help="build the default SUMO network before serving to reduce first-connect work")
     serve.add_argument("--mobility-inputs", help="private mobility evidence JSON for the traffic pilot")
+    serve.add_argument("--landscape", help="private OSM context JSON: surfaces, trees, paths, places and structures")
+    serve.add_argument("--context-buildings", help="Overture companion from engine_context_buildings --web-output: estimated heights and extra footprints")
+    serve.add_argument("--corridor", help="GeoJSON line to focus on (e.g. Al Masar al Akhdar); every input is cut to its buffer")
+    serve.add_argument("--corridor-buffer-m", type=float, default=250.0, help="buffer around --corridor, metres")
     serve.add_argument("--basemap", choices=["carto", "none"], default="carto")
     serve.add_argument("--provider", choices=["anthropic", "gemini"])
     serve.add_argument("--llm-model")

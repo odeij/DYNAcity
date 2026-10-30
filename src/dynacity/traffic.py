@@ -300,6 +300,23 @@ def snapshot_extent(snapshot: UrbanStateSnapshot, margin_m: float) -> tuple[floa
     return min(lons), min(lats), max(lons), max(lats)
 
 
+def building_coverage(model: TrafficModel, snapshot: UrbanStateSnapshot) -> float | None:
+    """Share of the snapshot's building centroids inside the road network's bounding box.
+
+    A pilot road model cut around one neighbourhood covers a small share, and
+    the viewer then simulates traffic only there. None when the two do not
+    share a CRS or the snapshot has no centroids.
+    """
+    xy = np.array([(o.centroid_x_m, o.centroid_y_m) for o in snapshot.objects
+                   if o.centroid_x_m is not None and o.centroid_y_m is not None], float)
+    if model.crs != snapshot.crs or not len(xy):
+        return None
+    points = np.concatenate([np.asarray(line, float) for line in model.geometry])
+    (x0, y0), (x1, y1) = points.min(axis=0), points.max(axis=0)
+    inside = (xy[:, 0] >= x0) & (xy[:, 0] <= x1) & (xy[:, 1] >= y0) & (xy[:, 1] <= y1)
+    return float(inside.mean())
+
+
 def overpass_query(bbox: tuple[float, float, float, float]) -> str:
     """Drivable ways, traffic-signal and crossing nodes with geometry, then turn restrictions (members only)."""
 
@@ -1141,43 +1158,91 @@ def combine_disruptions(*parts: RoadDisruption) -> RoadDisruption:
     return RoadDisruption(closed=closed, speed_factor=factor, reason=reason)
 
 
-def _directed(model: TrafficModel, hour: int, disruption: RoadDisruption | None) -> tuple[Any, dict]:
-    """Sparse travel-time graph (seconds) and the road behind each directed arc."""
+@_cached
+def _turn_graph(model: TrafficModel) -> tuple[np.ndarray, ...]:
+    """Road directions and the turns allowed between them.
+
+    Returns each direction's road, start and end junction, and the turns as
+    (from direction, to direction) arrays; OSM turn bans are left out. U-turns
+    stay allowed, as on the junction graph this replaces.
+    """
+
+    forward, backward = np.flatnonzero(model.oneway >= 0), np.flatnonzero(model.oneway <= 0)
+    road = np.concatenate([forward, backward])
+    start = np.concatenate([model.u[forward], model.v[backward]]).astype(int)
+    end = np.concatenate([model.v[forward], model.u[backward]]).astype(int)
+    banned = {tuple(int(x) for x in ban) for ban in model.turn_bans}
+    leaving: dict[int, list[int]] = {}
+    for d, node in enumerate(start):
+        leaving.setdefault(int(node), []).append(d)
+    turns = [(a, b) for a, node in enumerate(end) for b in leaving.get(int(node), ())
+             if (int(road[a]), int(node), int(road[b])) not in banned]
+    pairs = np.array(turns, dtype=int).reshape(-1, 2)
+    return road, start, end, pairs[:, 0], pairs[:, 1]
+
+
+def _directed(model: TrafficModel, hour: int, disruption: RoadDisruption | None) -> tuple[Any, tuple]:
+    """Sparse travel-time graph (seconds) that only turns where OSM allows it.
+
+    Junction n is a trip start at vertex n and a trip end at vertex
+    nodes + n; road direction d is vertex 2 × nodes + d. A trip leaves its
+    start onto any open road away from it, turns only where allowed, and
+    reaches its end from any road into it. Returns the graph and what
+    `_path_roads` needs to read routes back.
+    """
 
     from scipy.sparse import csr_matrix
 
+    road, start, end, turn_from, turn_to = _turn_graph(model)
     speed = model.speed_kmh[:, hour % 24].copy()
     keep = np.ones(len(model), dtype=bool)
     if disruption is not None:
         speed *= disruption.speed_factor
         keep &= ~disruption.closed
     seconds = model.length_m / (np.maximum(speed, 1.0) / 3.6)
-    forward = keep & (model.oneway >= 0)
-    backward = keep & (model.oneway <= 0)
+    nodes, base = model.node_count, 2 * model.node_count
+    cost, open_ = np.maximum(seconds[road], 1e-3), keep[road]
+    dirs = np.flatnonzero(open_)
+    turn = open_[turn_from] & open_[turn_to]
+    rows = np.concatenate([start[dirs], base + turn_from[turn], base + dirs])
+    cols = np.concatenate([base + dirs, base + turn_to[turn], nodes + end[dirs]])
+    # Arriving costs nothing; scipy drops explicit zeros, so a millisecond.
+    vals = np.concatenate([cost[dirs], cost[turn_to[turn]], np.full(len(dirs), 1e-3)])
+    size = base + len(road)
+    return csr_matrix((vals, (rows, cols)), shape=(size, size)), (road, nodes)
+
+
+def _junction_graph(model: TrafficModel, hour: int) -> Any:
+    """Undisrupted junction-to-junction graph, for finding the connected network."""
+
+    from scipy.sparse import csr_matrix
+
+    seconds = model.length_m / (np.maximum(model.speed_kmh[:, hour % 24], 1.0) / 3.6)
+    forward, backward = model.oneway >= 0, model.oneway <= 0
     rows = np.concatenate([model.u[forward], model.v[backward]])
     cols = np.concatenate([model.v[forward], model.u[backward]])
     cost = np.concatenate([seconds[forward], seconds[backward]])
-    road = np.concatenate([np.flatnonzero(forward), np.flatnonzero(backward)])
     n = model.node_count
     # Parallel arcs between the same nodes: keep the quickest.
     order = np.lexsort((cost, cols, rows))
-    rows, cols, cost, road = rows[order], cols[order], cost[order], road[order]
+    rows, cols, cost = rows[order], cols[order], cost[order]
     first = np.ones(len(rows), dtype=bool)
     first[1:] = (rows[1:] != rows[:-1]) | (cols[1:] != cols[:-1])
-    rows, cols, cost, road = rows[first], cols[first], cost[first], road[first]
-    graph = csr_matrix((np.maximum(cost, 1e-3), (rows, cols)), shape=(n, n))
-    arc_road = {(int(a), int(b)): int(r) for a, b, r in zip(rows, cols, road, strict=True)}
-    return graph, arc_road
+    return csr_matrix((np.maximum(cost[first], 1e-3), (rows[first], cols[first])), shape=(n, n))
 
 
-def _path_roads(predecessors: np.ndarray, origin: int, target: int, arc_road: dict) -> list[int]:
-    roads, node = [], int(target)
-    while node != origin:
-        prev = int(predecessors[node])
+def _path_roads(predecessors: np.ndarray, origin: int, target: int, arcs: tuple) -> list[int]:
+    """Roads from junction `origin` to junction `target`, end first, on a `_directed` graph."""
+
+    road, nodes = arcs
+    roads, vertex = [], nodes + int(target)
+    while vertex != origin:
+        prev = int(predecessors[vertex])
         if prev < 0:
             return []
-        roads.append(arc_road[(prev, node)])
-        node = prev
+        if prev >= 2 * nodes:
+            roads.append(int(road[prev - 2 * nodes]))
+        vertex = prev
     return roads
 
 
@@ -1270,7 +1335,9 @@ def _traffic_impact(
     hour = hour % 24
     before, arcs_before = _directed(model, hour, None)
     after, arcs_after = _directed(model, hour, disruption)
-    _, labels = connected_components(before, directed=True, connection="strong")
+    # Distances are read at a junction's trip-end vertex (`_directed`).
+    sink = model.node_count
+    _, labels = connected_components(_junction_graph(model, hour), directed=True, connection="strong")
     main = np.bincount(labels).argmax()
     weight = np.zeros(model.node_count)
     busy = (model.readings + 1.0) * model.length_m
@@ -1293,7 +1360,7 @@ def _traffic_impact(
     load = np.zeros(len(model))
     for k, origin in enumerate(starts):
         for target in ends[k]:
-            if target == origin or not np.isfinite(dist_before[k, target]):
+            if target == origin or not np.isfinite(dist_before[k, sink + target]):
                 continue
             path = _path_roads(pred_before[k], origin, target, arcs_before)
             np.add.at(load, path, 1)
@@ -1326,8 +1393,8 @@ def _traffic_impact(
             closed=disruption.closed, speed_factor=disruption.speed_factor * jam_of(change), reason=disruption.reason,
         ))
 
-    rerouted = [t for t in trips if disruption.closed[t[3]].any() and np.isfinite(dist_after[t[0], t[2]])]
-    cut_vph = per_trip * sum(1 for t in trips if disruption.closed[t[3]].any() and not np.isfinite(dist_after[t[0], t[2]]))
+    rerouted = [t for t in trips if disruption.closed[t[3]].any() and np.isfinite(dist_after[t[0], sink + t[2]])]
+    cut_vph = per_trip * sum(1 for t in trips if disruption.closed[t[3]].any() and not np.isfinite(dist_after[t[0], sink + t[2]]))
     diverted = per_trip * len(rerouted)
     # The detouring vehicles leave the open parts of their usual routes.
     left = np.zeros(len(model))
@@ -1369,11 +1436,11 @@ def _traffic_impact(
         direct = bool(touched[path].any())
         if direct:
             affected += 1
-            if not np.isfinite(dist_final[k, target]):
+            if not np.isfinite(dist_final[k, sink + target]):
                 cut += 1
                 continue
-            uncongested.append(max(0.0, dist_after[k, target] - dist_before[k, target]) / 60.0)
-        late = max(0.0, dist_final[k, target] - dist_before[k, target]) / 60.0
+            uncongested.append(max(0.0, dist_after[k, sink + target] - dist_before[k, sink + target]) / 60.0)
+        late = max(0.0, dist_final[k, sink + target] - dist_before[k, sink + target]) / 60.0
         if direct:
             delays.append(late)
         elif late > DELAYED_MIN:
@@ -1481,6 +1548,7 @@ def traffic_payload(model: TrafficModel) -> dict[str, Any]:
             "n": int(model.readings[i]),
             "est": bool(model.estimated[i]),
             "name": model.name[i] if model.name else "",
+            "source_way": int(model.way_id[i]),
             "lanes": float(lanes[i]),
             "width_m": float(widths[i]),
             # Multiplier on the class flow for this road's lanes (counted classes).

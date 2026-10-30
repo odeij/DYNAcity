@@ -146,6 +146,12 @@ def test_observed_signal_program_and_replay_match_actual_controller(network, tmp
         assert all(s[4] == states[s[1]] and s[5] for s in frame['signals'])
         assert frame['metrics']['arrived'] == 0
         assert_accounting(frame)
+        sim.fork()
+        baseline = sim.connections[1]
+        assert baseline.trafficlight.getProgram('1') == 'observed'
+        assert baseline.trafficlight.getRedYellowGreenState('1') == states
+        sim.advance(road_events(m), 5)
+        assert baseline.trafficlight.getRedYellowGreenState('1') == sim.connections[0].trafficlight.getRedYellowGreenState('1')
     finally:
         sim.close()
     p.signals[0].phases[0].state = 'r'*(count+1)

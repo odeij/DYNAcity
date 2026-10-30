@@ -143,7 +143,7 @@ class MobilityInputs(Record):
         }
 
 
-def pilot_network(model, bounds):
+def pilot_network(model, bounds, note='Whole-road subset for the Mar Mikhael mobility pilot; not a citywide run.'):
     """Select whole measured road segments touching the pilot, preserving node identity.
 
     The pilot is a separate network, not a reduction of the represented citywide
@@ -180,9 +180,14 @@ def pilot_network(model, bounds):
     lists = {name: [getattr(model, name)[i] for i in keep] for name in ('geometry', 'highway', 'way_id')}
     ways = set(lists['way_id'])
     buses = [dict(r, ways=[w for w in r['ways'] if w in ways]) for r in model.bus_routes if ways.intersection(r['ways'])]
+    # Bans and crossings name roads by index, so they follow the roads' new numbering.
+    local = {old: new for new, old in enumerate(keep)}
     return replace(model, **arrays, **lists,
                    lanes=model.lanes[keep].copy() if model.lanes is not None else None,
+                   level=model.level[keep].copy() if model.level is not None else None,
+                   turn_bans=[(local[a], via, local[b]) for a, via, b in model.turn_bans if a in local and b in local],
+                   crossings=None if model.crossings is None else
+                   [(local[r], at, kind) for r, at, kind in model.crossings if r in local],
                    name=[model.name[i] for i in keep] if model.name else [], bus_routes=buses,
                    volume_reference=class_peak_volumes(model),
-                   source=model.source+' Whole-road subset for the Mar Mikhael mobility pilot; not a citywide run.',
-                   _graph_cache={}), keep
+                   source=model.source+' '+note, _graph_cache={}), keep

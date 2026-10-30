@@ -52,6 +52,14 @@ uncalibrated; the display does not predict damage to individual buildings.
 
 ![Illustrative earthquake scenario, baseline comparison and KPI uncertainty](docs/screenshots/viewer-08-disaster.jpg)
 
+**Whole-city buildings.** Run with `--landscape` and `--context-buildings`, the
+map also draws about 68,700 mapped building outlines beyond the Beirut 001 and
+BBED buildings, from the southern suburbs to east of the Beirut River, at every
+zoom. Most of their heights are estimates, not measurements; see
+[docs/beirut-context-buildings.md](docs/beirut-context-buildings.md).
+
+![Beirut and its southern suburbs with mapped buildings, viewed from the airport](docs/screenshots/viewer-09-citywide-buildings.jpg)
+
 ### Video demos
 
 Click an animated preview to open its MP4. These are recordings of the running
@@ -69,13 +77,14 @@ viewer; playback speed follows the simulation's on-screen indicator.
 | Buildings | [Beirut Built Environment Database (BBED), Beirut Urban Lab at AUB](https://beiruturbanlab.com/en/Details/845) | Building footprints, heights, uses and status changes in 2018, 2022 and 2024. |
 | Elevation | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/) | Approximate ground elevation for the city view. Resampling does not add street-level detail. |
 | Roads and bus routes | [OpenStreetMap](https://www.openstreetmap.org/), downloaded through the [Overpass API](https://overpass-api.de/api/interpreter) | Road layout, lanes, one-way streets, traffic lights, painted crossings, turn restrictions, bridge and tunnel levels, and mapped public transport routes. |
+| Buildings beyond BBED and Beirut 001 | [OpenStreetMap](https://www.openstreetmap.org/) outlines and Microsoft machine-learned footprints, both through [Overture Maps](https://overturemaps.org/) (ODbL) | Building outlines across the wider map; heights estimated from Beirut 001 where none is mapped. |
 | Historical traffic speeds | [Tari’ak Lebanon Traffic Dataset](https://github.com/ramikay/lebanon-traffic-dataset) | Typical hourly speeds from 2014–2019, rather than live traffic. |
 | Traffic counts | [CDR / ELARD BRT study, 2017, Table 4-4](https://documents1.worldbank.org/curated/en/648821508851766209/pdf/SFG3708-EA-P160224-Box405306B-PUBLIC-Disclosed-10-24-2017.pdf) | Peak-hour road counts used to estimate traffic volumes. |
 | 3D point clouds | Existing local AlMasar Al Akhdar / AUB project files; no confirmed public download link | Detailed 3D views and surface/ground reviews. See [point-cloud provenance](#point-cloud-provenance). |
 | Rainfall | [NOAA Integrated Surface Database](https://www.ncei.noaa.gov/products/land-based-station/integrated-surface-database), Beirut airport station 401000-99999 | Historical rainfall records for 2005, 2010, 2018 and 2023. Missing records limit flood modelling. |
 | Ponding and street drainage conditions | [UN-Habitat Lebanon neighbourhood geoportal](https://lebanonportal.unhabitat.org/geoportal/) | Mapped ponding points and street-condition observations, not a connected drainage-pipe network. |
 | Hamra reference maps | [UN-Habitat / RELIEF Centre Hamra neighbourhood profile, 2020](https://unhabitat.org/sites/default/files/2020/11/hamraneighbourhoodprofilebeirutlebanonoct2020_0_1.pdf) | Documentary stormwater and neighbourhood context. |
-| Bridge heights (evaluated, not used yet) | [Beirut 001 3D model by Salim al-Kadi](https://www.salimalkadi.com/07_beirut-001), free Rhino download, January 2020 | Measured deck heights above ground for some bridges. See [coverage](#data-coverage). |
+| Model buildings and bridge heights | [Beirut 001 3D model by Salim al-Kadi](https://www.salimalkadi.com/07_beirut-001), free Rhino download, January 2020 | Building outlines and heights for an optional map layer, plus measured deck heights for some bridges (evaluated, not used yet). Reduced to a small private pack; see [docs/beirut001-pack.md](docs/beirut001-pack.md). |
 
 Panels, snapshots, trained models, forecasts and planning results are generated locally from these inputs. They are not additional observed datasets. Raw data and generated artifacts stay outside Git, as described below.
 
@@ -97,6 +106,8 @@ What each dataset actually covers in the current local build. Missing mapping in
 | Traffic speeds (Tari'ak) | 2014–2019 | Hourly median speeds: 5,006 road pieces have their own readings, about 2.9 million readings in total | The other 5,812 pieces use their road class's profile; no live or post-2019 traffic |
 | Traffic counts (CDR / ELARD) | 2016–17 | Peak-hour counts by road class at the study's count stations | Not a measured origin-destination matrix; trip patterns are generated |
 | Elevation (Copernicus GLO-30) | Global 30 m surface model | Ground height over the snapshot area | Too coarse for street-level detail, kerbs or bridge decks |
+| Buildings (Beirut 001) | Model published January 2020 | 17,569 building outlines with heights over about 6.7 × 4.9 km; 687 provisionally linked to BBED footprints | Alignment to BBED is inferred, not surveyed. Heights are measured from the model ground (agrees with GLO-30 to a median 0.4 m) and run a median 5.4 m above BBED's recorded heights. No named licence, so the pack stays private and is served locally only |
+| Buildings (OpenStreetMap and Microsoft, through Overture) | OpenStreetMap downloaded 24 October 2026; Overture release 2026-09 | 64,846 OpenStreetMap outlines and 3,871 Microsoft footprints over 35.4693–35.5720 E, 33.8288–33.9076 N | Only about 160 have a mapped height and 110 a floor count. The rest use the median Beirut 001 height for their footprint size; 219 fall back to 6 m. No status or forecast data |
 | Bridge heights (Beirut 001) | Model published January 2020 | Usable heights for 31 of the 135 bridge pieces, about 6.6 km of 23.3 km of bridges; their median is 6.1 m, half between about 5 and 9 m | The model has no map position: alignment to BBED is inferred (median 2.8 m off). No named licence, so measured values stay in private data and are not published |
 
 The model's simulated traffic is checked against the Tari'ak speeds; its calibration status is in [docs/traffic-sumo.md](docs/traffic-sumo.md) and [docs/mobility-data-readiness.md](docs/mobility-data-readiness.md).
