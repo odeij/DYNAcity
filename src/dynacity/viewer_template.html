@@ -3208,6 +3208,18 @@ function initScene() {
           'fog-color': dark ? '#22313f' : '#dfe9ef', 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.55,
         });
       } catch (err) { /* older style spec: plain background is fine */ }
+      // The style paints open sea as its land-coloured background and only
+      // draws water polygons near the coast, so most of the sea shows as blank.
+      // Make the background the water colour and draw the land (the tiles'
+      // `earth` layer) over it in what was the background colour.
+      try {
+        const bg = map.getLayer('background'), water = map.getLayer('water');
+        if (bg && water && !map.getLayer('earth-land') && map.getSource('protomaps')) {
+          const land = map.getPaintProperty('background', 'background-color');
+          map.setPaintProperty('background', 'background-color', map.getPaintProperty('water', 'fill-color'));
+          map.addLayer({ id: 'earth-land', type: 'fill', source: 'protomaps', 'source-layer': 'earth', paint: { 'fill-color': land } }, 'landcover');
+        }
+      } catch (err) { /* style without these layers: leave it as is */ }
       // The basemap's own flat building fills sit under our 3D buildings.
       for (const id of ['building', 'building-top']) if (map.getLayer(id)) map.setPaintProperty(id, 'fill-opacity', 0.35);
       applySatellite();
