@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DynaCity</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' file:; style-src 'self' file:; img-src 'self' file: data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <link rel="stylesheet" href="title.css">
+</head>
+<body>
+<!-- DynaCity title / pause menu. Tile layout from the Forza Horizon 4 menu pen by sean_codes (MIT). -->
+<div class="background" aria-hidden="true">
+  <div class="stack" id="bg-stack">
+    <div class="layer real" id="bg-real"></div>
+    <div class="layer model" id="bg-model"></div>
+    <div class="seam" id="bg-seam"></div>
+  </div>
+  <div class="shade"></div>
+  <div class="tag" id="bg-tag">Real Beirut</div>
+</div>
+<div class="container view" id="view-menu">
+  <div class="container--logo"><div class="logo"><div class="name">DYNACITY</div><div class="badge">Beirut</div></div></div>
+  <div class="container--top-menu">
+    <div class="container--card-spot size-1">
+      <div class="container--card border" data-tile="fly" data-act="fly_resume" tabindex="0">
+        <div class="item--card-image img-fly"> </div>
+        <div class="container--card--text">
+          <div class="item--icon"><svg viewBox="0 0 24 24"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg></div>
+          <div class="item--card-title"><div class="text">fly over the city</div></div>
+          <div class="item--card-sub"><div class="text">Free camera above the rooftops</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="container--card-spot size-2">
+      <div class="container--card border" data-tile="drive" data-act="resume" tabindex="0">
+        <div class="item--card-image img-drive"> </div>
+        <div class="container--card--text dark">
+          <div class="item--card-title dark"><div class="text" id="drive-label">start driving</div></div>
+          <div class="item--card-sub dark"><div class="text" id="drive-sub">Beirut</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="container--card-spot size-1">
+      <div class="container--card border" data-tile="search" data-open="search" tabindex="0">
+        <div class="item--card-image img-place"> </div>
+        <div class="container--card--text">
+          <div class="item--icon"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg></div>
+          <div class="item--card-title"><div class="text">find a place</div></div>
+          <div class="item--card-sub"><div class="text">Streets, landmarks, map links</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="container--bottom-menu">
+    <div class="container--card-spot size-1">
+      <div class="container--card" data-tile="map" data-map="1" tabindex="0">
+        <div class="item--card-image med-height icon violet"><svg viewBox="0 0 24 24"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9a.5.5 0 0 0-.36.48V20.5a.5.5 0 0 0 .5.5l.16-.03L9 18.9l6 2.1 5.64-1.9a.5.5 0 0 0 .36-.48V3.5a.5.5 0 0 0-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg></div>
+        <div class="container--card--text">
+          <div class="item--card-title"><div class="text">city map</div></div>
+          <div class="item--card-sub"><div class="text">2D atlas of modeled roads</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="container--card-spot size-1">
+      <div class="container--card-mini" data-tile="settings" data-open="settings" tabindex="0">
+        <div class="container--card-mini--content">
+          <div class="container--card-mini--image"><div class="item--card-icon"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.3 7.3 0 0 0-1.7-1L15 3h-4l-.4 2.9a7.3 7.3 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.3 7.3 0 0 0 1.7 1L11 21h4l.4-2.9a7.3 7.3 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg></div></div>
+          <div class="container--card-mini--text"><div class="item--card-sub"><div class="text">Settings</div></div></div>
+        </div>
+      </div>
+      <div class="container--card-mini" data-tile="controls" data-open="controls" tabindex="0">
+        <div class="container--card-mini--content">
+          <div class="container--card-mini--image"><div class="item--card-icon"><svg viewBox="0 0 24 24"><path d="M20 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"/></svg></div></div>
+          <div class="container--card-mini--text"><div class="item--card-sub"><div class="text">Controls</div></div></div>
+        </div>
+      </div>
+      <div class="container--card-mini" data-tile="exit" data-act="end_drive" tabindex="0">
+        <div class="container--card-mini--content">
+          <div class="container--card-mini--image"><div class="item--card-icon"><svg viewBox="0 0 24 24"><path d="M10 17l1.4-1.4-2.6-2.6H20v-2H8.8l2.6-2.6L10 7l-5 5 5 5zM4 5h8V3H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8v-2H4V5z"/></svg></div></div>
+          <div class="container--card-mini--text"><div class="item--card-sub"><div class="text" id="exit-label">Exit to editor</div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="stage" id="stage">
+    <!-- Find a place -->
+    <section class="sheet view" id="view-search" hidden aria-labelledby="search-title">
+      <div class="sheet-head"><button class="back" data-back>‹ Back</button><h2 id="search-title">Find a place</h2></div>
+      <form id="search-form" autocomplete="off">
+        <input id="query" type="search" placeholder="Street, landmark, coordinates or map link" aria-label="Place or map location">
+      </form>
+      <div class="chips">
+        <button data-query="Hamra">Hamra</button><button data-query="Mar Mikhael">Mar Mikhael</button>
+        <button data-query="Charles Malek">Charles Malek</button><button data-query="Corniche">Corniche</button>
+        <button data-query="Downtown">Downtown</button>
+      </div>
+      <p class="hint" id="search-status">Type at least two letters. Pick a result to go there.</p>
+      <div class="results" id="results"></div>
+    </section>
+    <!-- Settings -->
+    <section class="sheet view" id="view-settings" hidden aria-labelledby="settings-title">
+      <div class="sheet-head"><button class="back" data-back>‹ Back</button><h2 id="settings-title">Settings</h2></div>
+      <div class="group">
+        <h3>Time of day</h3>
+        <div class="seg" role="group" aria-label="Time of day">
+          <button data-action="morning" data-tod="8">Morning</button>
+          <button data-action="afternoon" data-tod="14">Afternoon</button>
+          <button data-action="sunset" data-tod="17.5">Sunset</button>
+        </div>
+        <div class="row">
+          <label class="switch"><input type="checkbox" id="set-night"><span></span>Night lighting</label>
+          <label class="switch"><input type="checkbox" id="set-clouds"><span></span>Clouds</label>
+        </div>
+        <p class="hint">Illustrative lighting only. Traffic demand and clock do not change.</p>
+      </div>
+      <div class="group">
+        <h3>Map layers</h3>
+        <div class="row wrap">
+          <label class="switch"><input type="checkbox" data-layer="trees"><span></span>Mapped trees</label>
+          <label class="switch"><input type="checkbox" data-layer="greenery"><span></span>Vegetation cover</label>
+          <label class="switch"><input type="checkbox" data-layer="references"><span></span>Greenery references</label>
+          <label class="switch"><input type="checkbox" data-layer="preview"><span></span>Data markers</label>
+        </div>
+      </div>
+      <div class="group">
+        <h3>Driving minimap</h3>
+        <div class="seg" role="group" aria-label="Minimap style">
+          <button data-map-mode="street">Street</button><button data-map-mode="satellite">Satellite</button><button data-map-mode="hybrid">Hybrid</button>
+        </div>
+        <div class="row"><label class="switch"><input type="checkbox" id="set-heading"><span></span>Heading-up</label></div>
+      </div>
+      <div class="group">
+        <h3>Traffic</h3>
+        <div class="row">
+          <button class="pill" data-action="sumo_start">Connect SUMO</button>
+          <button class="pill" data-action="sumo_stop">Disconnect</button>
+          <span class="hint inline" id="traffic-status">SUMO disconnected</span>
+        </div>
+      </div>
+    </section>
+    <!-- Controls -->
+    <section class="sheet view" id="view-controls" hidden aria-labelledby="controls-title">
+      <div class="sheet-head"><button class="back" data-back>‹ Back</button><h2 id="controls-title">Controls</h2></div>
+      <div class="keys">
+        <div><span class="k">W A S D</span><span>Drive and steer</span></div>
+        <div><span class="k">Space</span><span>Handbrake</span></div>
+        <div><span class="k">Shift</span><span>Boost</span></div>
+        <div><span class="k">C</span><span>Change camera</span></div>
+        <div><span class="k">F</span><span>Fly mode</span></div>
+        <div><span class="k">L</span><span>Day / night</span></div>
+        <div><span class="k">Z X H</span><span>Signals and hazards</span></div>
+        <div><span class="k">M B</span><span>Minimap style, heading</span></div>
+        <div><span class="k">R U N</span><span>Reset, recover, next area</span></div>
+        <div><span class="k">F1 / Tab</span><span>Open this menu</span></div>
+        <div><span class="k">F3</span><span>Find a place</span></div>
+        <div><span class="k">Esc</span><span>Back / resume</span></div>
+      </div>
+      <div class="row">
+        <button class="pill" data-action="camera">Change camera</button>
+        <button class="pill" data-action="recover">Recover car</button>
+        <button class="pill" data-action="reset">Reset to start</button>
+        <button class="pill" data-action="next_area">Next area</button>
+      </div>
+    </section>
+    <!-- About / credits -->
+    <section class="sheet view" id="view-about" hidden aria-labelledby="about-title">
+      <div class="sheet-head"><button class="back" data-back>‹ Back</button><h2 id="about-title">About DynaCity</h2></div>
+      <p class="lead">An explorable 3D model of Beirut, built for the DynaCITY urban-forecasting project. Drive or fly through the city, find places and look at mapped streets, greenery and street furniture.</p>
+      <div class="facts">
+        <div><strong id="cov-roads">—</strong><span>municipal road length modeled</span></div>
+        <div><strong id="cov-terrain">—</strong><span>municipal terrain from source data</span></div>
+        <div><strong id="cov-segments">—</strong><span>road segments exported</span></div>
+      </div>
+      <p class="hint">Prototype. Geometry comes from OpenStreetMap and cached reference data and is partly approximate. Traffic is synthetic (SUMO). Nothing here is a forecast or a validated measurement.</p>
+      <p class="hint">Map data © OpenStreetMap contributors (ODbL). Built with Unreal Engine.</p>
+      <p class="hint">Background street photos: KartaView, July 2018, CC BY-SA 4.0, © Grab and KartaView contributors. Each is paired with a DynaCity render from the photo's recorded position.</p>
+    </section>
+</div>
+<div class="statusbar"><span class="dot" id="status-dot"></span><span id="status-text">Connecting to the simulation…</span><span class="sep">·</span><span id="area">Beirut</span><span class="sep">·</span><span id="clock">14:00</span><button class="link" data-open="about">About</button></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="title.js"></script>
+</body>
+</html>

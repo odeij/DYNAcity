@@ -108,7 +108,7 @@ test('road overlay follows simulated carriageway width, with a legacy fallback',
 function fixture(overrides = {}) {
  const context=vm.createContext({ui:{traffic:true,hour:8,closedRoads:new Set(),crashes:new Set()},
   DATA:{traffic:{roads:[]}},currentHazards:()=>[],prepareRoads:()=>{},CAR_SPEEDUP:1,
-  TRAFFIC_INITIAL_RATE:1,
+  TRAFFIC_INITIAL_RATE:1,mobilityLab:{paused:false,incoming:1},renderMobilityLab:()=>{},
   clamp01:x=>Math.max(0,Math.min(1,x)),renderTraffic:()=>{},render:()=>{},esc:x=>x,
   fetch:async()=>{throw new Error('unexpected fetch')},performance:{now:()=>0},console,...overrides});
  const run=s=>vm.runInContext(s,context);
@@ -319,7 +319,7 @@ test('road and hazard edits during a fetch keep the fleet and reach SUMO in the 
  run('advanceCars(250)');
  await settle();
  assert.equal(requests.length,2);
- assert.deepEqual(requests[1],{hour:8,seconds:2,continuous:true,mixed:false,closed:[3],crashes:[4],hazards,view:null,max_vehicles:8000});
+ assert.deepEqual(requests[1],{hour:8,seconds:2,continuous:true,mixed:false,demand_scale:1,closed:[3],crashes:[4],planning:[],hazards,view:null,max_vehicles:8000});
  assert.equal(run('cars[0].key'),'a');
 });
 test('departures and replacements appear only at their authoritative frame, with shortest-turn interpolation',()=>{

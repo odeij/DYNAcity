@@ -376,12 +376,25 @@ def command_plan(args: argparse.Namespace) -> None:
 
 
 def _landscape_view(path: str | None, traffic: TrafficModel | None = None, context_buildings: str | None = None,
-                    bounds: tuple[float, float, float, float] | None = None) -> dict | None:
-    if not path:
+                    bounds: tuple[float, float, float, float] | None = None, overlays: list[str] | None = None) -> dict | None:
+    if not path and not overlays:
         if context_buildings:
             raise SystemExit('--context-buildings requires --landscape')
         return None
-    raw = _json(path)
+    raw = _json(path) if path else {'elements': []}
+    # Keep stable OSM identities while adding the newer inventories used by Unreal.
+    # Later layers win for duplicate identities; retain each element's provenance.
+    elements = {}
+    for layer in [raw, *[_json(p) for p in overlays or []]]:
+        for element in layer.get('elements', []):
+            element = dict(element)
+            element.setdefault('source_as_of', layer.get('osm3s', {}).get('timestamp_osm_base'))
+            element.setdefault('retrieved_on', layer.get('retrieved_on'))
+            identity = (element['type'], element['id'])
+            prior = elements.get(identity, {})
+            elements[identity] = {**prior, **element,
+                                  'tags': {**prior.get('tags', {}), **element.get('tags', {})}}
+    raw = {**raw, 'elements': list(elements.values())}
     companion = _json(context_buildings) if context_buildings else None
     if bounds is not None:
         from .corridor import crop_context_buildings, crop_osm
@@ -400,9 +413,12 @@ def command_export_viewer(args: argparse.Namespace) -> None:
     snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
     forecast = ForecastResult.model_validate(_json(args.forecast)) if args.forecast else None
     model = TrafficModel.load(args.traffic) if args.traffic else None
-    landscape = _landscape_view(getattr(args, 'landscape', None), model, getattr(args, 'context_buildings', None))
+    landscape = _landscape_view(getattr(args, 'landscape', None), model, getattr(args, 'context_buildings', None), overlays=getattr(args, 'context_overlay', None))
     traffic = traffic_payload(model) if model is not None else None
     payload = build_viewer_payload(_json(args.bbed), snapshot, forecast, basemap=args.basemap, traffic=traffic, landscape=landscape)
+    if getattr(args, "pedestrians", None):
+        from .viewer_pedestrians import pedestrian_payload
+        payload["pedestrians"] = pedestrian_payload(_json(args.pedestrians), payload.get("traffic"))
     destination = Path(args.output)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(render_viewer(payload), encoding="utf-8")
@@ -526,7 +542,7 @@ def command_serve(args: argparse.Namespace) -> None:
         from .mobility_inputs import pilot_network
         traffic, _ = pilot_network(traffic, list(focus), note=f'Whole-road subset around {corridor.name}; '
                                    'cars enter and leave at its edge; not a citywide run.')
-    landscape = _landscape_view(getattr(args, 'landscape', None), traffic, getattr(args, 'context_buildings', None), focus)
+    landscape = _landscape_view(getattr(args, 'landscape', None), traffic, getattr(args, 'context_buildings', None), focus, overlays=getattr(args, 'context_overlay', None))
     if args.mobility_inputs:
         if traffic is None:
             raise SystemExit('--mobility-inputs requires --traffic')
@@ -563,6 +579,9 @@ def command_serve(args: argparse.Namespace) -> None:
             traffic=_traffic_view(traffic, args.beirut001) if traffic is not None else None,
             landscape=landscape,
         )
+        if getattr(args, "pedestrians", None):
+            from .viewer_pedestrians import pedestrian_payload
+            payload["pedestrians"] = pedestrian_payload(_json(args.pedestrians), payload.get("traffic"))
         if corridor is not None:
             payload["corridor"] = corridor.payload({
                 "buildings": len(snapshot.objects), "roads": len(traffic) if traffic is not None else 0})
@@ -864,6 +883,8 @@ def build_parser() -> argparse.ArgumentParser:
     viewer.add_argument("--output", required=True)
     viewer.add_argument("--basemap", choices=["carto", "none"], default="carto")
     viewer.add_argument("--traffic", help="traffic model from build-traffic; draws roads and moving cars")
+    viewer.add_argument("--pedestrians", help="private pedestrian-walkers.json shared with Unreal (modelled PM flows)")
+    viewer.add_argument("--context-overlay", action="append", help="additional private OSM inventory used by Unreal; repeatable, merged by source ID")
     viewer.add_argument("--landscape", help="private OSM context JSON: surfaces, trees, paths, places and structures")
     viewer.add_argument("--context-buildings", help="Overture companion from engine_context_buildings --web-output: estimated heights and extra footprints")
     viewer.set_defaults(func=command_export_viewer)
@@ -884,6 +905,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--prewarm-traffic", action="store_true",
                        help="build the default SUMO network before serving to reduce first-connect work")
     serve.add_argument("--mobility-inputs", help="private mobility evidence JSON for the traffic pilot")
+    serve.add_argument("--pedestrians", help="private pedestrian-walkers.json shared with Unreal (modelled PM flows)")
+    serve.add_argument("--context-overlay", action="append", help="additional private OSM inventory used by Unreal; repeatable, merged by source ID")
     serve.add_argument("--landscape", help="private OSM context JSON: surfaces, trees, paths, places and structures")
     serve.add_argument("--context-buildings", help="Overture companion from engine_context_buildings --web-output: estimated heights and extra footprints")
     serve.add_argument("--corridor", help="GeoJSON line to focus on (e.g. Al Masar al Akhdar); every input is cut to its buffer")

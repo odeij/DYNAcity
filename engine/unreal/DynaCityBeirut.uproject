@@ -1,0 +1,15 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.8",
+  "Category": "Simulation",
+  "Description": "Private Beirut neighbourhood prototype; SUMO remains authoritative.",
+  "Plugins": [
+    {"Name": "LidarPointCloud", "Enabled": true},
+    {"Name": "PythonScriptPlugin", "Enabled": true},
+    {"Name": "EditorScriptingUtilities", "Enabled": true},
+    {"Name": "InterchangeEditor", "Enabled": true},
+    {"Name": "ModelContextProtocol", "Enabled": true},
+    {"Name": "EditorToolset", "Enabled": true},
+    {"Name": "SlateInspectorToolset", "Enabled": true}
+  ]
+}

@@ -1,0 +1,37 @@
+/* Bootstrap Sidebars structure; only host sizing and proportional key labels. */
+body { min-width: 740px; }
+main { height: 100vh; }
+nav { width: 240px; }
+#content { min-width: 0; }
+kbd { font-family: var(--bs-font-sans-serif); font-weight: 600; }
+.nav-link:focus-visible, button:focus-visible { outline-offset: 3px; }
+.coverage-counts { display:flex; flex-wrap:wrap; gap:1rem; color:#aebbb5; }
+.coverage-counts span { flex:1; min-width:120px; }
+.coverage-counts strong { display:block; font-size:1.6rem; color:#b5f4cb; font-weight:600; }
+#results .list-group-item:focus { outline:2px solid #a5e9bd; outline-offset:-3px; }
+#city-map { display:block; width:100%; height: clamp(300px,calc(100vh - 440px),640px); border:1px solid #44554f; border-radius:8px; background:#172024; }
+#city-map, #city-map .leaflet-control { font-family:var(--bs-font-sans-serif); }
+#city-map .leaflet-control-attribution { max-width:100%; background:rgba(255,255,255,.94); color:#243b33; font-size:11px; padding:3px 7px; }
+#city-map .leaflet-control-attribution a { color:#155343; }
+#city-map .leaflet-control-scale-line { background:rgba(255,255,255,.9); color:#243b33; border-color:#243b33; }
+.map-options { font-size:.875rem; }
+.map-road-swatch { display:inline-block; width:20px; height:4px; margin:0 6px 3px 0; background:#12b8a6; border-radius:3px; }
+#city-map:focus-visible { outline:2px solid #a5e9bd; outline-offset:3px; }
+h1:focus { outline: none; }
+#content:focus { outline: none; }
+.skip-link { position: absolute; z-index: 10; margin: .5rem; }
+.entry-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.5rem; }
+.entry { text-align:left; padding:.6rem .9rem; border:1px solid #44554f; border-radius:8px; background:#1f262a; color:#e6ece9; font-family:var(--bs-font-sans-serif); }
+.entry:hover { background:#2a3338; }
+.entry strong { display:block; font-size:1rem; }
+.entry span { display:block; font-size:.85rem; color:#b4c0ba; }
+.entry:disabled { opacity:.55; }
+.entry-primary { background:#0d6efd; border-color:#0d6efd; color:#fff; }
+.entry-primary:hover { background:#0b5ed7; }
+.entry-primary span { color:#e8f0ff; }
+.entry:focus-visible, summary:focus-visible { outline:2px solid #a5e9bd; outline-offset:3px; }
+summary { cursor:pointer; font-weight:600; padding:.25rem 0; }
+@media (max-width: 860px) { .entry-grid { grid-template-columns:1fr; } }
+/* In-game overlay (opened from title.html): page fills the viewport, title menu replaces the sidebar. */
+body.overlay nav { display: none !important; }
+body.overlay { background: rgba(8, 11, 18, .96); }

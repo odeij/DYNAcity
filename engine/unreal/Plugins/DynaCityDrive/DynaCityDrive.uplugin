@@ -1,0 +1,11 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1",
+  "FriendlyName": "DynaCITY Driving",
+  "Description": "Source-grounded exploration driving. Arcade movement; SUMO remains separate.",
+  "Category": "Simulation",
+  "CanContainContent": false,
+  "EnabledByDefault": false,
+  "Modules": [{"Name": "DynaCityDrive", "Type": "Runtime", "LoadingPhase": "Default"}]
+}

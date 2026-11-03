@@ -1,0 +1,9 @@
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Content/Beirut/
+Content/Maps/
+prototype_config.json
+*.sln
+*.suo

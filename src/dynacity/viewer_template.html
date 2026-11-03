@@ -180,6 +180,23 @@ button { cursor: pointer; touch-action: manipulation; }
 [data-mobility-road] { display: block; width: 100%; text-align: left; padding: 6px; white-space: normal; border: 1px solid var(--line); border-radius: 6px; background: var(--control); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
 [data-mobility-restart] { margin-top: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--control); color: var(--ink); font: inherit; font-size: 12px; cursor: pointer; }
 .panel .sev { margin: 4px 0 10px; }
+#mobility-lab .more { border: 1px solid var(--line); border-radius: 9px; background: var(--control); padding: 8px 10px; color: var(--ink); font: inherit; cursor: pointer; }
+#mobility-lab .more:hover { background: var(--control-hover); }
+#mobility-lab .more:disabled { opacity: .5; cursor: not-allowed; }
+#mobility-lab :is(.more, select, input[type="search"]):focus-visible, #mobility-lab summary:focus-visible { outline: 2px solid #ffbe1e; outline-offset: 2px; }
+#mobility-lab .plan-street { font-size: 15px; font-weight: 600; margin: 8px 0 2px; }
+#mobility-lab .plan-actions, #mobility-lab .plan-list { display: grid; gap: 6px; margin: 8px 0; }
+#mobility-lab .plan-field { display: grid; gap: 3px; font-size: 12px; color: var(--ink-2); }
+#mobility-lab .plan-field :is(select, input) { border: 1px solid var(--line); border-radius: 9px; background: var(--control); color: var(--ink); padding: 7px 9px; font: inherit; }
+#mobility-lab .more { text-align: left; }
+#mobility-lab :is(.more, .plan-street, .note, .plan-field) { min-width: 0; overflow-wrap: anywhere; }
+#mobility-lab :is(.plan-field select, .plan-field input) { width: 100%; box-sizing: border-box; min-width: 0; }
+#mobility-lab .plan-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; margin-top: 6px; }
+#mobility-lab .plan-table caption { text-align: left; font-size: 12px; color: var(--ink-2); padding-bottom: 3px; }
+#mobility-lab .plan-table :is(th, td) { padding: 3px 4px; text-align: right; border-top: 1px solid var(--line); font-weight: 400; }
+#mobility-lab .plan-table :is(th[scope="row"], thead th:first-child) { text-align: left; }
+.plan-label { font-size: 12px; color: var(--ink-2); }
+#mobility-lab .more[aria-pressed="true"] { background: #116e64; color: #fff; border-color: #8ee0c8; }
 .note { margin-top: 10px; color: var(--ink-3); font-size: 11.5px; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 12px; margin: 8px 0 10px; }
 .kv dt { color: var(--ink-3); }
@@ -362,6 +379,164 @@ button:focus-visible, summary:focus-visible, input:focus-visible { outline: 3px 
 .cloud-control label { display:flex; align-items:center; gap:7px; font-weight:600; }
 .cloud-control button { border:1px solid var(--line); background:var(--control); color:var(--ink); border-radius:8px; padding:5px 9px; margin-top:7px; font:inherit; }
 .cloud-control p { margin:6px 0 0; color:var(--ink-2); font-size:11px; line-height:1.4; }
+</style>
+<style id="dynacity-interface">
+/* DYNAcity interface. Unslop method by Damir Sokolovsky (@heydamir), CC BY 4.0.
+   Direction: geographic, measured, grounded. Beirut is the visual focus. */
+:root {
+  --ink: #20272d; --ink-2: #505b65; --ink-3: #65717b;
+  --accent: #245f9e; --accent-strong: #245f9e;
+  --rim: rgba(32,39,45,.12); --line: rgba(32,39,45,.10);
+  --glass: #fafbfc; --glass-solid: #fafbfc; --panel: #fff;
+  --glass-shadow: 0 4px 16px rgba(0,0,0,.06);
+  --control: #f0f2f4; --control-hover: #e7ebef;
+  --tab-on-bg: #e8eff7; --tab-on-ink: #245f9e;
+  --ok: #397353; --warn: #88611f; --bad: #b14444;
+  --edge: 16px; --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --blur: none;
+}
+body { letter-spacing: 0; font-size: 13px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+button, input, select, textarea, code { font-family: var(--font); letter-spacing: 0; }
+button, summary, select { transition: color 140ms cubic-bezier(.22,1,.36,1), background-color 140ms cubic-bezier(.22,1,.36,1), border-color 140ms cubic-bezier(.22,1,.36,1); }
+.chrome::before { content: ''; position: absolute; inset: 0 0 auto; height: 64px; background: #fafbfc; border-bottom: 1px solid var(--line); pointer-events: none; }
+.glass { background: var(--glass); border-color: var(--rim); box-shadow: var(--glass-shadow); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.brand { top: 12px; gap: 12px; min-height: 40px; text-shadow: none; }
+.brand svg { width: 24px; height: 24px; color: var(--ink-2); }
+.brand .word { font-size: 20px; font-weight: 500; letter-spacing: 0; }
+.brand .div { background: var(--line); }
+.brand .city { color: var(--ink-2); font-size: 13px; }
+.tabs { top: 12px; height: 40px; padding: 4px; gap: 4px; background: #f0f2f4; border: 1px solid var(--line); border-radius: 12px; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.tab { padding: 4px 12px; border-radius: 8px; color: var(--ink-2); font-size: 12px; }
+.tab[aria-selected=true] { color: var(--accent); background: #fff; font-weight: 500; box-shadow: 0 1px 2px #0000000d; }
+.status { top: 12px; min-height: 40px; gap: 8px; padding: 8px 12px; background: transparent; border: 0; border-radius: 8px; backdrop-filter: none; -webkit-backdrop-filter: none; color: var(--ink-2); }
+.status .sep, .brand .div { background: var(--line); }
+.badge { padding: 0; gap: 8px; border-radius: 0; background: transparent; color: var(--ink-2); font-size: 12px; font-weight: 400; }
+.badge i { width: 6px; height: 6px; }
+.leftcol { top: 80px; bottom: 112px; gap: 12px; }
+.rail { width: 48px; padding: 4px; gap: 4px; border-radius: 12px; }
+.rail button, .tool-menu summary { width: 38px; height: 40px; border-radius: 8px; color: var(--ink-2); letter-spacing: 0; }
+.rail button[aria-pressed=true] { color: var(--accent); background: #e8eff7; }
+.chrome svg:not(.brand svg) { width: 18px; height: 18px; stroke-width: 1.5; }
+.tool-options { left: 60px; width: 216px; padding: 8px; border-radius: 12px; }
+.tool-options button { width: 100%; gap: 8px; padding: 0 8px; font-size: 13px; }
+.tool-options select { margin: 4px 0; padding: 8px; background: #fff; border-color: var(--line); }
+#beirut-map-controls { top: 80px; left: 80px; gap: 12px; padding: 12px 16px; border-radius: 12px; max-width: 420px; font-size: 12px; }
+#beirut-map-controls label { gap: 8px; }
+#beirut-map-controls select { padding: 4px 8px; min-height: 32px; border-radius: 8px; background: #fff; }
+#beirut-map-note { font-size: 12px; }
+.side { top: 80px; right: 16px; bottom: 116px; width: 352px; gap: 12px; }
+.panel { padding: 20px; border-radius: 16px; }
+.panel h2 { font-size: 18px; font-weight: 500; line-height: 24px; margin: 0 0 4px; }
+.panel .sub, .panel .note, .panel .lever .m, .panel .stop span, .panel .warn-list { font-size: 12px; line-height: 18px; }
+.panel .sub { margin-bottom: 16px; }
+.panel .close { float: right; width: 32px; height: 32px; margin: -4px -8px 0 8px; color: var(--ink-2); border-radius: 8px; }
+.panel .sev { margin: 0 0 16px; font-size: 12px; }
+.sev input { accent-color: var(--accent); }
+.lever { padding: 12px; margin: 12px 0; background: #f3f5f6; border-radius: 12px; }
+.lever:hover { background: #f0f2f4; }
+.lever .t { font-weight: 500; margin-bottom: 4px; gap: 8px; }
+#mobility-lab .plan-field { gap: 8px; }
+#mobility-lab .plan-field :is(select,input) { background: #fff; padding: 8px; min-height: 36px; border-radius: 8px; }
+#mobility-lab .plan-street { margin: 12px 0 4px; font-size: 16px; font-weight: 500; border-left: 2px solid var(--accent); padding-left: 8px; }
+#mobility-lab .plan-actions, #mobility-lab .plan-list { gap: 8px; margin: 12px 0; }
+#mobility-lab .more, [data-mobility-restart] { padding: 8px 12px; min-height: 36px; border-radius: 8px; }
+#mobility-lab .more[aria-pressed=true] { background: #e8eff7; color: var(--accent); border-color: #bdcede; }
+.plan-table :is(th,td), .mobility-table :is(th,td) { padding: 8px 4px; }
+.note { margin-top: 12px; }
+.seg { gap: 4px; padding: 4px; border-radius: 8px; background: #edf0f2; }
+.seg button { padding: 4px 8px; min-height: 28px; border-radius: 4px; color: var(--ink-2); }
+.seg button[aria-pressed=true] { background: #fff; color: var(--accent); font-weight: 500; }
+.bottom { bottom: 16px; width: min(820px, calc(100vw - 32px)); gap: 12px; }
+.prompt { height: 56px; padding: 8px 8px 8px 12px; gap: 12px; border-radius: 16px; }
+.prompt > svg { display: none; }
+.prompt input { font-size: 14px; }
+.prompt input::placeholder { color: var(--ink-3); }
+.prompt .seg { background: #edf0f2; }
+.prompt .seg button { padding: 4px 12px; }
+.prompt .go { width: 40px; height: 40px; flex: none; border-radius: 8px; border: 1px solid transparent; background: var(--accent); color: #fff; }
+.prompt .go:hover:not(:disabled) { background: #194e85; }
+.prompt .go svg { color: inherit; }
+.progress { background: #fafbfc; padding: 8px 12px; border-radius: 8px; }
+.dock { padding: 16px; border-radius: 16px; gap: 12px; }
+.dock .head { gap: 12px; }
+.dock .tiles { gap: 12px; }
+.dock .more { border-radius: 8px; padding: 8px 12px; }
+.dock .head .note, .kpi .l, .kpi .r { font-size: 12px; }
+.kpi { padding-left: 12px; }
+.kpi .v { font-size: 24px; font-weight: 500; line-height: 32px; }
+.attrib { padding: 4px 8px; margin: 0; font-size: 11px; line-height: 16px; color: #505b65; background: #fafbfcef; border-radius: 8px; }
+.stop, .library-actions button, .building-result, .library-input { padding: 8px 12px; background: #f0f2f4; border-radius: 8px; }
+.stop { margin-bottom: 4px; }
+.stop:hover, .stop[aria-current=true] { background: #e8eff7; }
+.library-field { margin: 12px 0 4px; }
+.library-actions { margin: 12px 0; gap: 8px; }
+.chip { background: #edf0f2; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+.chip.hard { background: #f6e8e8; color: #9b3434; }
+.chip.soft { background: #f5efdf; color: #775719; }
+.chip.ok { background: #e8f1eb; color: #326647; }
+.issue { border-left-color: #c8ced4; padding-left: 12px; margin: 8px 0; }
+.tip { background: #fafbfc; padding: 12px 16px; border-radius: 12px; }
+.tray { padding: 16px; width: 224px; }
+.tray .sub, .sev, .tile, .tip .s { font-size: 12px; }
+.tile { height: 64px; background: #f0f2f4; color: var(--ink-2); border-radius: 8px; }
+.ghost { box-shadow: 0 4px 16px #00000014; }
+.pbar .track { background: #e1e5e9; }
+.pbar .fill { background: var(--accent); }
+.legend-row { gap: 8px; padding: 4px 0; }
+.legend-row .sw, .ramp { box-shadow: none; }
+.road-row { gap: 8px; padding: 4px 0; }
+.kv { margin: 12px 0; gap: 8px 12px; }
+input[type=checkbox], input[type=range] { accent-color: var(--accent); }
+button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-visible,
+#mobility-lab :is(.more,select,input[type=search]):focus-visible, #mobility-lab summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.prompt:focus-within { border-color: var(--accent); }
+.prompt input:focus-visible { outline: none; }
+#p-flood-playback { background: #fafbfc; color: var(--ink); border-color: var(--rim); padding: 20px; box-shadow: var(--glass-shadow); }
+#p-flood-playback h2 { letter-spacing: 0; }
+.flood-intro, .flood-help, .flood-readout span, .flood-time-ends, .flood-map-toggle, .flood-details, .flood-survey-legend { color: var(--ink-2); font-size: 12px; }
+.flood-primary { background: var(--accent); }
+.flood-secondary, .flood-cases { background: #edf0f2; color: var(--ink-2); }
+.flood-cases button[aria-pressed=true] { color: var(--accent); font-weight: 500; }
+.flood-readout strong { letter-spacing: 0; font-weight: 500; }
+.cloud-control { top: 80px; padding: 12px 16px; }
+@media (max-width: 1100px) { .tabs { top: 12px; } .rail { top: auto; } .side { top: 80px; } }
+@media (max-width: 940px) {
+  .chrome::before { height: 112px; }
+  .tabs { top: 64px; }
+  .leftcol, .side { top: 128px; }
+  #beirut-map-controls { top: 128px; max-width: 320px; }
+  .side { width: 304px; }
+}
+@media (max-width: 760px) {
+  :root { --edge: 12px; }
+  .brand { top: 12px; left: 12px; gap: 8px; }
+  .brand .word { font-size: 18px; }
+  .status { right: 12px; padding: 8px 0; max-width: calc(100vw - 176px); }
+  .badge { font-size: 11px; }
+  .tabs { top: 64px; max-width: calc(100vw - 24px); }
+  .tab { padding: 4px 12px; }
+  .leftcol { top: 128px; bottom: 112px; }
+  .rail button, .tool-menu summary { min-height: 44px; height: 44px; }
+  #beirut-map-controls { top: 128px; left: 72px; right: 12px; max-width: none; padding: 12px; gap: 8px; }
+  #beirut-map-controls label { flex-wrap: wrap; gap: 4px; }
+  #beirut-map-controls select { max-width: 100%; }
+  .side { top: 284px; left: 72px; right: 12px; bottom: 136px; width: auto; }
+  .panel { padding: 16px; }
+  .panel h2 { font-size: 18px; }
+  .bottom { width: calc(100vw - 24px); bottom: max(12px,env(safe-area-inset-bottom)); gap: 8px; }
+  .prompt { gap: 8px; padding-left: 8px; }
+  .prompt input { font-size: 16px; }
+  .prompt .seg button { padding: 4px 8px; }
+  .attrib { font-size: 11px; max-height: 36px; overflow: auto; pointer-events: auto; }
+  .tool-options { left: 56px; width: min(216px,calc(100vw - 96px)); }
+  .dock .tiles { gap: 12px; }
+  .side:has(> #p-flood-playback:not([hidden])) { top: 284px; left: 72px; bottom: 136px; max-height: none; }
+}
+@media (max-height: 560px) {
+  .side { top: 80px; bottom: 88px; }
+  .leftcol { bottom: 88px; }
+}
+@media (prefers-reduced-motion: reduce) { button, summary, select { transition: none; } }
+
 </style>
 </head>
 <body>
@@ -606,7 +781,7 @@ const metres = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round
 
 const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, imagery: 0, mode: 'scenario', answer: null, answerIds: null, drops: [], traffic: false, hour: 8, roadHighlight: null, buses: false, stationsOpen: false,
   trafficImpact: null, trafficStyle: 'street', mobilityMap: true, showSignals: true, mixed: false,
-  roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map() };
+  roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map(), planning: new Map(), selectedRoad: null, planSearch: '' };
 
 function rampColor(t, stops = RAMP) {
   const x = Math.max(0, Math.min(1, t)) * (stops.length - 1);
@@ -1097,7 +1272,7 @@ function drawFx() {
   fxScreen = { flash: 0, shake: 0, warm: 0 };
   const now = performance.now();
   refreshCameraGeometry(now);
-  deckgl.setProps({ layers: [...baseLayers, ...streetDetailLayers(), ...intersectionDetailLayers(), ...carLayers(now), ...mobilityLayers(), ...osmPlaceLayers(), ...fxLayers(now)] });
+  deckgl.setProps({ layers: [...baseLayers, ...streetDetailLayers(), ...intersectionDetailLayers(), ...planningLayers(), ...carLayers(now), ...pedestrianLayers(now), ...mobilityLayers(), ...osmPlaceLayers(), ...fxLayers(now)] });
   applyScreen();
 }
 // What the effects of this frame ask of the whole screen; applied once per frame.
@@ -1525,9 +1700,17 @@ function trafficView() {
   const dx = (e - w) / 2, dy = (n - s) / 2;
   return [w - dx, s - dy, e + dx, n + dy];
 }
+// Street plans: one entry per road, unique, at most 1000; lanes_removed counts lanes per direction.
+function planningRequest() {
+  return [...(ui.planning ?? [])].sort((a, b) => a[0] - b[0]).slice(0, 1000).map(([road, p]) => {
+    const row = {road, lanes_removed: p.lanes_removed ?? 0};
+    if (p.speed_limit_kmh !== undefined) row.speed_limit_kmh = p.speed_limit_kmh;
+    return row;
+  });
+}
 function simulationRequest() {
-  return {hour:ui.hour, seconds:2, continuous:true, mixed:!!ui.mixed,
-    closed:[...ui.closedRoads], crashes:[...ui.crashes], hazards:currentHazards(),
+  return {hour:ui.hour, seconds:2, continuous:true, mixed:!!ui.mixed, demand_scale:mobilityLab.incoming,
+    closed:[...ui.closedRoads], crashes:[...ui.crashes], planning:planningRequest(), hazards:currentHazards(),
     view:trafficView(), max_vehicles:TRAFFIC_MAX_SENT};
 }
 function simulationRevision() {
@@ -1584,6 +1767,7 @@ async function fetchTrafficFrames() {
 // Degrees of body pitch per m/s² (deck.gl pitch > 0 dips the nose).
 const CAR_PITCH_PER_ACCEL = -0.5;
 function advanceCars(now) {
+  if(mobilityLab.paused){carTime=now;trafficEffectiveRate=0;return;}
   const wallDt = carTime === null ? 0 : Math.max(0, Math.min((now-carTime)/1000, 0.25));
   carTime = now;
   if (!trafficFrames.length) { trafficEffectiveRate = 0; return; }
@@ -2177,10 +2361,11 @@ function requestTraffic() {
 function setRoadTool(tool) {
   ui.roadTool = ui.roadTool === tool ? null : tool;
   $('progress').textContent = ui.roadTool === 'close' ? 'Click a road segment to make it car-free · click again to reopen it'
-    : ui.roadTool === 'crash' ? 'Click a road to put a crash on it · click the crash to clear it' : '';
+    : ui.roadTool === 'crash' ? 'Click a road to put a crash on it · click the crash to clear it' : ui.roadTool === 'pavement' ? 'Click a green walking segment to close or reopen its pavement' : '';
   renderTraffic(); render();
 }
 function toggleRoadEvent(i, at) {
+  if(ui.roadTool!=='close'&&ui.roadTool!=='crash')return;
   const set = ui.roadTool === 'crash' ? ui.crashes : ui.closedRoads;
   const other = ui.roadTool === 'crash' ? ui.closedRoads : ui.crashes;
   if (set.has(i)) set.delete(i); else { set.add(i); other.delete(i); }
@@ -2234,8 +2419,9 @@ function renderTraffic() {
       <div class="sub">Historical speeds, ${esc(DATA.traffic.period)} · <span id="traffic-playback-rate"></span></div>
       <div class="sev"><div class="row"><label for="hour">Hour</label><b id="hour-label"></b></div>
         <input id="hour" type="range" min="0" max="23" step="1" value="${ui.hour}"></div>
-      <div id="traffic-controls"></div><div id="mobility-pilot"></div><div id="traffic-body"></div>`;
+      <div id="mobility-lab"></div><div id="traffic-controls"></div><div id="mobility-pilot"></div><div id="traffic-body"></div>`;
   }
+  renderMobilityLab();
   $('traffic-playback-rate').textContent = trafficEffectiveRate === 0 ? 'Buffering · playback paused' : '1× playback';
   $('hour').value = ui.hour;
   $('hour').setAttribute('aria-valuetext', hourLabel(ui.hour));
@@ -2245,7 +2431,8 @@ function renderTraffic() {
   const swatch = (rgb) => `rgb(${rgb.join(',')})`;
   const events = ui.closedRoads.size + ui.crashes.size;
   const tools = DATA.api ? `<div class="row" style="display:flex;align-items:center;gap:8px;margin:2px 0 10px">
-      <div class="seg" role="group" aria-label="Road tools">
+      <span class="plan-label" id="road-events-label">Road events</span>
+      <div class="seg" role="group" aria-labelledby="road-events-label">
         <button type="button" data-road-tool="close" aria-pressed="${ui.roadTool === 'close'}">Make car-free</button>
         <button type="button" data-road-tool="crash" aria-pressed="${ui.roadTool === 'crash'}">Crash</button></div>
       ${events ? `<button type="button" class="more" data-road-clear style="border:1px solid var(--line);background:var(--control);border-radius:999px;padding:5px 10px;font-size:12px">Clear ${events}</button>` : ''}</div>` : '';
@@ -3168,7 +3355,7 @@ const deckProps = () => ({
   onHover: showTip,
   // Roads are thin; a few pixels of slack makes them clickable.
   pickingRadius: 6,
-  onClick: ({ object, coordinate }) => { if (object?.beirutModel != null || (beirutOverlay.data && object?.b)) { showBeirutRecord(object,true); return; } if (object?.bus || object?.survey || object?.feature || object?.signal || object?.signalJunction || object?.properties?.kind || object?.bridgeStructure) return; if (object?.r) { if (ui.roadTool) toggleRoadEvent(object.i, coordinate); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
+  onClick: ({ object, coordinate }) => { if (object?.beirutModel != null || (beirutOverlay.data && object?.b)) { showBeirutRecord(object,true); return; } if (object?.bus || object?.survey || object?.feature || object?.signal || object?.signalJunction || object?.properties?.kind || object?.bridgeStructure) return; if (object?.r) { if (ui.roadTool) toggleRoadEvent(object.i, coordinate); else selectRoad(object.i); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
 });
 
 function linkedMapCamera() {
@@ -3838,7 +4025,7 @@ function syncPrompt() {
   go.setAttribute('aria-label', ask ? 'Ask' : 'Run scenario');
   q.placeholder = !live ? 'Run `dynacity serve --snapshot … --bbed …` to describe scenarios here'
     : ask ? 'Ask the map… e.g. “Which stalled buildings in Hamra are most likely to change?”'
-    : 'Tell the city what happens… e.g. “Push stalled buildings in Mar Mikhael toward renovation”';
+    : 'Describe a change in Beirut';
   go.disabled = !live || ui.busy;
   document.querySelectorAll('.tile').forEach((t) => (t.disabled = ui.busy));
   go.innerHTML = ui.busy ? '<span class="spin" aria-hidden="true"></span>' : '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
@@ -4267,7 +4454,9 @@ function wire() {
       renderTraffic();
     } else setTraffic(!ui.traffic);
   };
+  $('p-traffic').addEventListener('change', (e) => { if(e.target.id==='lab-incoming')mobilityLabInput(e.target); });
   $('p-traffic').addEventListener('input', (e) => {
+    if(e.target.id!=='lab-incoming')mobilityLabInput(e.target);
     if (e.target.id === 'hour') setHour(Number(e.target.value));
     if (e.target.matches('[data-buses]')) { ui.buses = e.target.checked; renderTraffic(); render(); }
     if (e.target.matches('[data-mixed-traffic]')) { setMixedTraffic(e.target.checked); }
@@ -4280,6 +4469,7 @@ function wire() {
     if (next !== ui.roadHighlight && (next?.length || ui.roadHighlight)) { ui.roadHighlight = next?.length ? next : null; render(); }
   });
   $('p-traffic').addEventListener('click', (e) => {
+    if(mobilityLabClick(e.target))return;
     const appearance=e.target.closest('[data-traffic-style]');
     if(appearance){setTrafficStyle(appearance.dataset.trafficStyle);return;}
     const road = e.target.closest('[data-mobility-road]');
@@ -4363,6 +4553,7 @@ function wire() {
     if (e.key === 'Escape') { $('tool-menu').open = false; closeUsabilityPanel(); }
     if (e.key === 'Escape' && pending?.steering) { cancelSteer(); return; }
     if (e.key === 'Escape' && ui.roadTool) { setRoadTool(ui.roadTool); return; }
+    if (e.key === 'Escape' && ui.selectedRoad !== null) { selectRoad(null); return; }
     if (e.key === 'Escape' && ui.selected) { ui.selected = null; renderInspector(); render(); }
   });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
