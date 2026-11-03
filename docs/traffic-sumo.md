@@ -59,7 +59,7 @@ margin, while full-fleet positions and metrics are retained. This is a presentat
 optimization, not a smaller simulated demand. Diagnostics distinguish total active
 cars from drawn cars. Real-time citywide throughput is still a measurement question.
 
-- `POST /v1/viewer/traffic/simulation`: create a session; body has `hour`, `seconds` (1–10, one SUMO step per second), `continuous` (default false for existing API clients), `closed`, `crashes`, `hazards`, and optionally `view` ([west, south, east, north]) and `max_vehicles`. The viewer sends `continuous: true`, its view widened by half a screen on each side, and at most 8,000 cars. With a view, every step reads full detail only for cars around it (a SUMO context subscription on a point of interest at the view centre); the whole fleet is read once per request, for the metrics, so intermediate frames repeat the last metrics. Signal states are read for the signals in view only.
+- `POST /v1/viewer/traffic/simulation`: create a session; body has `hour`, `seconds` (1–10, one SUMO step per second), `continuous` (default false for existing API clients), `closed`, `crashes`, and optionally `view` ([west, south, east, north]) and `max_vehicles`. The viewer sends `continuous: true`, its view widened by half a screen on each side, and at most 8,000 cars. With a view, every step reads full detail only for cars around it (a SUMO context subscription on a point of interest at the view centre); the whole fleet is read once per request, for the metrics, so intermediate frames repeat the last metrics. Signal states are read for the signals in view only.
 - `POST /v1/viewer/traffic/simulation/{key}`: apply current disruptions and advance this same fleet.
 - `DELETE /v1/viewer/traffic/simulation/{key}`: close both SUMO processes.
 
@@ -67,7 +67,7 @@ Responses contain `frames`, an assumptions statement, and the session key on cre
 
 Sessions are limited to four per server worker and expire after two idle minutes when the next session is created. Shutdown closes all sessions. Use a single API worker, since session storage is process-local. Closing Traffic releases the session. This is a local pilot API, not an authenticated multi-user simulation service.
 
-Closures prohibit passenger entry in both directed edges of a road. Vehicles upstream reroute while preserving their destination. Those with no permitted detour stay queued; SUMO teleportation is disabled, and the gridlock breaker below never moves them. Vehicles already within a newly closed street stop in place. Reopening restores original permissions and releases stopped vehicles. Junction-internal vehicles retry rerouting after leaving the intersection. New entry requests at a closed origin wait in an explicit entry queue, counted as pending, and enter SUMO after reopening. Slowing hazards change desired edge speeds. SUMO's own car-following, safe insertion, lane changing, junction priority and signals determine actual movement.
+Closures prohibit passenger entry in both directed edges of a road. Vehicles upstream reroute while preserving their destination. Those with no permitted detour stay queued; SUMO teleportation is disabled, and the gridlock breaker below never moves them. Vehicles already within a newly closed street stop in place. Reopening restores original permissions and releases stopped vehicles. Junction-internal vehicles retry rerouting after leaving the intersection. New entry requests at a closed origin wait in an explicit entry queue, counted as pending, and enter SUMO after reopening. SUMO's own car-following, safe insertion, lane changing, junction priority and signals determine actual movement.
 
 ### Continuous boundary demand
 
@@ -117,9 +117,9 @@ them on the map; the list shows up to five segments ranked by diverted count, th
 stopped count. Counts describe cars currently on those segments, not hourly flow.
 Historical road colours retain their existing meaning.
 
-**Restart comparison** retains current closures, crashes and hazards and resets both
+**Restart comparison** retains current closures and crashes and resets both
 runs. Reopening a road during a run does not erase its previous effects. The panel
-flags active crashes or hazards so a mixed scenario is not presented as a pure
+flags active crashes so a mixed scenario is not presented as a pure
 pedestrianisation trial. Old API responses without baseline metrics show no invented
 comparison results.
 

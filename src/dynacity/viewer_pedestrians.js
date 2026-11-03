@@ -269,7 +269,7 @@ function renderMobilityLab() {
       <details><summary>Pedestrian evidence</summary><div class="note">${esc(DATA.pedestrians.status)} · ${esc(DATA.pedestrians.period)}. ${esc(DATA.pedestrians.source)}. ${esc(DATA.pedestrians.limitations)} The traffic hour does not change this PM baseline. Walker figures represent modelled occupancy after removing the regression constant, with illustrative two-way motion and appearance at a fixed 1.3 m/s. Unavailable pavements remove walkers and report affected occupancy without assigning detours. Up to 2,400 people are drawn in the view.</div></details>`:'<div class="note">No pedestrian export loaded. Load the shared pedestrian export to see people here.</div>'}
       <details><summary>How traffic demand works</summary><div class="note">Changing incoming traffic restarts SUMO with the same initial fleet. The multiplier changes new edge entries and trips starting inside. Normal traffic and street-change comparison share this demand.</div></details></details>
       <div class="seg" style="margin-top:10px"><button type="button" data-lab-pause>Pause</button><button type="button" data-lab-reset>Reset experiment</button></div>
-      <div class="note">Reset clears street changes, closures, crashes and these settings; weather scenarios stay as selected.</div>`;
+      <div class="note">Reset clears street changes, closures, crashes and these settings.</div>`;
     el.dataset.ready='true';
   }
   renderPlanner();

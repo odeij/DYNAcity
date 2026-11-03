@@ -26,7 +26,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .contracts import HazardEvent
 from .traffic import TrafficModel, RoadDisruption, background_flow, lane_counts, LANE_WIDTH_M
 from .traffic_planning import lanes_left, resolve_planning, speed_caps, summarize as summarize_planning
 from .viewer import _utm_zone, utm_to_lonlat
@@ -708,10 +707,10 @@ class Simulation:
         return self.entry_route_cache[key]
 
     def apply(self, disruption: RoadDisruption, plan=None):
-        """Put hazards and planner interventions into the scenario run.
+        """Put closures, crashes and planner interventions into the scenario run.
 
         `plan` (see `traffic_planning`) caps a road's speed below whatever the
-        hazards leave it and bars motor traffic from its curb-side lanes
+        closures and crashes leave it and bars motor traffic from its curb-side lanes
         through SUMO lane permissions; no lane left means closed. Everything
         is recomputed from the arguments, so dropping an entry restores the
         road's original speed and permissions.
@@ -1203,9 +1202,8 @@ def install_routes(app, model, snapshot, ground=None):
     """Traffic-only API registration; sessions own independent TraCI connections."""
     from fastapi import HTTPException
     from pydantic import BaseModel, Field, ConfigDict
-    from .contracts import HazardEvent
     from .traffic_planning import MAX_PLANNED_ROADS, RoadPlanning
-    from .traffic import road_events, road_disruption, combine_disruptions
+    from .traffic import road_events
 
     # sumolib imports pyproj, and pyproj (3.8) empties the process environment
     # when the thread that first imported it exits. Requests run on worker
@@ -1229,7 +1227,6 @@ def install_routes(app, model, snapshot, ground=None):
         demand_scale: float = Field(default=1, ge=0, le=2, allow_inf_nan=False)
         closed: list[int] = Field(default_factory=list, max_length=1000)
         crashes: list[int] = Field(default_factory=list, max_length=20)
-        hazards: list[HazardEvent] = Field(default_factory=list, max_length=8)
         planning: list[RoadPlanning] = Field(default_factory=list, max_length=MAX_PLANNED_ROADS)
 
     # FastAPI evaluates annotations in module globals (Request is local).
@@ -1237,10 +1234,7 @@ def install_routes(app, model, snapshot, ground=None):
     registry_lock = threading.RLock()
 
     def disruption(request):
-        parts = [road_events(model, closed=request.closed, crashes=request.crashes)]
-        if request.hazards:
-            parts.append(road_disruption(request.hazards, snapshot, model, ground=ground))
-        return combine_disruptions(*parts)
+        return road_events(model, closed=request.closed, crashes=request.crashes)
 
     def create(request):
         try:

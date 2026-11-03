@@ -62,10 +62,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 #scene { position: absolute; inset: 0; z-index: 0; will-change: transform; }
-/* screen-wide disaster light: a lightning or blast flash, and heat's warm cast */
-.flash, .heat { position: absolute; inset: 0; z-index: 1; pointer-events: none; opacity: 0; }
-.flash { background: #f4f8ff; }
-.heat { background: radial-gradient(ellipse at 50% 30%, rgba(255, 196, 120, 0.55), rgba(255, 128, 48, 0.4) 55%, rgba(170, 64, 24, 0.5)); mix-blend-mode: multiply; }
 button, input, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
 button { cursor: pointer; touch-action: manipulation; }
 :focus-visible { outline: 2px solid #d8f0ff; outline-offset: 2px; }
@@ -103,7 +99,7 @@ button { cursor: pointer; touch-action: manipulation; }
 .badge i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
 .badge.assumed i { background: var(--warn); }
 
-/* left column: tool rail + disaster tray */
+/* left column: tool rail */
 .leftcol { position: absolute; top: calc(var(--edge) + 54px); left: var(--edge); bottom: 190px; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; pointer-events: none; }
 .leftcol > * { pointer-events: auto; }
 .rail { display: grid; gap: 2px; width: 48px; padding: 4px; border-radius: var(--r-md); flex: none; }
@@ -123,35 +119,6 @@ button { cursor: pointer; touch-action: manipulation; }
 .tool-options select option { color: #1d2b36; }
 .dock[hidden] { display: none; }
 
-/* disaster tray: drag a tile onto the city */
-.tray { width: 196px; min-height: 0; padding: 12px 10px 10px; border-radius: var(--r-md); overflow: auto; scrollbar-width: thin; }
-.tray[hidden] { display: none; }
-.tray h2 { margin: 0 4px; font-size: 13px; font-weight: 600; }
-.tray .sub { margin: 1px 4px 10px; color: var(--ink-3); font-size: 11.5px; }
-.sev { margin: 0 4px 10px; font-size: 11.5px; color: var(--ink-2); }
-.sev .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-.sev b { color: var(--ink); font-weight: 600; }
-.sev input { width: 100%; margin: 0; accent-color: #eaf5ff; }
-.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
-.tile { display: grid; justify-items: center; align-content: center; gap: 4px; height: 58px; padding: 6px 2px; border: 1px solid transparent; border-radius: 12px; background: rgba(255, 255, 255, 0.07); color: #f2f9ff; font-size: 10.5px; touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
-.tile:hover { background: var(--control-hover); border-color: var(--line); }
-.tile:active { cursor: grabbing; }
-.tile svg { width: 22px; height: 22px; pointer-events: none; }
-.tile span { pointer-events: none; white-space: nowrap; }
-.tile:disabled { opacity: 0.45; cursor: not-allowed; }
-.ghost { position: fixed; z-index: 40; width: 60px; height: 62px; pointer-events: none; transform: translate(-50%, -60%) scale(1.12) rotate(-4deg); background: var(--glass-solid); box-shadow: var(--glass-shadow), 0 18px 40px rgba(10, 31, 49, 0.35); transition: opacity 0.12s; }
-.ghost.off { opacity: 0.5; }
-.draw { position: absolute; inset: 0; z-index: 5; cursor: crosshair; touch-action: none; }
-.draw[hidden] { display: none; }
-.hz { width: 14px; height: 14px; flex: none; }
-.ghost[hidden] { display: none; }
-
-/* Flood planning stays inside the city workspace; closing preserves map state. */
-#flood-workspace { width:min(1280px,96vw); height:94vh; max-width:96vw; max-height:94vh; padding:0; border:1px solid #b5ced0; border-radius:18px; background:#eef3f3; color:#173c47; }
-#flood-workspace::backdrop { background:#0d2e4b80; backdrop-filter:blur(5px); }
-.flood-workspace-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 18px; font-size:14px; }
-.flood-workspace-bar button { padding:8px 12px; border:1px solid #9db7be; border-radius:9px; background:white; color:#173c47; }
-#flood-frame { display:block; border:0; width:100%; height:calc(100% - 62px); }
 /* right column */
 .side { position: absolute; top: calc(var(--edge) + 54px); right: var(--edge); bottom: 190px; width: min(320px, calc(100vw - 2 * var(--edge))); display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
 .side > .panel { pointer-events: auto; }
@@ -294,7 +261,7 @@ table.kpis td { text-align: right; padding: 5px 0 5px 10px; border-top: 1px soli
   .leftcol { top: calc(var(--edge) + 96px); }
   .side { top: calc(var(--edge) + 96px); left: calc(var(--edge) + 58px); right: var(--edge); width: auto; bottom: 200px; }
 }
-@media (prefers-reduced-motion: reduce) { .prompt .spin { animation-duration: 2s; } .ghost { transform: translate(-50%, -60%); } }
+@media (prefers-reduced-motion: reduce) { .prompt .spin { animation-duration: 2s; } }
 /* Usability: readable controls, keyboard focus and scrollable detail sheets. */
 button:focus-visible, summary:focus-visible, input:focus-visible { outline: 3px solid #ffe49c; outline-offset: 3px; }
 .side { overflow-y: auto; overscroll-behavior: contain; }
@@ -324,55 +291,6 @@ button:focus-visible, summary:focus-visible, input:focus-visible { outline: 3px 
   .dock, .attrib { display: none; }
   .side { bottom: 90px; }
   .leftcol { bottom: 90px; }
-}
-
-/* A compact, readable flood controller with one clear starting action. */
-#p-flood-playback { background:#f7fafbeF; color:#173b4c; border-color:#d6e4eb; box-shadow:0 12px 35px #173b4c25; padding:18px; }
-#p-flood-playback h2 { font-size:18px; letter-spacing:-.3px; }
-#p-flood-playback .close { color:#456373; }
-.flood-intro,.flood-help { font-size:12px; line-height:1.5; color:#4b6574; margin:6px 0 12px; }
-.flood-evidence { color:#72551d; background:#fff1ce; border:1px solid #ead8a8; border-radius:8px; font-size:11px; line-height:1.45; padding:8px 10px; margin:12px 0; }
-#p-flood-playback button { font-family:inherit; font-size:12px; }
-.flood-primary,.flood-secondary { border:0; border-radius:10px; min-height:42px; padding:10px 13px; font-weight:600; }
-.flood-primary { background:#176783; color:white; }
-.flood-primary:hover { background:#10526b; }
-#flood-map-demo { width:100%; margin:0 0 6px; }
-.flood-secondary { background:#e7eff3; color:#254c60; }
-.flood-secondary:hover { background:#d8e7ef; }
-#p-flood-playback button:disabled { opacity:.55; cursor:wait; }
-.flood-label { display:block; margin:14px 0 7px; font-size:12px; font-weight:600; }
-.flood-cases { display:flex; gap:3px; background:#e5edf2; padding:3px; border-radius:10px; }
-.flood-cases button { flex:1; padding:9px 3px; border:0; border-radius:8px; background:transparent; color:#426073; }
-.flood-cases button[aria-pressed=true] { color:#144d68; background:white; box-shadow:0 1px 4px #183a501f; font-weight:650; }
-.flood-readout { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:14px; }
-.flood-readout strong { display:block; font-size:24px; font-weight:600; letter-spacing:-.6px; }
-.flood-readout span { display:block; font-size:11px; color:#526d7c; margin-top:3px; }
-#flood-map-time { width:100%; margin:6px 0; accent-color:#176783; cursor:pointer; }
-.flood-time-ends { display:flex; justify-content:space-between; font-size:10px; color:#617986; }
-.flood-transport { display:flex; gap:8px; margin:14px 0; }
-.flood-transport button { flex:1; }
-.flood-map-toggle { display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px; align-items:center; font-size:11px; color:#4b6574; }
-.flood-map-toggle label { display:flex; gap:6px; align-items:center; }
-.flood-map-toggle input { accent-color:#176783; }
-.flood-map-toggle span { font-size:10px; }
-.flood-map-toggle i { display:inline-block; width:8px; height:8px; border-radius:2px; background:#2089c3; margin-right:3px; }
-.flood-link { border:0; background:none; padding:14px 0 4px; color:#176783; text-align:left; width:100%; }
-.flood-details { border-top:1px solid #dbe5eb; padding-top:12px; margin-top:12px; font-size:11px; color:#526d7c; }
-.flood-details summary { cursor:pointer; }
-.flood-error { color:#9a302b; font-size:12px; line-height:1.5; }
-.flood-error:empty { display:none; }
-.flood-survey { border-top:1px solid #dbe5eb; padding-top:14px; margin-top:14px; }
-.flood-survey h3 { font-size:14px; margin:0 0 8px; }
-.flood-survey select { width:100%; font:inherit; padding:8px; border:1px solid #bdced7; border-radius:8px; background:white; color:#254c60; }
-.flood-survey label { display:flex; gap:7px; align-items:center; font-size:12px; margin:9px 0; }
-.flood-survey input { accent-color:#176783; }
-.flood-survey-legend { display:flex; flex-wrap:wrap; gap:6px 12px; margin:10px 0; font-size:11px; color:#526d7c; }
-.flood-survey-legend span::before { content:''; display:inline-block; width:9px; height:9px; border-radius:3px; background:var(--swatch); margin-right:5px; }
-.flood-survey a { color:#176783; }
-@media(max-width:760px) {
-  .side:has(> #p-flood-playback:not([hidden])) { left:var(--edge); top:auto; bottom:150px; max-height:min(64vh,540px); }
-  #p-flood-playback { padding:15px; border-radius:18px; }
-  .flood-readout { margin-top:8px; }
 }
 
 .cloud-control { position:absolute; top:108px; right:var(--edge); max-width:255px; padding:10px 12px; border-radius:14px; pointer-events:auto; font-size:12px; }
@@ -476,9 +394,7 @@ button, summary, select { transition: color 140ms cubic-bezier(.22,1,.36,1), bac
 .issue { border-left-color: #c8ced4; padding-left: 12px; margin: 8px 0; }
 .tip { background: #fafbfc; padding: 12px 16px; border-radius: 12px; }
 .tray { padding: 16px; width: 224px; }
-.tray .sub, .sev, .tile, .tip .s { font-size: 12px; }
-.tile { height: 64px; background: #f0f2f4; color: var(--ink-2); border-radius: 8px; }
-.ghost { box-shadow: 0 4px 16px #00000014; }
+.tip .s { font-size: 12px; }
 .pbar .track { background: #e1e5e9; }
 .pbar .fill { background: var(--accent); }
 .legend-row { gap: 8px; padding: 4px 0; }
@@ -490,13 +406,6 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 #mobility-lab :is(.more,select,input[type=search]):focus-visible, #mobility-lab summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .prompt:focus-within { border-color: var(--accent); }
 .prompt input:focus-visible { outline: none; }
-#p-flood-playback { background: #fafbfc; color: var(--ink); border-color: var(--rim); padding: 20px; box-shadow: var(--glass-shadow); }
-#p-flood-playback h2 { letter-spacing: 0; }
-.flood-intro, .flood-help, .flood-readout span, .flood-time-ends, .flood-map-toggle, .flood-details, .flood-survey-legend { color: var(--ink-2); font-size: 12px; }
-.flood-primary { background: var(--accent); }
-.flood-secondary, .flood-cases { background: #edf0f2; color: var(--ink-2); }
-.flood-cases button[aria-pressed=true] { color: var(--accent); font-weight: 500; }
-.flood-readout strong { letter-spacing: 0; font-weight: 500; }
 .cloud-control { top: 80px; padding: 12px 16px; }
 @media (max-width: 1100px) { .tabs { top: 12px; } .rail { top: auto; } .side { top: 80px; } }
 @media (max-width: 940px) {
@@ -529,7 +438,6 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
   .attrib { font-size: 11px; max-height: 36px; overflow: auto; pointer-events: auto; }
   .tool-options { left: 56px; width: min(216px,calc(100vw - 96px)); }
   .dock .tiles { gap: 12px; }
-  .side:has(> #p-flood-playback:not([hidden])) { top: 284px; left: 72px; bottom: 136px; max-height: none; }
 }
 @media (max-height: 560px) {
   .side { top: 80px; bottom: 88px; }
@@ -541,18 +449,10 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 </head>
 <body>
 <div id="scene" aria-label="3D view of Beirut buildings"></div>
-<div class="heat" id="heat" aria-hidden="true"></div>
-<div class="flash" id="flash" aria-hidden="true"></div>
 <div class="empty-state" id="empty" hidden>
   <div><h1 style="font-size:18px;margin:0 0 6px">No data embedded</h1><p style="margin:0">Generate this page with <code>dynacity export-viewer</code>.</p></div>
 </div>
 
-<div class="draw" id="draw" hidden aria-label="Drag to steer the disaster"></div>
-
-<dialog id="flood-workspace" aria-label="Flood planning workspace">
-  <div class="flood-workspace-bar"><strong>Flood planning · Beirut neighborhood pilot</strong><button id="close-flood-pilot" type="button">Return to city</button></div>
-  <iframe id="flood-frame" title="Flood comparison and budget planning" data-src="/flood?embedded=1"></iframe>
-</dialog>
 <div class="chrome">
   <div class="brand">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5c2.6 2.7 3.9 5.9 3.9 9.5s-1.3 6.8-3.9 9.5c-2.6-2.7-3.9-5.9-3.9-9.5s1.3-6.8 3.9-9.5z"/></svg>
@@ -577,7 +477,6 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
   <nav class="rail glass" aria-label="View tools">
     <button id="t-legend" title="Legend" aria-label="Legend" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg></button>
     <button id="t-corridor" title="Corridor" aria-label="Corridor" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3c0 5 12 5 12 9s-12 4-12 9"/><circle cx="6" cy="3" r=".9"/><circle cx="6" cy="21" r=".9"/></svg></button>
-    <button id="t-fx" title="Disasters" aria-label="Disasters" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M3 5h18M5 9h13M8 13h9M10 17h5M11 21h2"/></svg></button>
     <button id="t-traffic" title="Traffic" aria-label="Traffic" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M5 17v2M19 17v2M4 13l2-6h12l2 6zM4 13h16v4H4z"/><circle cx="7.5" cy="15" r=".6"/><circle cx="16.5" cy="15" r=".6"/></svg></button>
     <details class="tool-menu" id="tool-menu">
       <summary aria-label="More tools" title="More tools">•••</summary>
@@ -593,78 +492,11 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
       </div>
     </details>
   </nav>
-  <section class="tray glass" id="tray" aria-label="Disasters" hidden>
-    <h2>Disasters</h2>
-    <p class="sub">Illustrative disaster effects · not calibrated predictions.</p>
-    <div class="sub">Drag one onto the city</div>
-    <div class="sev"><div class="row"><label for="sev">Severity</label><b id="sev-label">Moderate</b></div>
-      <input id="sev" type="range" min="0" max="3" step="1" value="1" aria-valuetext="Moderate"></div>
-    <div class="tiles" id="tiles"></div>
-  </section>
   </div>
 
   <div id="beirut-map-controls" class="glass" hidden><label>Buildings <select id="beirut-mode" aria-label="Building geometry"><option value="model">Beirut 001 + BBED</option><option value="bbed">Original BBED</option></select></label><label>Info <select id="beirut-source" aria-label="Building information source"><option value="both">Both sources</option><option value="bbed">BBED record</option><option value="model">Beirut 001</option></select></label><div id="beirut-map-note" role="status"></div></div>
   <aside class="side" aria-label="Map details">
     <section id="p-beirut-record" class="panel glass" aria-label="Building source details" hidden><button id="beirut-close" class="close" aria-label="Close building details">✕</button><button id="beirut-pin" type="button">Pin</button><div id="beirut-record-content"></div></section>
-    <section class="panel glass" id="p-flood-playback" hidden aria-label="Flood controls">
-      <button class="close" id="close-flood-playback" aria-label="Back to disasters" title="Back to disasters">✕</button>
-      <h2>Flooding</h2><p class="flood-intro">Load documented storm inputs and calculate water flow with ANUGA.</p>
-      <section aria-label="Run flood simulation">
-        <p class="flood-help" id="flood-run-status" role="status">Checking the hydraulic engine…</p>
-        <input id="flood-run-file" type="file" accept=".zip,application/zip" hidden>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="flood-secondary" id="flood-run-load" type="button">Load simulation inputs</button><button class="flood-primary" id="flood-run-start" type="button" disabled>Run flood</button><button class="flood-secondary" id="flood-run-cancel" type="button" hidden>Cancel run</button></div>
-        <progress id="flood-run-progress" hidden style="width:100%;margin-top:10px"></progress>
-        <p class="flood-error" id="flood-run-error" role="alert"></p>
-        <details class="flood-details"><summary>Required inputs &amp; current gaps</summary><p class="flood-help">Select a ZIP containing the run manifest, mesh, storm forcing and referenced source files. Inputs are checked before Run flood becomes available. Physical values are never filled automatically.</p><div class="flood-help" id="flood-run-requirements"></div></details>
-        <div id="flood-native-controls" hidden>
-          <p class="flood-help" id="flood-native-note"></p>
-          <div class="flood-readout"><div><strong id="flood-native-depth">—</strong><span>Computed peak depth</span></div><div><strong id="flood-native-time">—</strong><span>Simulation time</span></div></div>
-          <label class="flood-label" for="flood-native-slider">Computed output time</label><input id="flood-native-slider" type="range" min="0" max="0" value="0" style="width:100%">
-          <p class="flood-help" id="flood-native-timestamp"></p>
-          <div style="display:flex;gap:8px"><button class="flood-primary" id="flood-native-play" type="button">Play results</button><button class="flood-secondary" id="flood-native-focus" type="button">Find flood</button></div>
-          <label class="flood-help"><input id="flood-native-visible" type="checkbox" checked> Show computed depth colors</label>
-        </div>
-      </section>
-      <div class="flood-evidence" id="flood-map-status" role="status" hidden>No imported comparison loaded</div>
-      <div id="flood-map-welcome" hidden>
-      </div>
-      <details class="flood-survey" aria-labelledby="flood-survey-title"><summary>Historical survey records</summary>
-        <h3 id="flood-survey-title">Recorded street conditions</h3>
-        <p class="flood-help" id="flood-survey-status" role="status">Survey records not loaded.</p>
-        <div id="flood-survey-controls" hidden>
-          <label><input id="flood-survey-visible" type="checkbox"> Show survey records on map</label>
-          <label for="flood-survey-neighborhood">Neighborhood</label><select id="flood-survey-neighborhood"><option value="">All surveyed neighborhoods</option></select>
-          <label for="flood-survey-condition">Street condition</label><select id="flood-survey-condition"><option value="">All recorded conditions</option><option value="blocked">Blocked drains</option><option value="functional">Functional drains</option><option value="no_drains">No drains</option><option value="unknown">Unknown</option></select>
-          <label><input id="flood-survey-ponding" type="checkbox" checked> Include recorded ponding points</label>
-          <p class="flood-help" id="flood-survey-counts"></p>
-          <div class="flood-survey-legend"><span style="--swatch:#c65347">Blocked</span><span style="--swatch:#29836f">Functional</span><span style="--swatch:#b1863a">No drains</span><span style="--swatch:#858d98">Unknown</span><span style="--swatch:#5261bb">Ponding</span></div>
-          <button class="flood-secondary" id="flood-survey-focus" type="button">Find selected records</button>
-          <p class="flood-help">Historical observations, not present-day drain status. Lines describe street segments; points mark reported ponding, not individual drains. Hover a record for its source fields.</p>
-          <details class="flood-details"><summary>Sources &amp; missing model inputs</summary><div id="flood-survey-sources" class="flood-help"></div><div id="flood-survey-inputs" class="flood-help"></div></details>
-        </div>
-      </details>
-      <p class="flood-error" id="flood-map-error" role="alert"></p>
-      <input id="flood-map-file" type="file" accept="application/json,.json" hidden>
-      <div id="flood-map-controls" hidden>
-        <label class="flood-label" id="flood-case-label">Compare drainage</label>
-        <div class="flood-cases" role="group" aria-labelledby="flood-case-label">
-          <button type="button" data-flood-case="existing" aria-pressed="true">Existing</button>
-          <button type="button" data-flood-case="blocked" aria-pressed="false">Blocked</button>
-          <button type="button" data-flood-case="improved" aria-pressed="false">Improved</button>
-        </div><p class="flood-help" id="flood-case-description"></p>
-        <div class="flood-readout"><div><strong id="flood-depth-value">—</strong><span>Deepest water now</span></div><div><strong id="flood-elapsed">0 min</strong><span>Elapsed in event</span></div></div>
-        <label class="flood-label" for="flood-map-time">Move through time</label><input id="flood-map-time" type="range" min="0" max="0" value="0">
-        <div class="flood-time-ends"><span>Start</span><span id="flood-duration">End</span></div>
-        <div class="flood-transport"><button class="flood-primary" id="flood-map-play" type="button">▶ Play</button><button class="flood-secondary" id="flood-map-focus" type="button" title="Centre the map on the flood area">⌖ Find water</button></div>
-        <div class="flood-map-toggle"><label><input id="flood-map-visible" type="checkbox" checked> Show water</label><span><i></i> Deeper blue = deeper water</span></div>
-        <button id="flood-map-planning" class="flood-link" type="button">Compare impacts &amp; budgets →</button>
-      </div>
-      <details class="flood-details"><summary>Your data &amp; model details</summary>
-        <p class="flood-help">Have model results? Import a validated flood-output JSON bundle.</p><button id="flood-map-import" class="flood-secondary" type="button">Import flood data</button>
-        <p id="flood-map-timestamp" class="flood-help"></p><p id="flood-map-metrics" class="flood-help"></p>
-        <p class="flood-help">Invented flood data is disabled. Hydraulic calculations run separately using documented inputs. Imported outputs retain their source evidence. Water uses actual depth metres above schematic map ground, without exaggeration. Grey cells are missing; dry cells stay clear. Flow and missing velocity are not inferred.</p>
-      </details>
-    </section>
     <section class="panel glass" id="p-buildings" hidden aria-label="Find a building">
       <button class="close" data-close="buildings" aria-label="Close building finder">✕</button><h2>Find a building</h2>
       <label class="library-field" for="building-query">Building ID, area or use</label>
@@ -673,7 +505,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
     </section>
     <section class="panel glass" id="p-library" hidden aria-label="Saved scenarios">
       <button class="close" data-close="library" aria-label="Close saved scenarios">✕</button><h2>Saved scenarios</h2>
-      <p class="note">Save the Scenario prompt as an input for a fresh run. Results, dropped disasters and road edits are not saved. Re-running may produce a different interpretation or forecast.</p>
+      <p class="note">Save the Scenario prompt as an input for a fresh run. Results and road edits are not saved. Re-running may produce a different interpretation or forecast.</p>
       <label class="library-field" for="scenario-name">Name</label><input class="library-input" id="scenario-name" maxlength="80" placeholder="My scenario">
       <div class="library-actions"><button id="save-input">Save prompt</button><button id="export-input">Export prompt JSON</button><button id="import-input">Import JSON</button></div>
       <input id="scenario-file" type="file" accept="application/json,.json" hidden>
@@ -707,7 +539,6 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
   </div>
 </div>
 <div class="tip" id="tip" hidden></div>
-<div class="ghost tile glass" id="ghost" hidden></div>
 
 <script>
 const DATA = /*__DYNACITY_DATA__*/null;
@@ -745,26 +576,6 @@ const KPI_RULE = {
   stalled_count: STATES.stalled_or_cancelled.color, vacant_count: STATES.vacant_or_evicted.color,
   demolished_count: STATES.demolished.color, built_land_fraction: '#ffffff',
 };
-// Disasters in the tray (God's Plan's set). `path`: steered along a drawn
-// track; `aim`: dragged to set the direction it comes in from.
-const HAZARDS = [
-  { kind: 'tornado', label: 'Tornado', path: true, icon: '<path d="M3 5h18M5 9h13M8 13h9M10 17h5M11 21h2"/>' },
-  { kind: 'storm', label: 'Storm', icon: '<path d="M3 8h10a3 3 0 1 0-3-3M3 12h15a3 3 0 1 1-3 3M3 16h7"/>' },
-  { kind: 'rain', label: 'Rain sketch', icon: '<path d="M7 14a4 4 0 1 1 .9-7.9A5.5 5.5 0 0 1 18 8a3 3 0 0 1-1 6z"/><path d="m8 17.5-1 3M12 17.5l-1 3M16 17.5l-1 3"/>' },
-  { kind: 'flood', label: 'Flood', icon: '<path d="M2 9c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2M2 14c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2M2 19c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2"/>' },
-  { kind: 'fire', label: 'Fire', icon: '<path d="M12 3c.8 3.2 5 5.2 5 10a5 5 0 0 1-10 0c0-2.2 1.1-3.8 2.3-4.8 0 2 .9 3.3 2.2 3.3 0-3-1.3-5.3.5-8.5z"/>' },
-  { kind: 'heat', label: 'Heat', icon: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/>' },
-  { kind: 'earthquake', label: 'Quake', icon: '<path d="M2 12h4l2-6 3 12 3-9 2 5 1.5-2H22"/>' },
-  { kind: 'explosion', label: 'Blast', icon: '<path d="m12 2 1.8 5.2L19 5l-2.2 5.2L22 12l-5.2 1.8L19 19l-5.2-2.2L12 22l-1.8-5.2L5 19l2.2-5.2L2 12l5.2-1.8L5 5l5.2 2.2z"/>' },
-  { kind: 'plane_crash', label: 'Plane', aim: true, icon: '<path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/>' },
-  { kind: 'orbital_strike', label: 'Orbital', icon: '<path d="M10 2h4l-1 12h-2z"/><ellipse cx="12" cy="18" rx="7" ry="3"/>' },
-  { kind: 'riot', label: 'Riot', icon: '<path d="M3 10v4h3l7 4V6l-7 4zM16.5 9a3.5 3.5 0 0 1 0 6M19 6a7.5 7.5 0 0 1 0 12"/>' },
-];
-const SEVERITIES = ['minor', 'moderate', 'severe', 'extreme'];
-// Tornado track half-width per severity (EF1/2/3/5, as in hazards.PROFILES), for the funnel drawn while steering.
-const TORNADO_R = [85, 130, 175, 265];
-const hazardIcon = (kind, cls = '') => `<svg ${cls ? `class="${cls}" ` : ''}viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${HAZARDS.find((h) => h.kind === kind)?.icon ?? ''}</svg>`;
-const hazardLabel = (kind) => HAZARDS.find((h) => h.kind === kind)?.label ?? kind.replace(/_/g, ' ');
 // Pale warm white for OpenStreetMap context buildings: present, not modelled.
 const CONTEXT_RGB = [238, 235, 229];
 
@@ -779,7 +590,7 @@ const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`;
 const metres = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
 
-const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, imagery: 0, mode: 'scenario', answer: null, answerIds: null, drops: [], traffic: false, hour: 8, roadHighlight: null, buses: false, stationsOpen: false,
+const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, imagery: 0, mode: 'scenario', answer: null, answerIds: null, traffic: false, hour: 8, roadHighlight: null, buses: false, stationsOpen: false,
   trafficImpact: null, trafficStyle: 'street', mobilityMap: true, showSignals: true, mixed: false,
   roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map(), planning: new Map(), selectedRoad: null, planSearch: '' };
 
@@ -808,12 +619,8 @@ function deltaFor(b) {
   const a = scenP(b), z = baseP(b);
   if (!a || !z) return null;
   const target = leverTarget.get(b.id);
-  if (target) return (a[target] ?? 0) - (z[target] ?? 0);
-  // Outside every lever, a disaster shows as the rise in the chance of losing
-  // the current state (destroyed, damaged, or knocked into another state).
-  return hasHazards() ? (z[b.state] ?? 0) - (a[b.state] ?? 0) : 0;
+  return target ? (a[target] ?? 0) - (z[target] ?? 0) : 0;
 }
-const hasHazards = () => !!ui.scenario?.forecast?.hazard_impacts?.length;
 function divergeColor(d) {
   const t = Math.max(-1, Math.min(1, d / deltaScale));
   return t < 0 ? mix(hex(DIVERGE.mid), hex(DIVERGE.low), -t) : mix(hex(DIVERGE.mid), hex(DIVERGE.high), t);
@@ -1039,7 +846,7 @@ async function wireBeirutOverlay(){
  }catch(error){beirutOverlay.active=false;$('beirut-map-note').textContent='Beirut 001 unavailable: '+error.message;console.warn(error);render();}
 }
 
-// Actual source points; this visual layer never supplies hydraulic ground.
+// Actual source points; this visual layer never supplies ground elevation.
 const pointCloud = { metadata: null, data: null, visible: false, loading: null };
 function cloudActive() { return pointCloud.visible && !!pointCloud.data; }
 // deck.gl rebuilds a layer's geometry whenever its data array changes, so
@@ -1047,9 +854,9 @@ function cloudActive() { return pointCloud.visible && !!pointCloud.data; }
 const cloudKey = () => (cloudActive() ? pointCloud.metadata : null);
 let buildingData = { rings: null, cloud: null, data: null };
 function buildingsData() {
-  const rings = mainRings(), cloud = cloudKey();
-  if (buildingData.rings !== rings || buildingData.cloud !== cloud)
-    buildingData = { rings, cloud, data: rings.filter(d => !cloudOverlaps(d.ring)) };
+  const all = rings(), cloud = cloudKey();
+  if (buildingData.rings !== all || buildingData.cloud !== cloud)
+    buildingData = { rings: all, cloud, data: all.filter(d => !cloudOverlaps(d.ring)) };
   return buildingData.data;
 }
 const contextCache = new WeakMap();
@@ -1083,8 +890,8 @@ function pointCloudLayers() {
 function cloudNote() {
   const m = pointCloud.metadata;
   if (m) $('cloud-note').textContent = m.display_alignment
-    ? `${m.point_count.toLocaleString()} source points · original RGB. Road-aligned for display (${m.display_alignment.translation_z_m.toFixed(2)} m shift). Survey datum unverified; not flood terrain.`
-    : `${m.point_count.toLocaleString()} source points · original RGB. Display heights relative to tile minimum (${m.display_z_offset.toFixed(2)} source units); datum unverified. Not flood terrain.`;
+    ? `${m.point_count.toLocaleString()} source points · original RGB. Road-aligned for display (${m.display_alignment.translation_z_m.toFixed(2)} m shift). Survey datum unverified.`
+    : `${m.point_count.toLocaleString()} source points · original RGB. Display heights relative to tile minimum (${m.display_z_offset.toFixed(2)} source units); datum unverified.`;
 }
 async function setPointCloudVisible(visible) {
   pointCloud.visible = visible;
@@ -1179,9 +986,6 @@ function layers() {
   out.push(...osmContextLayers());
   if (ui.traffic) out.push(...roadLayers());
   out.push(...streetEdgeDetailLayers());
-  out.push(...floodPlaybackLayers());
-  out.push(...floodSurveyLayers());
-  out.push(...floodNativeLayers());
   if (!beirutOverlay.active) out.push(new deck.SolidPolygonLayer({
     id: 'buildings',
     data: buildingsData(),
@@ -1199,9 +1003,7 @@ function layers() {
   return out;
 }
 function attribution() {
-  const survey = floodSurvey.visible && floodSurvey.data ? 'Street/ponding survey: UN-Habitat · historical records · local research.' : null;
-  const terrain = fx.find((f) => f.water)?.water.source;
-  return [beirutOverlay.active && "Beirut 001: Salim al-Kadi and team · January 2020 · inferred map alignment.", DATA.attribution, DATA.basemap?.attribution, ui.satellite && DATA.basemap?.imagery?.[ui.imagery]?.attribution, terrain, ui.traffic && DATA.traffic?.source, ui.traffic && DATA.traffic?.stations?.length && DATA.traffic.volume_source, survey, cloudActive() && `Point cloud: ${pointCloud.metadata.name} · source RGB · display Z offset; datum unverified.`].filter(Boolean).join(' ');
+  return [beirutOverlay.active && "Beirut 001: Salim al-Kadi and team · January 2020 · inferred map alignment.", DATA.attribution, DATA.basemap?.attribution, ui.satellite && DATA.basemap?.imagery?.[ui.imagery]?.attribution, ui.traffic && DATA.traffic?.source, ui.traffic && DATA.traffic?.stations?.length && DATA.traffic.volume_source, cloudActive() && `Point cloud: ${pointCloud.metadata.name} · source RGB · display Z offset; datum unverified.`].filter(Boolean).join(' ');
 }
 // Colour imagery goes over every road, water, and flat building fill of the
 // basemap but under its trailing label layers, so place names stay readable.
@@ -1233,61 +1035,29 @@ function setSatellite(on, imagery = ui.imagery) {
   $('attrib').textContent = attribution();
   applySatellite(); render();
 }
-// Disaster effects sit on top of the city layers. A strike plays out in
-// real time — the plane dives in, the funnel crosses its track, water rises,
-// and the buildings the result says fall come down in a shudder of chunks and
-// dust — then the rubble, flood water and a faint footprint stay while the
-// result is shown. Animation frames rebuild only these layers; buildings the
-// effects animate are moved out of the city layer once per strike, so its
-// footprints are never re-tessellated mid-animation.
-let baseLayers = [], fx = [], fxRaf = 0, pending = null, fxEnd = 0;
-const FX_MS = 3600;
+// Animation frames rebuild only the moving layers (cars, pedestrians) on top
+// of the city layers.
+let baseLayers = [], fxRaf = 0;
 const calm = matchMedia('(prefers-reduced-motion: reduce)');
-// Tones read on both basemaps: deeper on the light map, paler on the dark one.
-const WATER = 'water', WARM = 'warm';
-const TONES = {
-  light: { strike: [34, 132, 222], water: [28, 108, 204], warm: [226, 96, 40], smoke: [70, 86, 104] },
-  dark: { strike: [141, 208, 255], water: [110, 186, 255], warm: [255, 190, 120], smoke: [226, 233, 240] },
-};
-const TONE = { flood: WATER, rain: WATER, fire: WARM, heat: WARM, riot: WARM };
-const tone = (name) => TONES[isDark() ? 'dark' : 'light'][name];
-// Cinematic palette: real-world colours, the same on both basemaps.
-const CONCRETE = [154, 160, 166], RUBBLE = [118, 110, 101], SOOT = [70, 64, 58], DUST = [200, 183, 154], SMOKE = [43, 47, 51];
-const WATER_SHALLOW = [104, 152, 172], WATER_DEEP = [30, 78, 118];
-const WATER_MAT = { ambient: 0.55, diffuse: 0.5, shininess: 96, specularColor: [210, 225, 230] };
 // Outlines draw over the buildings so a footprint is never hidden; fills stay
-// behind them so the damage colouring on the buildings still reads.
+// behind them so the colouring on the buildings still reads.
 const ON_TOP = { depthCompare: 'always', depthWriteEnabled: false };
-// Translucent puffs and shells test depth (buildings in front hide them) but
+// Translucent layers test depth (buildings in front hide them) but
 // do not write it, so they blend with each other instead of punching holes.
 const SOFT = { depthWriteEnabled: false };
-const SHOCK = new Set(['explosion', 'plane_crash', 'orbital_strike', 'earthquake']);
-// How long each kind's own effect plays, beyond the buildings it brings down.
-const PLAY_MS = { storm: 9000, rain: 8000, fire: 12000, heat: 8000, earthquake: 6000, riot: 10000, flood: 5000 };
-const AFFECTABLE = new Set(['stable_built', 'renovated', 'vacant_or_evicted', 'active_construction', 'stalled_or_cancelled']);
-const PLANE_MS = 2600, SHUDDER = 280, GRAVITY = 26;
+// Lights add to what is behind them rather than cover it.
+const GLOW = { ...SOFT, blend: true, blendColorOperation: 'add', blendColorSrcFactor: 'src-alpha', blendColorDstFactor: 'one',
+  blendAlphaOperation: 'add', blendAlphaSrcFactor: 'one', blendAlphaDstFactor: 'one-minus-src-alpha' };
+// Added light that leaves the canvas's alpha alone: a headlight beam spilling
+// past the asphalt onto the basemap brightens it rather than painting an
+// opaque dark patch over it.
+const BEAM = { ...GLOW, blendAlphaSrcFactor: 'zero', blendAlphaDstFactor: 'one' };
 function render() { if (!deckgl) return; applyNight(); baseLayers = layers(); viewGeometryKey=sceneCameraKey(); viewGeometryTime=performance.now(); drawFx(); }
 function drawFx() {
   if (!deckgl) return;
-  fxScreen = { flash: 0, shake: 0, warm: 0 };
   const now = performance.now();
   refreshCameraGeometry(now);
-  deckgl.setProps({ layers: [...baseLayers, ...streetDetailLayers(), ...intersectionDetailLayers(), ...planningLayers(), ...carLayers(now), ...pedestrianLayers(now), ...mobilityLayers(), ...osmPlaceLayers(), ...fxLayers(now)] });
-  applyScreen();
-}
-// What the effects of this frame ask of the whole screen; applied once per frame.
-let fxScreen = { flash: 0, shake: 0, warm: 0 };
-function applyScreen() {
-  const still = calm.matches;
-  $('flash').style.opacity = still ? 0 : Math.min(0.75, fxScreen.flash).toFixed(3);
-  $('heat').style.opacity = Math.min(1, fxScreen.warm).toFixed(3);
-  const a = still ? 0 : fxScreen.shake, t = performance.now();
-  $('scene').style.transform = a > 0.2 ? `translate(${(Math.sin(t / 23) * a).toFixed(1)}px, ${(Math.cos(t / 31) * a * 0.7).toFixed(1)}px)` : '';
-}
-// 0 → 1 over `rise` ms, held until `hold`, then back to 0 over `fall` ms.
-function envelope(ms, rise, hold, fall) {
-  if (!(ms >= 0) || ms > hold + fall) return 0;
-  return ms < rise ? ms / rise : ms < hold ? 1 : 1 - (ms - hold) / fall;
+  deckgl.setProps({ layers: [...baseLayers, ...streetDetailLayers(), ...intersectionDetailLayers(), ...planningLayers(), ...carLayers(now), ...pedestrianLayers(now), ...mobilityLayers(), ...osmPlaceLayers()] });
 }
 function animate() {
   cancelAnimationFrame(fxRaf);
@@ -1304,30 +1074,20 @@ function animate() {
         frames = 0; drawMs = 0; measuredAt = performance.now();
       }
     }
-    if (!calm.matches && (pending || performance.now() < fxEnd || ui.traffic)) fxRaf = requestAnimationFrame(frame);
-    else { fxScreen = { flash: 0, shake: 0, warm: 0 }; applyScreen(); }
+    if (!calm.matches && ui.traffic) fxRaf = requestAnimationFrame(frame);
   };
   frame();
 }
 
-// Seeded per-building randomness, so a strike replays the same way.
+// Seeded per-key randomness, so the same car or tree always looks the same.
 function hash01(s, salt = 0) {
   let h = 2166136261 ^ salt;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
   return ((h >>> 0) % 100003) / 100003;
 }
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
-const easeOut = (t) => 1 - (1 - t) ** 3;
 const mPerLon = (lat) => 111320 * Math.cos((lat * Math.PI) / 180);
 const metresBetween = (a, b) => Math.hypot((b[0] - a[0]) * mPerLon(a[1]), (b[1] - a[1]) * 111320);
-const offset = ([lon, lat], dx, dy) => [lon + dx / mPerLon(lat), lat + dy / 111320];
-let byId = null;
-const buildingById = (id) => (byId ??= new Map(DATA.buildings.map((b) => [b.id, b]))).get(id);
-const centreOf = (b) => (b.c ??= centroid(b.rings[0]));
-function halfSize(b) {
-  const [w, s, e, n] = ringBox(b.rings[0]);
-  return Math.max(4, Math.min(30, ((e - w) * mPerLon(s) + (n - s) * 111320) / 4));
-}
 function along(path, t) {
   const k = Math.cos((path[0][1] * Math.PI) / 180);
   const seg = path.slice(1).map((p, i) => Math.hypot((p[0] - path[i][0]) * k, p[1] - path[i][1]));
@@ -1341,27 +1101,11 @@ function along(path, t) {
   }
   return path[0];
 }
-const pathLength = (path) => path.slice(1).reduce((a, p, i) => a + metresBetween(path[i], p), 0);
-// Fraction of the way along a track at which it passes closest to a point.
-function nearestAlong(path, c) {
-  const total = pathLength(path) || 1;
-  let best = Infinity, at = 0, run = 0;
-  for (let i = 0; i < path.length - 1; i++) {
-    const a = path[i], b = path[i + 1], len = metresBetween(a, b);
-    const kx = mPerLon(a[1]);
-    const ax = (b[0] - a[0]) * kx, ay = (b[1] - a[1]) * 111320, px = (c[0] - a[0]) * kx, py = (c[1] - a[1]) * 111320;
-    const f = len ? clamp01((px * ax + py * ay) / (len * len)) : 0;
-    const d = Math.hypot(px - ax * f, py - ay * f);
-    if (d < best) { best = d; at = (run + f * len) / total; }
-    run += len;
-  }
-  return at;
-}
 
 // ---- traffic: roads coloured by typical speed, with cars moving along them ----
 // Speeds are per-road hourly medians from crowd-sourced probes (pre-2020).
 // The cars are replayed SUMO positions (`/v1/viewer/traffic/simulation`); the
-// server seeds them from the estimated flow on each road. After a disaster,
+// server seeds them from the estimated flow on each road. After a closure,
 // closed roads empty, slowed roads crawl, and the detours fill up.
 const CAR_SPEEDUP = 1, LANE_M = 2.4;
 // Play at real time. Buffer starvation pauses the replay instead of making
@@ -1373,12 +1117,11 @@ const ROAD_WIDTH = { motorway: 14, trunk: 12, primary: 10, secondary: 8, tertiar
 const roadWidth = (r) => Number.isFinite(r.width_m) && r.width_m > 0 ? r.width_m : (ROAD_WIDTH[r.cls.replace('_link', '')] ?? 5);
 const FLOW = [hex(STATES.empty_or_parking.color), hex(STATES.active_construction.color), hex(STATES.demolished.color)];
 const CLOSED_RGB = [120, 20, 24], DETOUR_RGB = hex('#8a63e8');
-// The current road impact: from the last disaster, scenario, or road event.
+// The current road impact: from the last scenario or road event.
 const roadImpact = () => ui.trafficImpact;
 const roadClosed = (i, impact) => ui.closedRoads.has(i) || ui.crashes.has(i) || !!impact?.closedSet.has(i);
 // Why roads closed, as [one, many]: "1 by a crash", "3 by crashes".
-const REASON = { rubble: ['rubble', 'rubble'], water: ['water', 'water'], cordon: ['a cordon', 'cordons'],
-  manual: ['a closure', 'closures'], crash: ['a crash', 'crashes'] };
+const REASON = { manual: ['a closure', 'closures'], crash: ['a crash', 'crashes'] };
 const CRASH_RGB = [226, 38, 38];
 const hourLabel = (h) => `${String(h).padStart(2, '0')}:00`;
 let cars = [], roadsMeta = null, carHour = null, carTime = null, carTurns = new Map();
@@ -1710,7 +1453,7 @@ function planningRequest() {
 }
 function simulationRequest() {
   return {hour:ui.hour, seconds:2, continuous:true, mixed:!!ui.mixed, demand_scale:mobilityLab.incoming,
-    closed:[...ui.closedRoads], crashes:[...ui.crashes], planning:planningRequest(), hazards:currentHazards(),
+    closed:[...ui.closedRoads], crashes:[...ui.crashes], planning:planningRequest(),
     view:trafficView(), max_vehicles:TRAFFIC_MAX_SENT};
 }
 function simulationRevision() {
@@ -1886,7 +1629,7 @@ function mobilityComparison() {
   return `<div class="lever" aria-label="Mobility comparison"><div class="t">Normal traffic vs your changes</div>
     <div class="m">Choose “Make car-free”, then click road segments on the map. Click again to reopen.</div>
     <div class="m">${selected.length ? `Selected car-free segments: ${selected.join(', ')}.` : 'No car-free segments selected.'}</div>
-    ${ui.crashes.size || currentHazards().length ? '<div class="m">This comparison also includes active crashes or disaster effects. Clear those separately for a mobility-only trial.</div>' : ''}
+    ${ui.crashes.size ? '<div class="m">This comparison also includes active crashes. Clear those separately for a mobility-only trial.</div>' : ''}
     ${m?.baseline ? `<div class="m">At ${Math.floor(trafficClock ?? 0)} simulated seconds · same trips, destinations and incoming demand.</div>
       <table class="mobility-table"><thead><tr><th scope="col">Trips / cars</th><th scope="col">Normal</th><th scope="col">Your changes</th></tr></thead><tbody>
       ${row('Completed', 'arrived')}${row('On the road', 'active')}${row('Awaiting entry', 'pending')}${row('Stopped now', 'stopped')}</tbody></table>
@@ -2133,7 +1876,6 @@ function corridorLayers() {
   ];
 }
 // Corridor pages show only the tools that fit one green route; ?full=1 brings back the rest.
-const CORRIDOR_HAZARDS = new Set(['flood', 'rain', 'storm', 'heat']);
 const corridorMode = () => !!DATA.corridor && new URLSearchParams(location.search).get('full') !== '1';
 let corridorTour = null;
 // Face along the corridor: towards the next stop, or away from the previous one at the end.
@@ -2335,8 +2077,7 @@ function setHour(h) {
   // The road impact depends on the hour; re-measure it (roads only, no forecast).
   if (roadEventsActive()) requestTraffic();
 }
-const currentHazards = () => ui.scenario?.dropped?.hazards ?? ui.scenario?.compilation?.scenario?.hazards ?? [];
-const roadEventsActive = () => currentHazards().length > 0 || ui.closedRoads.size > 0 || ui.crashes.size > 0;
+const roadEventsActive = () => ui.closedRoads.size > 0 || ui.crashes.size > 0;
 let trafficSeq = 0, trafficTimer = 0;
 // Debounced: dragging the hour slider sends one request when it settles.
 function requestTraffic() {
@@ -2346,7 +2087,7 @@ function requestTraffic() {
     if (!roadEventsActive()) { ui.trafficImpact = null; prepareCars(); renderAll(); return; }
     try {
       const res = await fetch('/v1/viewer/traffic', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hazards: currentHazards(), closed: [...ui.closedRoads].slice(0, 1000), crashes: [...ui.crashes].slice(0, 20), hour: ui.hour }) });
+        body: JSON.stringify({ closed: [...ui.closedRoads].slice(0, 1000), crashes: [...ui.crashes].slice(0, 20), hour: ui.hour }) });
       const body = await res.json();
       if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `HTTP ${res.status}`);
       if (seq !== trafficSeq) return;  // a newer request is on its way
@@ -2465,7 +2206,7 @@ function renderTraffic() {
     ${DATA.traffic.bus_routes?.length ? `<label class="road-row" style="cursor:pointer"><input type="checkbox" data-buses ${ui.buses ? 'checked' : ''} style="margin:0;accent-color:#0e8f7e"><span>Bus and van routes (${DATA.traffic.bus_routes.length}, OpenStreetMap)</span></label>
       ${ui.buses ? `<div class="road-row"><span class="ln" style="background:${swatch(BUS_RGB)}"></span><span>Route</span></div>${t?.bus_routes_hit?.length ? `<div class="road-row"><span class="ln" style="background:${swatch(busCutRgb())}"></span><span>Route cut by a closure</span></div>` : ''}` : ''}` : ''}
     ${stationRows()}
-    <div class="note">SUMO generates destination-based trips, car following, lane queues and junction controls. Closures reroute this same fleet; vehicles without detours remain accounted for and resume after reopening. Traffic colours shows each road's median speed at this hour compared with its fastest hour. ${est.toLocaleString()} of ${DATA.traffic.roads.length.toLocaleString()} roads had too few readings and borrow their road class's profile. These are simulated trajectories, not measured GPS trips or a live vehicle count. Destinations and signal timing are assumptions. Demand uses 2016–17 class counts; speeds predate 2020. ${trafficMetrics?.demand?.mode==='boundary_inflow' ? 'New cars continue entering through network-fringe roads at estimated historical rates.' : 'Waiting for continuous-entry demand information.'}${t ? ' Closure and hazard slowdown rules are illustrative assumptions.' : ''}</div>`;
+    <div class="note">SUMO generates destination-based trips, car following, lane queues and junction controls. Closures reroute this same fleet; vehicles without detours remain accounted for and resume after reopening. Traffic colours shows each road's median speed at this hour compared with its fastest hour. ${est.toLocaleString()} of ${DATA.traffic.roads.length.toLocaleString()} roads had too few readings and borrow their road class's profile. These are simulated trajectories, not measured GPS trips or a live vehicle count. Destinations and signal timing are assumptions. Demand uses 2016–17 class counts; speeds predate 2020. ${trafficMetrics?.demand?.mode==='boundary_inflow' ? 'New cars continue entering through network-fringe roads at estimated historical rates.' : 'Waiting for continuous-entry demand information.'}${t ? ' Closure and crash slowdown rules are illustrative assumptions.' : ''}</div>`;
 }
 
 // ---- meshes (metres; x east, y north, z up), flat-shaded triangle lists ----
@@ -2776,578 +2517,8 @@ function signalHeadMesh(state,direction='') {
   }
   return meshOf(v);
 }
-// Unit funnel: radius 1 at the top, height 1, a slight twist and spiral
-// streaks in the vertex shade so the spin reads.
-function funnelMesh() {
-  const v = [], K = 22, S = 30;
-  const at = (u, j) => {
-    const a = (j / S) * Math.PI * 2 + u * 2.4, r = 0.07 + 0.93 * u ** 1.7;
-    return { p: [Math.cos(a) * r, Math.sin(a) * r, u], n: [Math.cos(a), Math.sin(a), -0.35] };
-  };
-  for (let k = 0; k < K; k++) for (let j = 0; j < S; j++) {
-    const u0 = k / K, u1 = (k + 1) / K;
-    const g = 0.58 + 0.16 * Math.sin(j * 1.9 + k * 0.8) + 0.08 * Math.sin(j * 5.3 - k * 1.7);
-    const c = [g, g * 0.98, g * 0.95];
-    const a = at(u0, j), b = at(u0, j + 1), cc = at(u1, j + 1), d = at(u1, j);
-    for (const q of [a, b, cc, a, cc, d]) v.push({ p: q.p, n: q.n, c });
-  }
-  return meshOf(v);
-}
 const mesh = (name, make) => (meshes[name] ??= make());
 
-// ---- which buildings fall, and when ----
-// The engine reports a count band per hazard, not which buildings. The page
-// shows the median count, taken from the top of the hazard's own ranking —
-// one plausible picture of the result, not a forecast for any building.
-let fxBuild = { events: new Map(), rings: [], chunks: [], falls: [] }, mainRingsCache = null;
-const mainRings = () => (mainRingsCache ??= fxBuild.events.size ? rings().filter((d) => !fxBuild.events.has(d.b.id)) : rings());
-const fallMs = (e) => Math.min(2200, Math.max(900, 700 + e.h * 14));
-function strikeDelay(f, b) {
-  const c = centreOf(b), r = f.radius_m || 600, j = hash01(b.id, 7);
-  const d = f.center ? metresBetween(f.center, c) : null;
-  if (f.kind === 'tornado') return f.path ? 150 + nearestAlong(f.path, c) * f.travelMs : 300 + j * 1500;
-  if (d === null) return 250 + j * 2400;
-  if (f.kind === 'plane_crash') return f.impactMs + d / 0.25 + j * 200;
-  if (f.kind === 'explosion') return 120 + d / 0.5 + j * 150;
-  if (f.kind === 'orbital_strike') return f.impactMs + d / 0.4 + j * 200;
-  if (f.kind === 'fire') return 600 + (d / r) * 4500 + j * 900;
-  if (f.kind === 'flood') return 900 + (d / r) * 1800 + j * 500;
-  if (f.kind === 'earthquake' || f.kind === 'storm') return 250 + j * 1800;
-  return 300 + j * 2200;
-}
-const viewCentre = () => (map ? [map.getCenter().lng, map.getCenter().lat]
-  : [(DATA.bounds[0][0] + DATA.bounds[1][0]) / 2, (DATA.bounds[0][1] + DATA.bounds[1][1]) / 2]);
-function prepareFx(h, t0, impact, drop) {
-  const f = { ...h, t0, impact, impactMs: h.kind === 'orbital_strike' ? 350 : 0 };
-  if (f.kind === 'plane_crash') {
-    // Compass heading of travel: aimed by the drag, else away from the camera.
-    f.dir = headingDir(drop?.heading ?? crossingHeading());
-    // Already part-way down if it flew while the engine worked.
-    f.s0 = drop?.s0 ?? 0;
-    f.impactMs = Math.max(400, PLANE_MS * (1 - f.s0));
-  }
-  if (f.kind === 'tornado') f.travelMs = f.path ? Math.min(7000, Math.max(2500, pathLength(f.path) * 6)) : 2600;
-  f.dur = f.kind === 'plane_crash' ? f.impactMs + 9000 : f.kind === 'tornado' ? f.travelMs + 1800 : PLAY_MS[f.kind] ?? FX_MS + 1500;
-  // Weather and quakes without a drop point play over what is on screen.
-  f.where = f.center ?? f.path?.[0] ?? viewCentre();
-  f.area = Math.min(f.radius_m || 1400, 1400);
-  return f;
-}
-function scheduleBuildings() {
-  const events = new Map();
-  for (const f of fx) {
-    const nFall = Math.round(f.impact?.destroyed?.p50 ?? 0), nHit = Math.round(f.impact?.damaged?.p50 ?? 0);
-    const ranked = (f.ids ?? []).map(buildingById).filter((b) => b && AFFECTABLE.has(b.state));
-    ranked.slice(0, nFall + nHit).forEach((b, rank) => {
-      const fall = rank < nFall, s = f.t0 + strikeDelay(f, b), prev = events.get(b.id);
-      // A fall wins over a shake; between equals, the earlier strike.
-      if (prev && (prev.fall > fall || (prev.fall === fall && prev.s <= s))) return;
-      const h = Math.max(b.h, 1.5), r = (k) => hash01(b.id, 40 + k);
-      // Taller buildings either topple as one block or pancake floor by
-      // floor; low ones just crumble. Damage takes a slice off the top.
-      events.set(b.id, { b, fall, s, h, rubble: Math.max(1.2, Math.min(4, h * 0.12)), broken: h * (0.82 + 0.12 * r(0)),
-        topple: h > 9 && r(1) < 0.45, tilt: (16 + 24 * r(2)) * (r(3) < 0.5 ? -1 : 1), aboutLength: r(4) < 0.5,
-        slabs: Math.max(2, Math.min(6, Math.round(h / 6))), drift: r(5) * Math.PI * 2, jitter: (r(6) - 0.5) * 9 });
-    });
-  }
-  const falls = [...events.values()].filter((e) => e.fall);
-  const chunks = [];
-  for (const e of falls.slice(0, 260)) {
-    const c = centreOf(e.b), hs = halfSize(e.b);
-    for (let j = 0; j < 7; j++) {
-      const r = (k) => hash01(e.b.id, j * 16 + k), ang = r(1) * Math.PI * 2, speed = 4 + 9 * r(4), size = 1.4 + 2.4 * r(6);
-      chunks.push({ e, c, size, x0: Math.cos(ang) * hs * r(2), y0: Math.sin(ang) * hs * r(2), z0: Math.max(e.h * (0.35 + 0.6 * r(3)), size),
-        vx: Math.cos(ang) * speed, vy: Math.sin(ang) * speed, vz: 2 + 4 * r(5), spin: [r(7), r(8), r(9)].map((x) => (x - 0.5) * 720), tone: 0.82 + 0.3 * r(0) });
-    }
-  }
-  fxBuild = { events, rings: [...events.values()].flatMap((e) => e.b.rings.map((ring) => ({ b: e.b, ring, e }))), chunks, falls };
-  mainRingsCache = null;
-  const ends = [...events.values()].map((e) => e.s + SHUDDER + fallMs(e) + 4200);
-  fxEnd = Math.max(0, ...fx.map((f) => f.t0 + f.dur), ...ends.filter(Number.isFinite));
-}
-// `fresh`: indexes of hazards that just struck; the rest show their aftermath.
-function playFx(hazards, fresh, drops = []) {
-  const now = performance.now();
-  const impacts = new Map((ui.scenario?.forecast?.hazard_impacts ?? []).map((h) => [h.hazard_id, h]));
-  fx = hazards.map((h, i) => prepareFx(h, fresh.includes(i) ? now : -Infinity, impacts.get(h.hazard_id), drops[i]));
-  scheduleBuildings();
-  $('attrib').textContent = attribution();
-  render(); animate();
-}
-function clearFx() {
-  fx = []; pending = null; fxEnd = 0;
-  fxBuild = { events: new Map(), rings: [], chunks: [], falls: [] }; mainRingsCache = null;
-  $('attrib').textContent = attribution();
-}
-// The footprint layer holds a building before and after its fall; while it
-// falls, the block or slabs in `fallingPieces` stand in for it.
-function fxElevation(e, now) {
-  const t = now - e.s;
-  if (!(t > 0)) return e.h;
-  if (!e.fall) return t < 700 ? e.h * (1 - 0.03 * Math.abs(Math.sin(t / 22))) : e.broken + (e.h - e.broken) * clamp01(1 - (t - 700) / 500);
-  if (t < SHUDDER) return e.h * (1 - 0.02 * Math.abs(Math.sin(t / 18)));
-  return t < SHUDDER + fallMs(e) ? 0.4 : e.rubble;
-}
-function fxFill(d, now) {
-  const e = d.e, t = now - e.s, base = fill(d.b);
-  if (e.fall && t > SHUDDER) return [...RUBBLE, base[3]];
-  if (!e.fall && t > 0) return [...mix(base.slice(0, 3), SOOT, Math.min(0.35, t / 1500)), base[3]];
-  return base;
-}
-// Oriented box of a footprint (principal axes), for the falling stand-ins.
-function footprintBox(b) {
-  if (b.box) return b.box;
-  const c = centreOf(b), k = mPerLon(c[1]), pts = b.rings[0].map(([x, y]) => [(x - c[0]) * k, (y - c[1]) * 111320]);
-  let sxx = 0, syy = 0, sxy = 0;
-  for (const [x, y] of pts) { sxx += x * x; syy += y * y; sxy += x * y; }
-  const ang = 0.5 * Math.atan2(2 * sxy, sxx - syy), ux = Math.cos(ang), uy = Math.sin(ang);
-  let a0 = Infinity, a1 = -Infinity, b0 = Infinity, b1 = -Infinity;
-  for (const [x, y] of pts) {
-    const a = x * ux + y * uy, w = -x * uy + y * ux;
-    a0 = Math.min(a0, a); a1 = Math.max(a1, a); b0 = Math.min(b0, w); b1 = Math.max(b1, w);
-  }
-  const ma = (a0 + a1) / 2, mb = (b0 + b1) / 2;
-  return (b.box = { at: offset(c, ma * ux - mb * uy, ma * uy + mb * ux), len: Math.max(2, a1 - a0), wid: Math.max(2, b1 - b0), yaw: (ang * 180) / Math.PI });
-}
-function fallingPieces(t) {
-  const out = [];
-  for (const e of fxBuild.falls.slice(0, 700)) {
-    const tt = t - e.s - SHUDDER, F = fallMs(e);
-    if (!(tt >= 0 && tt < F)) continue;
-    const p = tt / F, o = footprintBox(e.b), colour = [...mix(fill(e.b).slice(0, 3), RUBBLE, clamp01(p * 1.4)), 255];
-    if (e.topple) {
-      // Tips over about its base while crumbling into itself.
-      const tilt = e.tilt * p * p, z = e.h * (1 - 0.7 * p ** 1.6);
-      out.push({ p: [...o.at, 0], s: [o.len, o.wid, z], o: e.aboutLength ? [tilt, o.yaw, 0] : [0, o.yaw, tilt], c: colour });
-    } else {
-      // Pancake: the stack compresses from the top down, slabs drifting apart.
-      const n = e.slabs, slab = e.h / n;
-      for (let k = 0; k < n; k++) {
-        const q = clamp01(p * 1.35 - ((n - 1 - k) / n) * 0.35), z = k * slab + (k * (e.rubble / n) - k * slab) * q * q;
-        const drift = k * 0.6 * p, shrink = 1 - 0.05 * k * p;
-        out.push({ p: [...offset(o.at, Math.cos(e.drift) * drift, Math.sin(e.drift) * drift), z],
-          s: [o.len * shrink, o.wid * shrink, Math.max(0.4, slab * 0.9 * (1 - 0.7 * q))], o: [e.jitter * q, o.yaw, -e.jitter * q * 0.6], c: colour });
-      }
-    }
-  }
-  return out;
-}
-function blockMesh() { const v = []; box(v, [-0.5, -0.5, 0], [0.5, 0.5, 1], [1, 1, 1]); return meshOf(v); }
-function chunkPose(k, now) {
-  const tau = (now - k.e.s - SHUDDER - fallMs(k.e) * 0.15) / 1000;
-  if (!(tau > 0)) return null;
-  const rest = k.size / 2, land = (k.vz + Math.sqrt(k.vz ** 2 + 2 * GRAVITY * (k.z0 - rest))) / GRAVITY;
-  const t = Math.min(tau, land);
-  return { p: [...offset(k.c, k.x0 + k.vx * t, k.y0 + k.vy * t), k.z0 + k.vz * t - (GRAVITY * t * t) / 2], o: k.spin.map((w) => w * t), s: k.size, g: k.tone };
-}
-
-// ---- effect pieces ----
-// Smoke, dust and flame are one soft radial sprite, tinted per puff.
-let puffSprite = null;
-function puffAtlas() {
-  if (puffSprite) return puffSprite;
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d'), grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, 'rgba(255,255,255,1)'); grad.addColorStop(0.5, 'rgba(255,255,255,0.7)'); grad.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
-  return (puffSprite = c.toDataURL());
-}
-// A billboard that reaches the camera's near plane smears across the whole
-// screen, so puffs and meshes too close to the eye are dropped for that frame.
-function nearCamera() {
-  const vp = deckgl?._deck?.getViewports?.()[0] ?? deckgl?.getViewports?.()[0];
-  if (!vp?.cameraPosition) return () => false;
-  const cam = vp.cameraPosition, perMetre = vp.distanceScales.unitsPerMeter[2];
-  return (p, r) => {
-    const q = vp.projectPosition(p);
-    return Math.hypot(q[0] - cam[0], q[1] - cam[1], q[2] - cam[2]) / perMetre < 2 * r + 120;
-  };
-}
-// Flames and flashes add light rather than cover what is behind them.
-const GLOW = { ...SOFT, blend: true, blendColorOperation: 'add', blendColorSrcFactor: 'src-alpha', blendColorDstFactor: 'one',
-  blendAlphaOperation: 'add', blendAlphaSrcFactor: 'one', blendAlphaDstFactor: 'one-minus-src-alpha' };
-// Added light that leaves the canvas's alpha alone: a headlight beam spilling
-// past the asphalt onto the basemap brightens it rather than painting an
-// opaque dark patch over it.
-const BEAM = { ...GLOW, blendAlphaSrcFactor: 'zero', blendAlphaDstFactor: 'one' };
-function puffLayer(id, data, glow = false, minPixels = 0) {
-  const near = nearCamera();
-  data = data.filter((d) => !near(d.p, d.r));
-  return new deck.IconLayer({ id, data, iconAtlas: puffAtlas(), iconMapping: { puff: { x: 0, y: 0, width: 64, height: 64, mask: true } },
-    getIcon: () => 'puff', sizeUnits: 'meters', getSize: (d) => d.r * 2, getPosition: (d) => d.p, getColor: (d) => d.c,
-    billboard: true, alphaCutoff: 0, sizeMinPixels: minPixels, parameters: glow ? GLOW : SOFT });
-}
-// Seeded point in a disc of radius `r` around `at`.
-function scatter(at, r, seed, i) {
-  const ang = hash01(seed, i * 3 + 1) * Math.PI * 2, d = r * Math.sqrt(hash01(seed, i * 3 + 2));
-  return offset(at, Math.cos(ang) * d, Math.sin(ang) * d);
-}
-// A flickering flame: a few glowing puffs rising off a base point.
-function flames(out, base, z, size, now, seed, alpha = 1) {
-  for (let k = 0; k < 3; k++) {
-    const flick = 0.65 + 0.35 * Math.sin(now / (55 + k * 17) + seed * 13 + k * 2.1);
-    out.push({ p: [...base, z + size * (0.2 + k * 0.45) * flick], r: size * (0.75 - k * 0.18) * flick,
-      c: [255, 120 + 60 * k + 30 * flick, 30 + 20 * k, 210 * alpha * (1 - k * 0.2)] });
-  }
-}
-
-// ---- weather, fire, quake, riot ----
-function cloudDeck(id, f, ms, heavy) {
-  const e = envelope(ms, 900, f.dur - 1800, 1800);
-  if (!e) return [];
-  const puffs = [], n = heavy ? 80 : 55;
-  for (let i = 0; i < n; i++) {
-    const at = scatter(f.where, f.area * 1.1, f.hazard_id + 'cloud', i), drift = ms * 0.006;
-    const g = heavy ? 64 + 26 * hash01(f.hazard_id, i) : 120 + 30 * hash01(f.hazard_id, i);
-    puffs.push({ p: [...offset(at, drift, 0), 380 + 80 * hash01(f.hazard_id, i + 500)], r: 130 + 110 * hash01(f.hazard_id, i + 900), c: [g, g + 4, g + 10, (heavy ? 165 : 85) * e] });
-  }
-  return [puffLayer(`${id}-clouds`, puffs)];
-}
-function rainLayers(id, f, ms, heavy) {
-  const e = envelope(ms, 700, f.dur - 1500, 1500);
-  if (!e) return [];
-  const n = heavy ? 1700 : 1400, top = 280, speed = heavy ? 0.15 : 0.12, len = heavy ? 26 : 24, wind = heavy ? 0.5 : 0.1;
-  const near = nearCamera(), drops = [];
-  for (let i = 0; i < n; i++) {
-    const base = scatter(f.where, f.area, f.hazard_id + 'rain', i), fallen = (ms * speed + hash01(f.hazard_id, i + 7000) * top) % top;
-    const z = top - fallen, src = [...offset(base, wind * fallen, 0), z];
-    if (near(src, 5)) continue;
-    drops.push({ s: src, t: [...offset(base, wind * (fallen - len), 0), z + len] });
-  }
-  const out = [new deck.LineLayer({ id: `${id}-rain`, data: drops, getSourcePosition: (d) => d.s, getTargetPosition: (d) => d.t,
-    getColor: [...(isDark() ? [214, 226, 240] : [72, 96, 128]), (heavy ? 175 : 175) * e], getWidth: heavy ? 1.7 : 1.5, widthUnits: 'pixels', parameters: SOFT })];
-  // Splashes ring out on the ground where the rain lands.
-  const splash = [];
-  for (let i = 0; i < 90; i++) {
-    const k = (ms / 420 + hash01(f.hazard_id, i + 9000)) % 1;
-    splash.push({ p: [...scatter(f.where, f.area * 0.8, f.hazard_id + 'splash', i + Math.floor(ms / 420) * 97), 0.5], r: 1 + 5 * k, c: [...(isDark() ? [225, 235, 245] : [110, 132, 160]), 140 * (1 - k) * e] });
-  }
-  out.push(new deck.ScatterplotLayer({ id: `${id}-splash`, data: splash, getPosition: (d) => d.p, getRadius: (d) => d.r, radiusUnits: 'meters',
-    filled: false, stroked: true, lineWidthUnits: 'pixels', getLineWidth: 1, getLineColor: (d) => d.c, parameters: SOFT }));
-  return out;
-}
-// Forked bolts from the cloud base, each a 150 ms flicker, with a screen flash.
-function lightning(id, f, ms) {
-  const out = [];
-  for (let i = 0; i < 12; i++) {
-    const at = 700 + i * 650 + hash01(f.hazard_id, i + 300) * 400, age = ms - at;
-    if (age < 0 || age > 170 || at > f.dur - 1500) continue;
-    const on = age < 60 || (age > 95 && age < 150);
-    fxScreen.flash = Math.max(fxScreen.flash, on ? 0.38 : 0.08);
-    if (!on) continue;
-    const ground = scatter(f.where, f.area * 0.8, f.hazard_id + 'bolt', i), path = [];
-    for (let k = 0; k <= 10; k++) {
-      const q = k / 10, jag = k && k < 10 ? (hash01(f.hazard_id, i * 40 + k) - 0.5) * 70 : 0;
-      path.push([...offset(ground, jag + (1 - q) * 40, (hash01(f.hazard_id, i * 40 + k + 20) - 0.5) * 50 * (k && k < 10)), 330 * (1 - q)]);
-    }
-    out.push(new deck.PathLayer({ id: `${id}-bolt-glow-${i}`, data: [path], getPath: (d) => d, widthUnits: 'pixels', getWidth: 12, getColor: [170, 200, 255, 110], parameters: GLOW }),
-      new deck.PathLayer({ id: `${id}-bolt-${i}`, data: [path], getPath: (d) => d, widthUnits: 'pixels', getWidth: 3, getColor: [245, 248, 255, 255], parameters: GLOW }));
-  }
-  return out;
-}
-// A front spreads out from the drop point and sets roofs alight as it passes;
-// the burning then dies down to smoke.
-function fireLayers(id, f, ms, now) {
-  const r = f.radius_m || 200, spread = 4500, burnOut = PLAY_MS.fire - 2500;
-  if (!(ms >= 0) || ms > PLAY_MS.fire) return [];
-  const front = r * clamp01(ms / spread), fire = [], smoke = [];
-  const lit = (ignite) => envelope(ms - ignite, 400, burnOut - ignite, 2500);
-  for (const b of (f.ids ?? []).slice(0, 160).map(buildingById)) {
-    if (!b) continue;
-    const c = centreOf(b), d = metresBetween(f.where, c);
-    if (d > front) continue;
-    const a = lit((d / r) * spread);
-    if (!a) continue;
-    flames(fire, c, Math.max(b.h, 2) * 0.92, Math.min(16, 5 + b.h * 0.18), now, hash01(b.id), a);
-    for (let k = 0; k < 4; k++) {
-      const q = ((now / 2600 + k / 4 + hash01(b.id, k)) % 1);
-      smoke.push({ p: [...offset(c, q * 40, q * 12), b.h + 6 + q * 90], r: 6 + q * 26, c: [...SMOKE, 150 * (1 - q) * Math.max(a, 0.4)] });
-    }
-  }
-  for (let i = 0; i < 70; i++) {
-    const at = scatter(f.where, r, f.hazard_id + 'ground', i), d = metresBetween(f.where, at);
-    if (d > front) continue;
-    const a = lit((d / r) * spread);
-    if (a) flames(fire, at, 0, 4 + 4 * hash01(f.hazard_id, i), now, hash01(f.hazard_id, i + 70), a);
-  }
-  return [disc(`${id}-scorch`, f.where, front, [44, 34, 28], 80), puffLayer(`${id}-smoke`, smoke), puffLayer(`${id}-flames`, fire, true)];
-}
-function heatLayers(id, f, ms, now) {
-  const e = envelope(ms, 1200, f.dur - 2000, 2000);
-  if (!e) return [];
-  fxScreen.warm = Math.max(fxScreen.warm, 0.42 * e);
-  const haze = [];
-  for (let i = 0; i < 70; i++) {
-    const at = scatter(f.where, f.area, f.hazard_id + 'haze', i), wob = Math.sin(now / 700 + i);
-    haze.push({ p: [...offset(at, wob * 8, 0), 8 + 30 * hash01(f.hazard_id, i) + wob * 4], r: 70 + 60 * hash01(f.hazard_id, i + 70), c: [255, 196, 130, 34 * e] });
-  }
-  return [puffLayer(`${id}-haze`, haze, true)];
-}
-function quakeLayers(id, f, ms) {
-  const e = envelope(ms, 120, 2400, 1600);
-  fxScreen.shake = Math.max(fxScreen.shake, 4 + 8 * clamp01(((f.impact?.magnitude ?? 6) - 4.5) / 3.5)) * e;
-  const dust = [];
-  for (let i = 0; i < 160; i++) {
-    const age = ms - 200 - hash01(f.hazard_id, i) * 1800, life = 3200;
-    if (!(age >= 0) || age > life) continue;
-    const q = age / life, at = scatter(f.where, f.area, f.hazard_id + 'dust', i);
-    dust.push({ p: [...at, 3 + q * 26], r: 10 + q * 34, c: [...DUST, 130 * (1 - q) * Math.min(1, age / 250)] });
-  }
-  return [puffLayer(`${id}-ground-dust`, dust)];
-}
-// Crowds milling in a few knots, burning cars, tear gas, and police lights.
-function riotLayers(id, f, ms, now) {
-  const e = envelope(ms, 800, f.dur - 2200, 2200);
-  if (!e) return [];
-  const r = (f.radius_m || 350) * 0.7, people = [], fire = [], gas = [], lights = [];
-  for (let c = 0; c < 7; c++) {
-    const knot = scatter(f.where, r, f.hazard_id + 'knot', c), sway = now / 900 + c;
-    for (let i = 0; i < 110; i++) {
-      const ang = hash01(f.hazard_id, c * 1000 + i) * Math.PI * 2, d = 45 * Math.sqrt(hash01(f.hazard_id, c * 1000 + i + 50));
-      people.push(offset(knot, Math.cos(ang) * d + Math.sin(sway + i) * 2.5, Math.sin(ang) * d + Math.cos(sway * 1.3 + i) * 2.5));
-    }
-  }
-  for (let i = 0; i < 9; i++) {
-    const at = scatter(f.where, r, f.hazard_id + 'car', i);
-    flames(fire, at, 0.5, 11, now, i, e);
-    for (let k = 0; k < 4; k++) {
-      const q = (now / 2600 + k / 4 + hash01(f.hazard_id, i + k)) % 1;
-      gas.push({ p: [...offset(at, q * 45, q * 10), 8 + q * 95], r: 9 + q * 36, c: [...SMOKE, 160 * (1 - q) * e] });
-    }
-  }
-  for (let i = 0; i < 5; i++) {
-    const at = scatter(f.where, r, f.hazard_id + 'gas', i);
-    for (let k = 0; k < 5; k++) {
-      const q = (now / 3000 + k / 5 + hash01(f.hazard_id, i * 9 + k)) % 1;
-      gas.push({ p: [...offset(at, q * 60 + k * 6, q * 14), 3 + q * 16], r: 14 + q * 40, c: [238, 238, 230, 150 * (1 - q) * e] });
-    }
-  }
-  for (let i = 0; i < 6; i++) {
-    const at = scatter(f.where, r, f.hazard_id + 'police', i), red = Math.floor(now / 170 + i) % 2;
-    lights.push({ p: [...at, 3], r: 12, c: red ? [255, 40, 40, 240 * e] : [40, 90, 255, 240 * e] });
-  }
-  return [
-    new deck.ScatterplotLayer({ id: `${id}-crowd`, data: people, getPosition: (d) => d, getRadius: 1.6, radiusUnits: 'meters', radiusMinPixels: 2.2,
-      getFillColor: [34, 34, 42, 230 * e] }),
-    puffLayer(`${id}-gas`, gas), puffLayer(`${id}-fires`, fire, true, 5), puffLayer(`${id}-lights`, lights, true, 9),
-  ];
-}
-// Fireball blooming from yellow-white to orange to smoke, then a smoke column
-// that drifts downwind while the site burns. `ms` counts from the impact.
-function fireball(id, at, ms, size, burnMs = 7000) {
-  if (!(ms >= 0)) return [];
-  // Flame-hot puffs add light; cooling smoke covers. Kept apart, so stacked
-  // smoke never sums to a glowing white column.
-  const puffs = [], smoke = [];
-  for (let j = 0; j < 18; j++) {
-    const life = 1300 + (j % 5) * 170, p = ms / life;
-    if (p >= 1) continue;
-    const ang = j * 2.39, d = size * 0.4 * (0.3 + 0.07 * ((j * 7) % 10)) * Math.min(1, p * 3);
-    const col = p < 0.2 ? mix([255, 246, 214], [255, 168, 58], p / 0.2) : p < 0.55 ? mix([255, 168, 58], [206, 72, 22], (p - 0.2) / 0.35) : mix([206, 72, 22], [70, 60, 54], (p - 0.55) / 0.45);
-    (p < 0.5 ? puffs : smoke).push({ p: [...offset(at, Math.cos(ang) * d, Math.sin(ang) * d), size * (0.1 + 0.9 * p * (0.4 + (j % 4) * 0.2))], r: size * (0.16 + 0.34 * Math.sqrt(p)), c: [...col, 235 * (1 - p * p)] });
-  }
-  for (let j = 0; j < 30; j++) {
-    const age = ms - 300 - j * (burnMs / 30), life = 5200;
-    if (age < 0 || age > life) continue;
-    const q = age / life;
-    smoke.push({ p: [...offset(at, q * size * 1.4 + Math.sin(j) * size * 0.1, q * size * 0.4), Math.min(420, size * (0.3 + q * 2.2))], r: Math.min(160, size * (0.22 + q * 0.6)), c: [...SMOKE, 175 * (1 - q) * Math.min(1, age / 250)] });
-  }
-  for (let j = 0; j < 10 && ms < burnMs; j++) {
-    const flick = 0.6 + 0.4 * Math.sin(ms / 70 + j * 1.7), ang = j * 0.63;
-    puffs.push({ p: [...offset(at, Math.cos(ang) * size * 0.3, Math.sin(ang) * size * 0.3), size * 0.08 * flick], r: size * 0.12 * flick, c: [255, 150 + 50 * flick, 50, 200 * (1 - ms / burnMs)] });
-  }
-  if (ms < 260) fxScreen.flash = Math.max(fxScreen.flash, 0.55 * (1 - ms / 260) * Math.min(1, size / 120));
-  if (ms < 1100) fxScreen.shake = Math.max(fxScreen.shake, 9 * (1 - ms / 1100) * Math.min(1, size / 100));
-  return [puffLayer(`${id}-smoke`, smoke), puffLayer(`${id}-fireball`, puffs, true)];
-}
-// The dive, by progress s from 0 (1.3 km out, 360 m up) to 1 (impact). The
-// plane leaves as soon as it is released and eases towards the city while the
-// engine works, then finishes the dive at constant speed once the result is in.
-const PLANE_RUN = 1200, PLANE_ALT = 300;
-const planeAt = (center, dir, s) => {
-  const back = -PLANE_RUN * (1 - s);
-  return [...offset(center, dir[0] * back, dir[1] * back), Math.max(PLANE_ALT * (1 - s) ** 1.25, 4)];
-};
-const planePitch = (s) => (Math.atan((PLANE_ALT * 1.25 * (1 - s) ** 0.25) / PLANE_RUN) * 180) / Math.PI;
-const waitingProgress = (ms) => 0.75 * (1 - Math.exp(-ms / 1600));
-// Left to right across the current view.
-const crossingHeading = () => (map ? map.getBearing() : -20) + 90;
-const headingDir = (deg) => [Math.sin((deg * Math.PI) / 180), Math.cos((deg * Math.PI) / 180)];
-function planeLayers(id, center, dir, s, now) {
-  const yaw = (Math.atan2(dir[1], dir[0]) * 180) / Math.PI, trail = [];
-  for (let k = 1; k <= 40; k++) {
-    const sk = s - k * 0.01;
-    if (sk < 0) break;
-    const q = k / 40;
-    trail.push({ p: planeAt(center, dir, sk), r: 7 + k * 1.6, c: k < 4 ? [255, 150, 50, 230] : [...SMOKE, 190 * (1 - q)] });
-  }
-  const at = planeAt(center, dir, s);
-  return [
-    puffLayer(`${id}-trail`, trail),
-    new deck.SimpleMeshLayer({ id: `${id}-plane`, data: nearCamera()(at, 90) ? [] : [at], mesh: mesh('plane', planeMesh), sizeScale: 3,
-      getPosition: (d) => d, getOrientation: [planePitch(s), yaw, 6 * Math.sin(now / 260)],
-      getColor: [255, 255, 255, 255], material: { ambient: 0.62, diffuse: 0.6, shininess: 64, specularColor: [220, 220, 230] } }),
-  ];
-}
-// Dark translucent shells spinning at different rates over a debris swirl.
-function funnel3d(id, at, now, r, fade) {
-  const spin = now / 1000, R = Math.max(r * 0.55, 50), H = 260 + r * 0.45;
-  const sway = [5 * Math.cos(spin * 1.1), 0, 6 * Math.sin(spin * 1.3)];
-  const shells = [{ s: 1, a: 95, y: spin * 150, c: [215, 212, 208] }, { s: 0.66, a: 140, y: spin * 320, c: [160, 156, 150] }];
-  const out = shells.map((sh, i) => new deck.SimpleMeshLayer({ id: `${id}-shell${i}`, data: [sh], mesh: mesh('funnel', funnelMesh),
-    getPosition: () => [...at, 0], getScale: (d) => [R * d.s, R * d.s, H * (0.92 + 0.08 * d.s)],
-    getOrientation: (d) => [sway[0], d.y, sway[2]], getColor: (d) => [...d.c, d.a * fade], material: { ambient: 0.75, diffuse: 0.4, shininess: 8, specularColor: [30, 30, 30] }, parameters: SOFT }));
-  const debris = Array.from({ length: 46 }, (_, j) => {
-    const ang = j * 2.4 + spin * (3 + (j % 4)), d = R * (0.12 + 0.35 * ((j * 7) % 10) / 10) + 10;
-    return { p: [...offset(at, Math.cos(ang) * d, Math.sin(ang) * d), 4 + ((j * 37) % 130) * (0.4 + 0.6 * ((j % 3) / 2))], o: [now * 0.3 + j * 40, now * 0.2 + j * 17, j * 29], s: 1.2 + (j % 5) * 0.7 };
-  });
-  out.push(new deck.SimpleMeshLayer({ id: `${id}-debris`, data: debris, mesh: mesh('cube', cubeMesh), getPosition: (d) => d.p,
-    getOrientation: (d) => d.o, getScale: (d) => [d.s, d.s, d.s * 0.6], getColor: [92, 84, 76, 255 * fade], material: MATERIAL }));
-  const base = Array.from({ length: 18 }, (_, j) => {
-    const ang = j * 0.35 + spin * 1.6, d = R * 0.22 + 18 + (j % 3) * 9;
-    return { p: [...offset(at, Math.cos(ang) * d, Math.sin(ang) * d), 6 + (j % 4) * 5], r: 16 + (j % 5) * 5, c: [...DUST, 130 * fade] };
-  });
-  out.push(puffLayer(`${id}-dust`, base));
-  return out;
-}
-function waterLayers(id, f, ms) {
-  const rise = calm.matches ? 1 : easeOut(clamp01(ms / 2600));
-  const colour = (depth) => [...mix(WATER_SHALLOW, WATER_DEEP, clamp01(depth / 3)), 205];
-  if (f.water?.cells?.length) {
-    // Flat cells floated at their depth: a continuous surface with no lit
-    // walls between neighbours. Depth reads through the colour.
-    return [new deck.GridCellLayer({ id: `${id}-water`, data: f.water.cells, getPosition: (d) => [d[0], d[1], 0.3 + d[2] * rise], cellSize: f.water.cell_m * 1.1,
-      offset: [0, 0], coverage: 1, extruded: false, getFillColor: (d) => colour(d[2] * rise), material: false,
-      updateTriggers: { getPosition: rise, getFillColor: rise } })];
-  }
-  if (!f.center) return [];
-  // No terrain: a flat sheet at the hazard's depth inside its reach.
-  const depth = f.impact?.magnitude ?? 1, r = (f.radius_m || 600) * Math.min(1, 0.3 + rise);
-  const ring = Array.from({ length: 64 }, (_, i) => offset(f.center, Math.cos((i / 64) * Math.PI * 2) * r, Math.sin((i / 64) * Math.PI * 2) * r));
-  return [new deck.SolidPolygonLayer({ id: `${id}-water`, data: [ring], getPolygon: (d) => d, extruded: true, getElevation: depth,
-    elevationScale: Math.max(rise, 0.02), getFillColor: colour(depth), material: WATER_MAT })];
-}
-function buildingFxLayers(now) {
-  if (!fxBuild.events.size) return [];
-  const t = calm.matches ? Infinity : now, tick = Math.min(t, fxEnd);
-  const chunks = fxBuild.chunks.map((k) => chunkPose(k, t)).filter(Boolean);
-  const dust = [];
-  for (const e of fxBuild.falls.slice(0, 600)) {
-    const c = centreOf(e.b), hs = halfSize(e.b);
-    for (let j = 0; j < 5; j++) {
-      const age = t - e.s - SHUDDER - j * 120, life = 3800;
-      if (!(age >= 0) || age > life) continue;
-      const q = age / life, ang = hash01(e.b.id, j) * Math.PI * 2, d = hs * (0.3 + 0.5 * hash01(e.b.id, j + 9)) + q * 14;
-      dust.push({ p: [...offset(c, Math.cos(ang) * d, Math.sin(ang) * d), e.h * 0.12 + q * (8 + e.h * 0.3) + j * 2],
-        r: 6 + e.h * 0.2 + q * (10 + e.h * 0.55), c: [...DUST, 175 * (1 - q) ** 1.5 * Math.min(1, age / 200)] });
-    }
-  }
-  return [
-    new deck.SolidPolygonLayer({ id: 'buildings-fx', data: fxBuild.rings, getPolygon: (d) => d.ring, extruded: true,
-      getElevation: (d) => fxElevation(d.e, t), getFillColor: (d) => fxFill(d, t), pickable: true, autoHighlight: true,
-      highlightColor: [255, 255, 255, 80], material: MATERIAL,
-      updateTriggers: { getElevation: tick, getFillColor: [tick, ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario] } }),
-    new deck.SimpleMeshLayer({ id: 'rubble-chunks', data: chunks, mesh: mesh('cube', cubeMesh), getPosition: (d) => d.p,
-      getOrientation: (d) => d.o, getScale: (d) => [d.s, d.s * 0.8, d.s * 0.6], getColor: (d) => [...CONCRETE.map((v) => Math.min(255, v * d.g)), 255], material: MATERIAL }),
-    new deck.SimpleMeshLayer({ id: 'falling', data: fallingPieces(t), mesh: mesh('block', blockMesh), getPosition: (d) => d.p,
-      getOrientation: (d) => d.o, getScale: (d) => d.s, getColor: (d) => d.c, material: MATERIAL }),
-    puffLayer('collapse-dust', dust),
-  ];
-}
-// A cased line: a pale casing under the coloured stroke keeps a track legible
-// over the blue-grey roofs as well as the pale streets.
-function track(id, path, color) {
-  const base = { data: [path.slice()], getPath: (d) => d, widthUnits: 'pixels', capRounded: true, jointRounded: true, parameters: ON_TOP };
-  return [
-    new deck.PathLayer({ ...base, id: `${id}-casing`, getWidth: 6, getColor: isDark() ? [20, 30, 40, 200] : [255, 255, 255, 230] }),
-    new deck.PathLayer({ ...base, id, getWidth: 3, getColor: [...color, 255] }),
-  ];
-}
-function ring(id, at, radius, color, alpha, width = 2) {
-  return new deck.ScatterplotLayer({ id, data: [at], getPosition: (d) => d, getRadius: Math.max(radius, 1), radiusUnits: 'meters',
-    filled: false, stroked: true, lineWidthUnits: 'pixels', getLineWidth: width, getLineColor: [...color, alpha], parameters: ON_TOP });
-}
-function disc(id, at, radius, color, alpha, onTop = false) {
-  return new deck.ScatterplotLayer({ id, data: [at], getPosition: (d) => d, getRadius: Math.max(radius, 1), radiusUnits: 'meters',
-    getFillColor: [...color, alpha], ...(onTop && { parameters: ON_TOP }) });
-}
-function fxLayers(now) {
-  const out = buildingFxLayers(now);
-  fx.forEach((f, i) => {
-    const id = `fx-${i}`, r = f.radius_m ?? 0, hue = tone(TONE[f.kind] ?? 'strike');
-    const ms = calm.matches ? Infinity : now - f.t0, sinceImpact = ms - f.impactMs;
-    const t = clamp01(sinceImpact / FX_MS);
-    if (f.kind === 'flood' && !floodPlayback.visible) out.push(...waterLayers(id, f, ms));
-    if (f.kind === 'storm') out.push(...cloudDeck(id, f, ms, true), ...rainLayers(id, f, ms, true), ...lightning(id, f, ms));
-    if (f.kind === 'rain') out.push(...cloudDeck(id, f, ms, false), ...rainLayers(id, f, ms, false));
-    if (f.kind === 'heat') out.push(...heatLayers(id, f, ms, now));
-    if (f.kind === 'earthquake') out.push(...quakeLayers(id, f, ms));
-    if (f.kind === 'riot') out.push(...riotLayers(id, f, ms, now));
-    if (f.kind === 'fire') out.push(...fireLayers(id, f, ms, now));
-    if (!f.center && !f.path) return;
-    const at = f.center ?? f.path[0];
-    if (f.path) {
-      const grow = f.path.slice(0, Math.max(2, Math.ceil(f.path.length * clamp01(ms / f.travelMs))));
-      out.push(new deck.PathLayer({ id: `${id}-swath`, data: [grow], getPath: (d) => d, widthUnits: 'meters', getWidth: 2 * r,
-        capRounded: true, jointRounded: true, getColor: [...hue, 50] }));
-      out.push(...track(`${id}-track`, grow, hue));
-    } else if (f.kind === 'flood') {
-      out.push(ring(`${id}-edge`, at, r * clamp01(0.3 + ms / 2600), hue, 200));
-    } else if (sinceImpact >= 0) {
-      const grow = Math.min(1, t / 0.3);
-      if (!WIDE.has(f.kind)) out.push(disc(`${id}-zone`, at, r * grow, hue, TONE[f.kind] ? 60 : 30));
-      out.push(ring(`${id}-edge`, at, r * grow, hue, 230));
-    }
-    if (f.kind === 'plane_crash') {
-      if (ms < f.impactMs) out.push(...planeLayers(id, at, f.dir, f.s0 + (1 - f.s0) * clamp01(ms / f.impactMs), now));
-      out.push(...fireball(id, at, sinceImpact, 45 + r * 0.06, 8000));
-    }
-    if (f.kind === 'explosion') out.push(...fireball(id, at, sinceImpact, Math.min(260, Math.max(30, r * 0.25)), 5000));
-    if (f.kind === 'orbital_strike') out.push(...fireball(id, at, sinceImpact, Math.min(250, Math.max(30, r * 0.5)), 4000));
-    if (f.kind === 'tornado' && ms < f.travelMs + 600) {
-      const u = clamp01(ms / f.travelMs);
-      out.push(...funnel3d(id, f.path ? along(f.path, u) : at, now, r, ms > f.travelMs ? 1 - (ms - f.travelMs) / 600 : Math.min(1, ms / 300)));
-    }
-    if (t >= 1 || sinceImpact < 0) return;
-    if (SHOCK.has(f.kind)) {
-      const waves = f.kind === 'earthquake' ? 3 : 1;
-      for (let w = 0; w < waves; w++) {
-        const p = (t - w * 0.15) / 0.45;
-        if (p > 0 && p < 1) out.push(ring(`${id}-wave${w}`, at, r * 1.15 * (1 - (1 - p) ** 3), hue, 255 * (1 - p), 3.5));
-      }
-      if (f.kind !== 'earthquake' && t < 0.25) out.push(disc(`${id}-flash`, at, r * 0.45, [255, 244, 214], 210 * (1 - t / 0.25), true));
-      if (f.kind === 'orbital_strike' && t < 0.4) {
-        out.push(new deck.ColumnLayer({ id: `${id}-beam`, data: [at], getPosition: (d) => d, radius: Math.max(r * 0.3, 8), elevationScale: 1,
-          getElevation: 1600, extruded: true, material: false, getFillColor: [...hue, 190 * (1 - t / 0.4)] }));
-      }
-    }
-  });
-  if (fx.some((f) => f.kind === 'orbital_strike' && now - f.t0 < f.impactMs)) {
-    for (const f of fx.filter((g) => g.kind === 'orbital_strike' && now - g.t0 < g.impactMs && g.center)) {
-      out.push(new deck.ColumnLayer({ id: `charge-${f.hazard_id}`, data: [f.center], getPosition: (d) => d, radius: 4 + 10 * ((now - f.t0) / f.impactMs),
-        elevationScale: 1, getElevation: 1600, extruded: true, material: false, getFillColor: [...tone('strike'), 200] }));
-    }
-  }
-  if (pending) {
-    const r = TORNADO_R[$('sev').value] ?? 130;
-    if (pending.kind === 'tornado') {
-      if (pending.path?.length > 1) out.push(...track('pending-track', pending.path, tone('strike')));
-      out.push(...funnel3d('pending', pending.path?.at(-1) ?? pending.at, now, r, 1));
-    } else if (pending.kind === 'plane_crash' && pending.flyT0) {
-      out.push(ring('pending-mark', pending.at, 40 + 25 * Math.sin(now / 150), tone('strike'), 240, 3));
-      out.push(...planeLayers('pending', pending.at, headingDir(pending.heading), waitingProgress(now - pending.flyT0), now));
-    } else if (pending.kind === 'plane_crash' && pending.aim) {
-      out.push(...track('pending-approach', [pending.aim, pending.at], tone('strike')), ring('pending-mark', pending.at, 40 + 25 * Math.sin(now / 150), tone('strike'), 240, 3));
-      const dx = (pending.at[0] - pending.aim[0]) * mPerLon(pending.at[1]), dy = (pending.at[1] - pending.aim[1]) * 111320;
-      out.push(new deck.SimpleMeshLayer({ id: 'pending-plane', data: [pending.aim], mesh: mesh('plane', planeMesh), sizeScale: 3,
-        getPosition: (d) => [...d, 200], getOrientation: [12, (Math.atan2(dy, dx) * 180) / Math.PI, 0], getColor: [255, 255, 255, 235], material: MATERIAL }));
-    } else {
-      out.push(ring('pending-mark', pending.at, 40 + 25 * Math.sin(now / 150), tone('strike'), 240, 3));
-    }
-  }
-  return out;
-}
 const deckProps = () => ({
   layers: layers(),
   effects: [lighting(appliedNight)],
@@ -3429,19 +2600,6 @@ function initScene() {
       parameters: { clearColor: [0, 0, 0, 0] }, ...deckProps(),
     });
   }
-}
-// Weather and quakes reach kilometres: framing every building they touch would
-// pull the camera out until rain, dust and shaking are invisible, so the
-// camera goes to street level where the disaster was dropped instead.
-// A riot is street-scale, so its camera comes in closer still.
-const WIDE = new Set(['storm', 'rain', 'heat', 'earthquake']);
-const STREET_ZOOM = { riot: 16.4 };
-function focusStrike(hit) {
-  const zoom = STREET_ZOOM[hit.kind] ?? 15.4;
-  if (!STREET_ZOOM[hit.kind] && !WIDE.has(hit.kind) && !hit.citywide && (hit.radius_m ?? 0) <= 1500) { focusOn(hit.ids); return; }
-  const [lng, lat] = hit.center ?? viewCentre();
-  if (map) map.easeTo({ center: [lng, lat], zoom, pitch: 70, bearing: map.getBearing(), duration: 1400 });
-  else flyTo({ longitude: lng, latitude: lat, zoom, pitch: 62 });
 }
 // Fly to the buildings a scenario touches, so the result is on screen.
 function focusOn(ids) {
@@ -3538,7 +2696,6 @@ function showTip({ object, x, y }) {
     tip.hidden=false;tip.style.left=`${Math.max(8,Math.min(x+16,innerWidth-tip.offsetWidth-10))}px`;
     tip.style.top=`${Math.max(8,Math.min(y+16,innerHeight-tip.offsetHeight-10))}px`;return;
   }
-  if (object.survey) { floodSurveyTip(tip, object.survey, x, y); return; }
   if (object.r) { roadTip(tip, object, x, y); return; }
   if (object.bus) {
     const b = object.bus, hit = indexImpact(roadImpact())?.busHit.has(b.id);
@@ -3555,7 +2712,6 @@ function showTip({ object, x, y }) {
   tip.innerHTML = `<div class="h">${esc(b.sector || 'Building')} · ${esc(b.use || 'use n/a')}</div>
     <div class="s">${esc(stateLabel(b.state))} · ${esc(b.status_source || 'Source period unavailable')}</div>
     <div class="s">${b.h.toFixed(1)} m · ${esc(heightEvidence(b))}</div>
-    ${hasHazards() ? '<div class="s">Collapse animation is illustrative, not a building-level outcome.</div>' : ''}
     ${p ? `<div class="s" style="margin:6px 0 0">${esc(evidenceLabel(ui.scenario?.forecast ?? DATA.forecast))} · next 2 years</div>${probRows(Object.fromEntries(Object.entries(p).sort((a, c) => c[1] - a[1]).slice(0, 3)), null, b.state)}` : ''}`;
   tip.hidden = false;
   const w = tip.offsetWidth, h = tip.offsetHeight;
@@ -3576,7 +2732,7 @@ function renderStatus() {
   const f = ui.scenario?.forecast ?? DATA.forecast;
   const assumed = f?.evidence_level === 'assumption_based_scenario';
   const label = ui.lens === 'observed' ? 'Observed records' : f ? evidenceLabel(f) : 'No model prediction';
-  $('status').innerHTML = `<span class="badge ${assumed ? 'assumed' : ''}"><i></i>${label}${hasHazards() ? ' · illustrative effects' : ''}</span>`;
+  $('status').innerHTML = `<span class="badge ${assumed ? 'assumed' : ''}"><i></i>${label}</span>`;
 }
 
 function counts(fn) {
@@ -3600,13 +2756,9 @@ function renderLegend() {
       <div class="ramp" style="background:linear-gradient(90deg,${RAMP.join(',')})"></div><div class="ramp-labels"><span>0%</span><span>50%</span><span>100%</span></div>
       <div class="note">Model probability, not a certainty. Grey = no forecast for this building.</div>`;
   } else {
-    const disaster = hasHazards() && !leverTarget.size;
-    body = disaster ? `<h2>Disaster vs baseline</h2><div class="sub">Rise in the chance of losing the current state, next 2 years</div>
+    body = `<h2>Scenario vs baseline</h2><div class="sub">Change in chance of reaching each lever's target state, next 2 years</div>
       <div class="ramp" style="background:linear-gradient(90deg,${DIVERGE.low},${DIVERGE.mid},${DIVERGE.high})"></div><div class="ramp-labels"><span>−${(deltaScale * 100).toFixed(0)} pts</span><span>no change</span><span>+${(deltaScale * 100).toFixed(0)} pts</span></div>
-      <div class="note">Illustrative, uncalibrated effects. Orange = the disaster makes destruction, damage or another change more likely. Grey = out of reach.</div>`
-    : `<h2>Scenario vs baseline</h2><div class="sub">Change in chance of reaching each lever's target state, next 2 years</div>
-      <div class="ramp" style="background:linear-gradient(90deg,${DIVERGE.low},${DIVERGE.mid},${DIVERGE.high})"></div><div class="ramp-labels"><span>−${(deltaScale * 100).toFixed(0)} pts</span><span>no change</span><span>+${(deltaScale * 100).toFixed(0)} pts</span></div>
-      <div class="note">Orange = more likely to reach the lever's target; blue = less likely. Grey buildings are outside every lever.${hasHazards() ? ' Outside the levers, orange marks disaster damage.' : ''}</div>`;
+      <div class="note">Orange = more likely to reach the lever's target; blue = less likely. Grey buildings are outside every lever.</div>`;
   }
   el.innerHTML = body;
 }
@@ -3692,23 +2844,9 @@ function renderInfo() {
     ${f?.warnings?.length ? `<ul class="warn-list">${f.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
     <div class="note">Forecasts are observational transition probabilities, not causal predictions. Scenario levers carry assumed effect sizes and are labelled assumption-based. ${esc(DATA.attribution)}</div>`;
 }
-function waterNote(s, h) {
-  if (h.kind !== 'flood') return '';
-  const w = s.hazards?.find((f) => f.hazard_id === h.hazard_id)?.water;
-  return w ? `<div class="m">Water fills low ground to ${w.level_m.toFixed(1)} m above sea level (approximate terrain)</div>`
-    : '<div class="m">Flat water: no terrain loaded, so the depth is the same everywhere in reach</div>';
-}
 function roadCard(s) {
   return ui.trafficImpact && !ui.traffic ? `<div class="lever"><div class="t">Roads</div>${roadSummary(ui.trafficImpact)}
     ${ui.traffic ? '' : '<div class="m">Turn on Traffic to see the closures and detours.</div>'}</div>` : '';
-}
-function hazardCards(s) {
-  return roadCard(s) + (s.forecast?.hazard_impacts ?? []).map((h) => `<div class="lever" data-hazard="${esc(h.hazard_id)}">
-    <div class="t">${hazardIcon(h.kind, 'hz')}${esc(hazardLabel(h.kind))} · ${h.magnitude.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${esc(h.magnitude_unit)}</div>
-    <div class="m">Illustrative estimate · ${Math.round(h.destroyed.p50).toLocaleString()} destroyed (${Math.round(h.destroyed.p05)}–${Math.round(h.destroyed.p95)}) · ${Math.round(h.damaged.p50).toLocaleString()} damaged (${Math.round(h.damaged.p05)}–${Math.round(h.damaged.p95)})</div>
-    <div class="m">${h.exposed_buildings.toLocaleString()} buildings in reach · ${h.radius_m ? `${metres(h.radius_m)} radius` : 'citywide'} · strikes in years ${h.year_offset - 2}–${h.year_offset}</div>
-    ${waterNote(s, h)}
-    <div class="m">Source: ${esc(h.effect_source)} · declared confidence ${esc(h.confidence_grade)}</div></div>`).join('');
 }
 function renderScenario() {
   const el = $('p-scenario');
@@ -3716,16 +2854,7 @@ function renderScenario() {
   if (!s) { el.hidden = true; return; }
   el.hidden = false;
   const c = s.compilation;
-  if (!c) {
-    const n = s.forecast.hazard_impacts.length;
-    el.innerHTML = `<button class="close" aria-label="Clear disasters" data-close="scenario">✕</button>
-      <h2>Disasters</h2><div class="sub">Dropped on the map and run straight through the engine; no language model involved</div>
-      <div><span class="chip soft">Assumption-based</span><span class="chip">${n} disaster${n > 1 ? 's' : ''}</span>
-        <span class="chip">${s.dropped.horizon_years}-year horizon</span></div>
-      ${hazardCards(s)}
-      <div class="note">Median of the Monte Carlo runs, 90% range in brackets. Damage curves are illustrative, not calibrated. On the map, the median number of buildings falls, taken from those each disaster hits hardest: one plausible picture, not a forecast for any single building. Drop another to add it; ✕ clears them all. Hover a disaster to see what it hits.</div>`;
-    return;
-  }
+  if (!c) { el.hidden = true; return; }
   const allIssues = (c.attempts.at(-1)?.report.issues ?? []);
   const accepted = !!c.scenario;
   const levers = accepted ? c.scenario.interventions : [];
@@ -3741,7 +2870,7 @@ function renderScenario() {
       <div class="m">Source: ${esc(l.effect_source)} · declared confidence ${esc(l.confidence_grade)}</div></div>`).join('')}
     ${(c.road_events ?? []).map((e) => `<div class="lever"><div class="t">${e.kind === 'crash' ? 'Crash' : 'Road closed'} · <bdi>${esc(e.street)}</bdi></div>
       <div class="m">${e.kind === 'crash' ? 'On its busiest segment' : `${plural(e.roads.length, 'road segment')}`} · matched ${e.matched_names.slice(0, 3).map((n) => `<bdi>${esc(n)}</bdi>`).join(', ')}${e.matched_names.length > 3 ? '…' : ''}</div></div>`).join('')}
-    ${hazardCards(s)}
+    ${roadCard(s)}
     ${allIssues.map((x) => `<div class="issue ${x.severity}">${esc(x.message)}</div>`).join('')}
     ${c.attempts.length > 1 ? `<details class="note"><summary>Earlier validation attempts</summary>${c.attempts.slice(0, -1).map((a, i) => `<div>Attempt ${i + 1}</div>${a.report.issues.map((x) => `<div>${esc(x.message)}</div>`).join('')}`).join('')}</details>` : ''}
     ${accepted && s.forecast ? '<div class="note">Compare with business as usual in All KPIs. Scenario effects are assumptions, not causal estimates.</div>' : ''}
@@ -3795,15 +2924,7 @@ function togglePanel(id, button, force) {
   if (id === 'p-info') renderInfo();
 }
 
-function isFloodRequest(text) {
-  return /\bflood(?:s|ing|ed)?\b|فيضان|فيضانات/i.test(text);
-}
 async function runScenario(text) {
-  if (isFloodRequest(text)) {
-    dropAt('flood');
-    $('progress').textContent = 'Flood simulation is not running. Load verified terrain, rainfall and drainage inputs in the Flooding panel first.';
-    return;
-  }
   ui.busy = true; syncPrompt();
   const requestController = new AbortController();
   const requestTimer = setTimeout(() => requestController.abort(), 60000);
@@ -3812,7 +2933,7 @@ async function runScenario(text) {
     const res = await fetch('/v1/viewer/scenario', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, hour: ui.hour }), signal:requestController.signal });
     const body = await res.json();
     if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
-    ui.scenario = { compilation: body.compilation, forecast: body.forecast, baseline: body.baseline, comparison: body.comparison, hazards: body.hazards ?? [] };
+    ui.scenario = { compilation: body.compilation, forecast: body.forecast, baseline: body.baseline, comparison: body.comparison };
     ui.trafficImpact = body.traffic ?? null;
     // Typed closures and crashes join the road tools' own, so they can be cleared the same way.
     const hadRoadEvents = ui.closedRoads.size || ui.crashes.size;
@@ -3821,24 +2942,19 @@ async function runScenario(text) {
     if (hadRoadEvents) requestTraffic();
     if ((body.road_events?.closed?.length || body.road_events?.crashes?.length) && DATA.traffic && !ui.traffic) setTraffic(true);
     prepareCars();
-    ui.drops = [];
     updateDeltaScale();
     ui.highlight = null;
-    // A disaster is the headline, so the camera flies to where it hits (the
-    // way God's Plan cuts to the strike); otherwise to the lever buildings.
-    const struck = (body.hazards ?? []).filter((h) => h.ids.length);
-    const kinds = [...new Set(struck.map((h) => h.kind.replace(/_/g, ' ')))].join(', ');
     // Only road closures and crashes: the buildings are business as usual, so
     // the scenario forecast (Monte Carlo noise around the baseline) is not
     // shown as a change, and the camera goes to the roads instead.
     const spec = body.compilation?.scenario;
     const roads = [...(body.road_events?.closed ?? []), ...(body.road_events?.crashes ?? [])];
-    const roadsOnly = !!spec && !spec.interventions.length && !spec.hazards.length && roads.length > 0;
+    const roadsOnly = !!spec && !spec.interventions.length && roads.length > 0;
     if (roadsOnly) { ui.scenario.forecast = null; updateDeltaScale(); }
     $('progress').textContent = !body.forecast ? 'The validator rejected the scenario — see why on the right.'
       : roadsOnly ? 'Roads closed — the buildings are unchanged; see the road impact on the right.'
       : body.compilation.status === 'partial' ? 'Partial forecast ready — see which requests were not modeled.'
-      : struck.length ? `${kinds[0].toUpperCase()}${kinds.slice(1)} — flying to the hardest-hit buildings.` : 'Scenario forecast ready.';
+      : 'Scenario forecast ready.';
     document.querySelector('[data-lens="delta"]').hidden = !body.forecast || roadsOnly;
     if (!body.forecast) {
       if (ui.lens === 'delta') setLens('observed');
@@ -3851,9 +2967,7 @@ async function runScenario(text) {
       ui.horizon = body.compilation.scenario.horizon_years;
       togglePanel('p-kpis', $('t-kpis'), true);
       setLens('delta');
-      playFx(ui.scenario.hazards, ui.scenario.hazards.map((_, i) => i));
-      if (struck.length === 1) focusStrike(struck[0]);
-      else focusOn(struck.length ? struck.flatMap((h) => h.ids) : body.compilation.scenario.interventions.flatMap((l) => l.object_ids));
+      focusOn(body.compilation.scenario.interventions.flatMap((l) => l.object_ids));
     }
   } catch (err) {
     $('progress').textContent = err.name === 'AbortError' ? 'Scenario request timed out. No new result was applied. You can retry.' : `Could not run scenario: ${err.message}`;
@@ -3884,132 +2998,6 @@ async function runAsk(question) {
     ui.busy = false; syncPrompt(); renderAll();
   }
 }
-// Screen pixel → [longitude, latitude] on the ground.
-function toLngLat(x, y) {
-  if (map) { const p = map.unproject([x, y]); return [p.lng, p.lat]; }
-  const vp = deckgl?.getViewports()[0];
-  return vp ? vp.unproject([x, y]).slice(0, 2) : null;
-}
-const overMap = (x, y) => { const el = document.elementFromPoint(x, y); return !!el && $('scene').contains(el); };
-let drag = null, swallowClick = false;
-function startDrag(e) {
-  const tile = e.target.closest('.tile');
-  if (!tile || tile.disabled || e.button > 0) return;
-  if (tile.dataset.kind === 'flood') return;
-  drag = { kind: tile.dataset.kind, x0: e.clientX, y0: e.clientY, moved: false };
-  tile.setPointerCapture(e.pointerId);
-  const ghost = $('ghost');
-  const move = (ev) => {
-    if (!drag.moved && Math.hypot(ev.clientX - drag.x0, ev.clientY - drag.y0) < 6) return;
-    if (!drag.moved) { drag.moved = true; ghost.innerHTML = tile.innerHTML; ghost.hidden = false; }
-    ghost.style.left = `${ev.clientX}px`; ghost.style.top = `${ev.clientY}px`;
-    ghost.classList.toggle('off', !overMap(ev.clientX, ev.clientY));
-  };
-  const end = (ev) => {
-    tile.removeEventListener('pointermove', move); tile.removeEventListener('pointerup', end); tile.removeEventListener('pointercancel', end);
-    ghost.hidden = true;
-    if (drag.moved) {
-      swallowClick = true;
-      if (ev.type === 'pointerup' && overMap(ev.clientX, ev.clientY)) dropAt(drag.kind, ev.clientX, ev.clientY);
-    }
-    drag = null;
-  };
-  tile.addEventListener('pointermove', move); tile.addEventListener('pointerup', end); tile.addEventListener('pointercancel', end);
-}
-function dropAt(kind, x, y) {
-  if (kind === 'flood') {
-    $('p-flood-playback').hidden = false;
-    togglePanel('tray', $('t-fx'), false);
-    return;
-  }
-  const at = toLngLat(x, y);
-  if (!at || ui.busy) return;
-  if (pending?.steering) cancelSteer();
-  const how = HAZARDS.find((h) => h.kind === kind);
-  if (how?.path || how?.aim) {
-    // Touch down (or mark the impact), then the next drag steers the track
-    // or swings the approach (God's Plan style).
-    pending = { kind, at, path: null, aim: null, steering: true };
-    $('draw').hidden = false;
-    $('progress').textContent = how.path ? 'Drag to steer the tornado · or click to touch down right here · Esc cancels'
-      : 'Drag out from the impact to aim where the plane comes from · or click for a pass across the view · Esc cancels';
-    animate();
-    return;
-  }
-  runDrop({ kind, points: [at], severity: SEVERITIES[$('sev').value] });
-}
-function steerStart(e) {
-  if (!pending?.steering) return;
-  $('draw').setPointerCapture(e.pointerId);
-  pending.path = [pending.at];
-  pending.last = [e.clientX, e.clientY];
-}
-function steerMove(e) {
-  if (pending?.steering && pending.kind === 'plane_crash' && pending.path) { pending.aim = toLngLat(e.clientX, e.clientY); return; }
-  if (!pending?.path || !pending.steering) return;
-  if (Math.hypot(e.clientX - pending.last[0], e.clientY - pending.last[1]) < 14 || pending.path.length >= 64) return;
-  const p = toLngLat(e.clientX, e.clientY);
-  if (p) { pending.path.push(p); pending.last = [e.clientX, e.clientY]; drawFx(); }
-}
-function steerEnd() {
-  if (!pending?.steering || !pending.path) return;
-  $('draw').hidden = true; pending.steering = false;
-  if (pending.kind === 'plane_crash') {
-    // Compass heading from the aim point to the impact; a short drag or a click keeps the camera's.
-    const { aim, at } = pending;
-    const heading = aim && metresBetween(aim, at) > 20
-      ? (Math.atan2((at[0] - aim[0]) * mPerLon(at[1]), (at[1] - aim[1]) * 111320) * 180) / Math.PI : crossingHeading();
-    runDrop({ kind: 'plane_crash', points: [at], severity: SEVERITIES[$('sev').value], heading });
-    return;
-  }
-  const points = pending.path.length > 1 ? pending.path : [pending.at];
-  runDrop({ kind: 'tornado', points, severity: SEVERITIES[$('sev').value] });
-}
-function cancelSteer() {
-  $('draw').hidden = true; pending = null; $('progress').textContent = ''; drawFx();
-}
-async function runDrop(drop) {
-  const prior = ui.scenario?.dropped ? ui.drops : [];
-  // Disasters stack, God's Plan style; past eight the oldest makes way.
-  ui.drops = [...prior, drop].slice(-8);
-  pending = { kind: drop.kind, at: drop.points.at(-1), path: drop.points.length > 1 ? drop.points : null, steering: false,
-    ...(drop.kind === 'plane_crash' && { heading: drop.heading, flyT0: performance.now() }) };
-  ui.busy = true; syncPrompt(); animate();
-  $('progress').textContent = `${hazardLabel(drop.kind)} strikes · the engine forecasts the damage…`;
-  try {
-    // The aim is the page's own: the engine only needs where the plane lands.
-    const hazards = ui.drops.map(({ heading, s0, ...rest }) => rest);
-    const res = await fetch('/v1/viewer/hazard', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hazards, hour: ui.hour }) });
-    const body = await res.json();
-    if (!res.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `HTTP ${res.status}`);
-    ui.scenario = { compilation: null, dropped: body.scenario, forecast: body.forecast,
-      baseline: body.baseline, comparison: body.comparison, hazards: body.hazards };
-    ui.trafficImpact = body.traffic ?? null;
-    if (ui.closedRoads.size || ui.crashes.size) requestTraffic();
-    prepareCars();
-    // Hand the plane over mid-dive rather than restarting it.
-    if (pending?.flyT0) drop.s0 = waitingProgress(performance.now() - pending.flyT0);
-    pending = null;
-    updateDeltaScale();
-    ui.highlight = null;
-    document.querySelector('[data-lens="delta"]').hidden = false;
-    setLens('delta');
-    const last = body.hazards.length - 1, hit = body.hazards[last];
-    playFx(body.hazards, [last], ui.drops);
-    const impact = body.forecast.hazard_impacts.find((h) => h.hazard_id === hit.hazard_id);
-    if (hit.ids.length) {
-      focusStrike(hit);
-      $('progress').textContent = `${hazardLabel(drop.kind)}: about ${plural(Math.round(impact.destroyed.p50), 'building')} destroyed and ${Math.round(impact.damaged.p50).toLocaleString()} damaged.`;
-    } else {
-      $('progress').textContent = `${hazardLabel(drop.kind)} struck outside the surveyed buildings — nothing in the survey was hit.`;
-    }
-  } catch (err) {
-    ui.drops = prior; pending = null; render();
-    $('progress').textContent = `Could not run the disaster: ${err.message}`;
-  } finally {
-    ui.busy = false; syncPrompt(); renderAll();
-  }
-}
 function setMode(mode) {
   ui.mode = mode;
   document.querySelectorAll('#mode [data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
@@ -4027,7 +3015,6 @@ function syncPrompt() {
     : ask ? 'Ask the map… e.g. “Which stalled buildings in Hamra are most likely to change?”'
     : 'Describe a change in Beirut';
   go.disabled = !live || ui.busy;
-  document.querySelectorAll('.tile').forEach((t) => (t.disabled = ui.busy));
   go.innerHTML = ui.busy ? '<span class="spin" aria-hidden="true"></span>' : '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
 }
 function renderAll() { renderTraffic(); renderStatus(); renderLegend(); renderDock(); renderInspector(); renderAnswer(); renderScenario(); renderInfo(); render(); }
@@ -4159,267 +3146,7 @@ function wireUsability() {
   readSavedInputs();
 }
 
-// Actual ANUGA jobs and native-mesh result playback.
-let floodRun={job:null,geometry:null,frame:null,visible:true,poll:null,play:null,playVersion:0,frameRequest:0};
-function floodNativeLayers() {
-  if(!floodRun.visible||!floodRun.geometry||!floodRun.frame)return [];
-  const data=floodRun.frame.depth_m.map((depth,i)=>({polygon:floodRun.geometry.polygons[i],depth})).filter(d=>d.depth===null||d.depth>0);
-  const drape={};
-  return data.length?[new deck.SolidPolygonLayer({id:'flood-computed-depth',data,getPolygon:d=>d.polygon,
-    extruded:false,getFillColor:d=>d.depth===null?[140,146,155,150]:[32,160-Math.min(d.depth,1)*80,215,190],
-    pickable:false,parameters:ON_TOP,...drape})]:[];
-}
-async function floodRunRequest(url,options) {
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),options?.method==='POST'?60000:15000);
-  try {
-    const response=await fetch(url,{...options,signal:controller.signal}),value=await response.json();
-    if(!response.ok){const d=value.detail,error=new Error(typeof d==='string'?d:d?.issues?[d.message,...d.issues].join('\n'):JSON.stringify(d||value));error.status=response.status;throw error}
-    return value;
-  } catch(error) {
-    if(error.name==='AbortError')throw new Error('Flood service did not respond in time. Check that the local server is running, then retry. A timed-out request does not confirm a simulation started or stopped.');
-    if(error instanceof TypeError)throw new Error('Cannot reach the local flood server. Restart the local server and reload this page.');
-    throw error;
-  } finally {clearTimeout(timer)}
-}
-function pauseFloodNative() {floodRun.playVersion++;if(floodRun.play!==null)clearTimeout(floodRun.play);floodRun.play=null;$('flood-native-play').textContent='Play results'}
-function renderFloodJob(job) {
-  floodRun.job=job;
-  $('flood-run-start').disabled=job.status!=='ready';$('flood-run-load').disabled=job.status==='running';$('flood-run-cancel').hidden=job.status!=='running';
-  const progress=$('flood-run-progress');progress.hidden=job.status!=='running';
-  if(job.progress){progress.max=job.progress.total_frames;progress.value=job.progress.completed_frames}else progress.removeAttribute('value');
-  const message={ready:`Inputs checked: ${job.triangles} mesh cells, ${job.frames} output times. Ready to run ANUGA.`,
-    running:job.progress?`ANUGA running · simulated ${job.progress.simulation_time_s.toFixed(1)} of ${job.duration_s} seconds · output ${job.progress.completed_frames}/${job.frames}.`:'ANUGA starting…',
-    complete:'Calculation complete. Showing computed water depths.',failed:'Calculation failed. No new results accepted.',cancelled:'Calculation cancelled. No new results accepted.'};
-  $('flood-run-status').textContent=message[job.status]||job.status;
-  if(job.error)$('flood-run-error').textContent=job.error;
-}
-async function loadFloodNativeFrame(index) {
-  const request=++floodRun.frameRequest,jobId=floodRun.job.job_id;
-  const frame=await floodRunRequest(`/v1/flood/solver/jobs/${jobId}/frames/${index}`);
-  if(request!==floodRun.frameRequest||jobId!==floodRun.job?.job_id)return;
-  floodRun.frame=frame;$('flood-native-slider').value=index;
-  const values=frame.depth_m.filter(v=>v!==null);
-  $('flood-native-depth').textContent=values.length?`${Math.max(...values).toFixed(2)} m`:'Unknown';
-  $('flood-native-time').textContent=`${frame.time_s.toFixed(1)} s`;
-  $('flood-native-timestamp').textContent=`${floodRun.geometry.timestamps[index]} · stored surface water ${floodRun.geometry.volumes_m3[index].toFixed(1)} m³`;
-  render();
-}
-async function showFloodNativeResults() {
-  const jobId=floodRun.job.job_id,geometry=await floodRunRequest(`/v1/flood/solver/jobs/${jobId}/geometry`);
-  if(jobId!==floodRun.job?.job_id)return;
-  floodRun.geometry=geometry;floodRun.visible=true;$('flood-native-visible').checked=true;
-  pauseFloodPlayback();floodPlayback.visible=false;$('flood-map-visible').checked=false;
-  $('flood-native-slider').max=geometry.timestamps.length-1;
-  $('flood-native-note').textContent=`${geometry.engine} ${geometry.version} · ${floodRun.job.run_id}. ${geometry.scope} Numerical water balance residual: ${geometry.mass_residual_m3.toExponential(2)} m³. Depth is shown as color on native cells, with no vertical exaggeration or inferred absolute water elevation. Independent calibration is not established.`;
-  $('flood-native-controls').hidden=false;
-  const peakStorageFrame=geometry.volumes_m3.indexOf(Math.max(...geometry.volumes_m3));
-  await loadFloodNativeFrame(peakStorageFrame);if(jobId===floodRun.job?.job_id)focusPoints(geometry.polygons.flat());
-}
-async function pollFloodJob() {
-  floodRun.poll=null;
-  try {
-    const job=await floodRunRequest(`/v1/flood/solver/jobs/${floodRun.job.job_id}`);renderFloodJob(job);
-    if(job.status==='running')floodRun.poll=setTimeout(pollFloodJob,1000);
-    else if(job.status==='complete')await showFloodNativeResults();
-  }catch(error){$('flood-run-error').textContent=error.message;if(floodRun.job?.status==='running'){
-    if(error.status===404||error.status===503)renderFloodJob({...floodRun.job,status:'failed',error:'The run is no longer available in this server session.'});
-    else floodRun.poll=setTimeout(pollFloodJob,3000);
-  }}
-}
-async function toggleFloodNative() {
-  if(floodRun.play!==null){pauseFloodNative();return}
-  if(!floodRun.geometry)return;
-  const playVersion=++floodRun.playVersion;
-  const last=floodRun.geometry.timestamps.length-1;
-  if(floodRun.frame.index>=last)await loadFloodNativeFrame(0);
-  const step=async()=>{try{await loadFloodNativeFrame(floodRun.frame.index+1);if(playVersion!==floodRun.playVersion)return;if(floodRun.frame.index>=last){pauseFloodNative();return}floodRun.play=setTimeout(step,700)}catch(error){pauseFloodNative();$('flood-run-error').textContent=error.message}};
-  $('flood-native-play').textContent='Pause playback';floodRun.play=setTimeout(step,700);
-}
-async function wireFloodRun() {
-  $('flood-run-load').onclick=()=>$('flood-run-file').click();
-  $('flood-run-file').onchange=async event=>{
-    const file=event.target.files[0];if(!file)return;
-    $('flood-run-error').textContent='';$('flood-run-load').disabled=true;$('flood-run-start').disabled=true;
-    try {
-      if(file.size>50*1024*1024)throw new Error('Input package exceeds 50 MB.');
-      pauseFloodNative();floodRun.frameRequest++;floodRun.geometry=null;floodRun.frame=null;floodRun.job=null;
-      $('flood-native-controls').hidden=true;render();$('flood-run-status').textContent='Checking source files, geometry and storm inputs…';
-      const job=await floodRunRequest('/v1/flood/solver/packages',{method:'POST',headers:{'Content-Type':'application/zip'},body:file});
-      renderFloodJob(job);try{sessionStorage.setItem('dynacity-flood-job',job.job_id)}catch{}
-    }catch(error){$('flood-run-status').textContent='Input package was not accepted.';$('flood-run-error').textContent=error.message}
-    finally{$('flood-run-load').disabled=false;event.target.value=''}
-  };
-  $('flood-run-start').onclick=async()=>{
-    if(!floodRun.job)return;$('flood-run-start').disabled=true;$('flood-run-error').textContent='';
-    try{renderFloodJob(await floodRunRequest(`/v1/flood/solver/jobs/${floodRun.job.job_id}/start`,{method:'POST'}));await pollFloodJob()}
-    catch(error){$('flood-run-error').textContent=error.message;renderFloodJob(floodRun.job)}
-  };
-  $('flood-run-cancel').onclick=async()=>{try{if(floodRun.poll!==null)clearTimeout(floodRun.poll);const job=await floodRunRequest(`/v1/flood/solver/jobs/${floodRun.job.job_id}/cancel`,{method:'POST'});renderFloodJob(job);if(job.status==='complete')await showFloodNativeResults()}catch(error){$('flood-run-error').textContent=error.message;if(floodRun.job?.status==='running')floodRun.poll=setTimeout(pollFloodJob,3000)}};
-  $('flood-native-slider').oninput=async event=>{pauseFloodNative();try{await loadFloodNativeFrame(Number(event.target.value))}catch(error){$('flood-run-error').textContent=error.message}};
-  $('flood-native-play').onclick=()=>toggleFloodNative().catch(error=>{$('flood-run-error').textContent=error.message});
-  $('flood-native-focus').onclick=()=>{if(floodRun.geometry)focusPoints(floodRun.geometry.polygons.flat())};
-  $('flood-native-visible').onchange=e=>{floodRun.visible=e.target.checked;render()};
-  if(!DATA.api){$('flood-run-status').textContent='Open the local city server to run the hydraulic engine.';$('flood-run-load').disabled=true;return}
-  try {
-    const info=await floodRunRequest('/v1/flood/solver/inputs');
-    $('flood-run-status').textContent=info.execution_enabled?'Load a documented input package to check it, then select Run flood. No Beirut simulation package is supplied.':'Run storage is not enabled for this server.';
-    $('flood-run-load').disabled=!info.execution_enabled;
-    const box=$('flood-run-requirements');box.replaceChildren();
-    const gaps=Object.entries(info.missing_inputs),required=['terrain','mesh','roughness','initial_conditions','rainfall','infiltration','drainage_exchange','boundaries','structures'];
-    (gaps.length?gaps:required.map(name=>[name,'required in input package'])).forEach(([name,status])=>{const p=document.createElement('p');p.textContent=`${name.replaceAll('_',' ')}: ${status.replaceAll('_',' ')}`;box.append(p)});
-    let saved;try{saved=sessionStorage.getItem('dynacity-flood-job')}catch{}
-    if(saved&&info.execution_enabled){try{const job=await floodRunRequest(`/v1/flood/solver/jobs/${saved}`);renderFloodJob(job);if(job.status==='running')await pollFloodJob();else if(job.status==='complete')await showFloodNativeResults()}catch{try{sessionStorage.removeItem('dynacity-flood-job')}catch{}}}
-  }catch(error){$('flood-run-status').textContent='Flood execution service is unavailable.';$('flood-run-error').textContent=error.message;$('flood-run-load').disabled=true}
-}
-
-// Historical survey context stays independent of simulated water and road closures.
-let floodSurvey = { data:null, visible:false, neighborhood:'', condition:'', ponding:true };
-const FLOOD_SURVEY_COLORS = {blocked:[198,83,71,240],functional:[41,131,111,240],no_drains:[177,134,58,240],unknown:[133,141,152,240],ponding:[82,97,187,240]};
-const FLOOD_SURVEY_LABELS = {blocked:'Blocked drains',functional:'Functional drains',no_drains:'No drains',unknown:'Condition unknown',ponding:'Recorded water ponding'};
-function floodSurveyRows() {
-  if(!floodSurvey.data)return {streets:[],points:[]};
-  const neighborhood=r=>!floodSurvey.neighborhood||r.neighborhood===floodSurvey.neighborhood;
-  return {streets:floodSurvey.data.streets.filter(r=>neighborhood(r)&&(!floodSurvey.condition||r.condition===floodSurvey.condition)),
-    points:floodSurvey.ponding?floodSurvey.data.points.filter(neighborhood):[]};
-}
-function floodSurveyLayers() {
-  if(!floodSurvey.visible||!floodSurvey.data)return [];
-  const rows=floodSurveyRows(),drape={};
-  const out=[];
-  if(rows.streets.length)out.push(new deck.PathLayer({id:'flood-survey-streets',
-    data:rows.streets.flatMap(survey=>survey.paths.map(path=>({survey,path}))),getPath:d=>d.path,
-    getColor:d=>FLOOD_SURVEY_COLORS[d.survey.condition]||FLOOD_SURVEY_COLORS.unknown,
-    getWidth:4,widthUnits:'pixels',pickable:true,parameters:ON_TOP,...drape}));
-  if(rows.points.length)out.push(new deck.ScatterplotLayer({id:'flood-survey-ponding',
-    data:rows.points.map(survey=>({survey})),getPosition:d=>d.survey.position,
-    getFillColor:FLOOD_SURVEY_COLORS.ponding,getRadius:5,radiusUnits:'pixels',stroked:true,
-    getLineColor:[255,255,255,240],getLineWidth:1,lineWidthUnits:'pixels',pickable:true,parameters:ON_TOP,...drape}));
-  return out;
-}
-function floodSurveyTip(tip, record, x, y) {
-  const lines=[FLOOD_SURVEY_LABELS[record.condition]||'Survey observation',
-    record.neighborhood||'Neighborhood unavailable',`Survey year: ${record.survey_year||'unavailable'}`,
-    ...(record.road_id?[`Source road ID: ${record.road_id}`]:[]),
-    ...(record.source_condition?[`Source condition: ${record.source_condition}`]:[]),
-    'UN-Habitat neighborhood survey · historical record',
-    record.condition==='ponding'?'No event date or measured flood depth supplied.':'Street observation; individual drain position and capacity unavailable.'];
-  tip.replaceChildren();lines.forEach((text,i)=>{const line=document.createElement('div');line.className=i?'s':'h';line.textContent=text;tip.append(line)});
-  tip.hidden=false;tip.style.left=`${Math.min(x+16,innerWidth-tip.offsetWidth-10)}px`;tip.style.top=`${Math.min(y+16,innerHeight-tip.offsetHeight-10)}px`;
-}
-function updateFloodSurvey() {
-  const rows=floodSurveyRows(),counts={};rows.streets.forEach(r=>{counts[r.condition]=(counts[r.condition]||0)+1});
-  $('flood-survey-counts').textContent=`${rows.streets.length} street records · ${rows.points.length} independent ponding points. `+
-    Object.entries(counts).map(([kind,n])=>`${n} ${FLOOD_SURVEY_LABELS[kind]?.toLowerCase()||kind}`).join(' · ');
-  $('attrib').textContent=attribution();render();
-}
-async function loadFloodSurvey() {
-  try {
-    const response=await fetch('/v1/flood/context');
-    if(!response.ok)throw new Error('Survey service unavailable; restart with --flood-context to load the verified package.');
-    const value=await response.json();
-    if(value.status!=='available'){$('flood-survey-status').textContent=value.reason;return}
-    floodSurvey.data=value;
-    $('flood-survey-status').textContent=`UN-Habitat survey records · ${value.survey_years.join(', ')||'dates unavailable'}. Historical coverage of ${value.neighborhoods.length} neighborhoods; not a current drainage inventory.`;
-    const select=$('flood-survey-neighborhood');
-    value.neighborhoods.forEach(name=>{const option=document.createElement('option');option.value=name;option.textContent=name;select.append(option)});
-    const sourceBox=$('flood-survey-sources');sourceBox.replaceChildren();
-    value.sources.forEach(source=>{const p=document.createElement('p'),link=document.createElement('a');link.href=source.url;link.target='_blank';link.rel='noopener noreferrer';link.textContent=source.id==='ponding'?'Ponding source layer':'Street-condition source layer';p.append(link);const note=document.createElement('span');note.textContent=` · Retrieved ${source.retrieved_utc?new Date(source.retrieved_utc).toISOString().slice(0,10):'date unavailable'}. Reuse terms ${source.reuse_license||'unverified; local research only'}.`;p.append(note);sourceBox.append(p)});
-    const inputBox=$('flood-survey-inputs');inputBox.replaceChildren();
-    Object.entries(value.model_inputs).forEach(([name,status])=>{const p=document.createElement('p');p.textContent=`${name.replaceAll('_',' ')}: ${status.replaceAll('_',' ')}`;inputBox.append(p)});
-    $('flood-survey-controls').hidden=false;updateFloodSurvey();
-  } catch(error){$('flood-survey-status').textContent=error.message}
-}
-function wireFloodSurvey() {
-  $('flood-survey-visible').onchange=e=>{floodSurvey.visible=e.target.checked;$('attrib').textContent=attribution();render()};
-  $('flood-survey-neighborhood').onchange=e=>{floodSurvey.neighborhood=e.target.value;updateFloodSurvey()};
-  $('flood-survey-condition').onchange=e=>{floodSurvey.condition=e.target.value;updateFloodSurvey()};
-  $('flood-survey-ponding').onchange=e=>{floodSurvey.ponding=e.target.checked;updateFloodSurvey()};
-  $('flood-survey-focus').onclick=()=>{const rows=floodSurveyRows(),points=[...rows.points.map(r=>r.position),...rows.streets.flatMap(r=>r.paths.flat())];if(points.length){floodSurvey.visible=true;$('flood-survey-visible').checked=true;$('attrib').textContent=attribution();render();focusPoints(points)}};
-  if(DATA.api)loadFloodSurvey();
-}
-
-// Timestamped model outputs: discrete playback, no inferred flow/velocity.
-let floodPlayback = { bundle:null, geometry:null, summary:null, scenario:0, frame:0, visible:false, timer:null };
-function floodPlaybackRows() {
-  if (!floodPlayback.bundle || !floodPlayback.visible) return [];
-  const frame = floodPlayback.bundle.scenarios[floodPlayback.scenario].frames[floodPlayback.frame];
-  return frame.depth_m.map((depth,i)=>({polygon:floodPlayback.geometry.polygons[i],depth})).filter(d=>d.depth===null || d.depth>0);
-}
-function floodPlaybackLayers() {
-  // Absolute terrain altitude is not supplied for Google's real mesh.
-  const data = floodPlaybackRows();
-  return data.length ? [new deck.SolidPolygonLayer({id:'flood-model-output',data,
-    getPolygon:d=>d.polygon,extruded:true,getElevation:d=>d.depth===null?0:d.depth,
-    getFillColor:d=>d.depth===null?[145,151,158,150]:[32,137-Math.min(d.depth,1)*45,195,185],
-    pickable:false,material:false})] : [];
-}
-function pauseFloodPlayback() {
-  if(floodPlayback.timer!==null)clearInterval(floodPlayback.timer);
-  floodPlayback.timer=null;$('flood-map-play').textContent=floodPlayback.bundle && floodPlayback.frame===floodPlayback.bundle.scenarios[0].frames.length-1?'↻ Replay':'▶ Play';
-}
-function renderFloodPlayback() {
-  if(!floodPlayback.bundle)return;
-  const scenario=floodPlayback.bundle.scenarios[floodPlayback.scenario],frame=scenario.frames[floodPlayback.frame];
-  $('flood-map-timestamp').textContent=new Date(frame.timestamp).toISOString();
-  $('flood-map-time').value=floodPlayback.frame;
-  const elapsed=(Date.parse(frame.timestamp)-Date.parse(scenario.frames[0].timestamp))/60000;
-  const duration=(Date.parse(scenario.frames.at(-1).timestamp)-Date.parse(scenario.frames[0].timestamp))/60000;
-  $('flood-elapsed').textContent=`${Math.round(elapsed*10)/10} min`;
-  $('flood-duration').textContent=`${Math.round(duration*10)/10} min`;
-  $('flood-map-time').setAttribute('aria-valuetext',`${Math.round(elapsed*10)/10} minutes into the event`);
-  document.querySelectorAll('[data-flood-case]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.floodCase===scenario.kind)));
-  $('flood-case-description').textContent=`${scenario.label} · same rainfall.`;
-  const valid=frame.depth_m.filter(d=>d!==null),speeds=frame.velocity_m_s?.filter(v=>v!==null);
-  $('flood-depth-value').textContent=valid.length?`${Math.round(Math.max(...valid)*100)} cm`:'Unknown';
-  $('flood-map-metrics').textContent=`Current peak: ${valid.length?Math.max(...valid).toFixed(2)+' m':'unavailable'} · Velocity: ${speeds?.length?Math.max(...speeds).toFixed(2)+' m/s':'unavailable'} · ${frame.depth_m.length-valid.length} missing cells. Output interval ${frame.duration_s} s.`;
-  render();
-}
-async function loadFloodPlayback(bundle) {
-  const result=await floodRunRequest('/v1/flood/pilot/map',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bundle)});
-  pauseFloodNative();floodRun.visible=false;$('flood-native-visible').checked=false;$('flood-map-status').hidden=false;
-  $('flood-map-error').textContent='';
-  pauseFloodPlayback();floodPlayback={...floodPlayback,bundle:result.bundle,geometry:result.map,summary:result.summary,scenario:0,frame:0,visible:true};
-  $('flood-map-welcome').hidden=true;
-  $('flood-map-time').max=result.bundle.scenarios[0].frames.length-1;$('flood-map-visible').checked=true;$('flood-map-controls').hidden=false;
-  $('flood-map-status').textContent=('Imported model results · not independently validated. ');
-  renderFloodPlayback();focusPoints(result.map.polygons.flat());
-}
-function toggleFloodPlayback() {
-  if(floodPlayback.timer!==null){pauseFloodPlayback();return}
-  if(!floodPlayback.bundle)return;
-  if(floodPlayback.frame>=floodPlayback.bundle.scenarios[0].frames.length-1)floodPlayback.frame=0;
-  renderFloodPlayback();$('flood-map-play').textContent='Ⅱ Pause';
-  floodPlayback.timer=setInterval(()=>{
-    const last=floodPlayback.bundle.scenarios[0].frames.length-1;
-    if(floodPlayback.frame>=last){pauseFloodPlayback();return}
-    floodPlayback.frame++;renderFloodPlayback();if(floodPlayback.frame===last)pauseFloodPlayback();
-  },900);
-}
-function wireFloodWorkspace() {
-  wireFloodRun();
-  wireFloodSurvey();
-  const dialog=$('flood-workspace'),frame=$('flood-frame');
-  const openPlanning=()=>{if(!frame.getAttribute('src'))frame.src=frame.dataset.src;dialog.showModal()};
-  $('close-flood-playback').onclick=()=>{pauseFloodPlayback();pauseFloodNative();$('p-flood-playback').hidden=true;togglePanel('tray',$('t-fx'),true)};
-  $('flood-map-planning').onclick=openPlanning;$('close-flood-pilot').onclick=()=>dialog.close();
-  addEventListener('message',event=>{if(event.origin===location.origin&&event.source===frame.contentWindow&&event.data?.type==='dynacity-close-flood')dialog.close()});
-  const failed=error=>{$('flood-map-error').textContent=`Load failed: ${error.message}. ${floodPlayback.bundle?'Previous '+floodPlayback.bundle.evidence+' outputs remain loaded.':'No simulation outputs loaded.'}`};
-  $('flood-map-import').onclick=()=>$('flood-map-file').click();
-  $('flood-map-file').onchange=async event=>{try{const file=event.target.files[0];if(!file)return;if(file.size>15000000)throw new Error('Output bundle exceeds 15 MB');await loadFloodPlayback(JSON.parse(await file.text()))}catch(e){failed(e)}finally{event.target.value=''}};
-  document.querySelectorAll('[data-flood-case]').forEach(button=>button.onclick=()=>{if(!floodPlayback.bundle)return;pauseFloodPlayback();floodPlayback.scenario=floodPlayback.bundle.scenarios.findIndex(s=>s.kind===button.dataset.floodCase);renderFloodPlayback()});
-  $('flood-map-time').oninput=()=>{pauseFloodPlayback();floodPlayback.frame=Number($('flood-map-time').value);renderFloodPlayback()};
-  $('flood-map-visible').onchange=()=>{floodPlayback.visible=$('flood-map-visible').checked;render()};
-  $('flood-map-focus').onclick=()=>{if(floodPlayback.geometry)focusPoints(floodPlayback.geometry.polygons.flat())};
-  $('flood-map-play').onclick=toggleFloodPlayback;
-  if(DATA.api)floodRunRequest('/v1/flood/pilot').then(value=>{
-    if(value.bundle)return loadFloodPlayback(value.bundle);
-    $('flood-map-status').textContent='No flood simulation results are loaded. Verified terrain, storm and drainage inputs are required before running.';
-  }).catch(failed);
-}
-
 function wire() {
-  wireFloodWorkspace();
   wireUsability();
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => setLens(t.dataset.lens)));
   const tabs = [...document.querySelectorAll('.tab')];
@@ -4447,7 +3174,6 @@ function wire() {
   });
   $('t-kpis').onclick = (e) => togglePanel('p-kpis', e.currentTarget);
   $('t-info').onclick = (e) => togglePanel('p-info', e.currentTarget);
-  $('t-fx').onclick = (e) => togglePanel('tray', e.currentTarget);
   $('t-traffic').onclick = () => {
     if (ui.traffic && $('p-traffic').hidden) {
       $('p-traffic').hidden = false;
@@ -4483,22 +3209,6 @@ function wire() {
   });
   $('p-traffic').addEventListener('toggle', (e) => { if (e.target.matches('[data-stations]')) ui.stationsOpen = e.target.open; }, true);
   $('p-traffic').addEventListener('mouseleave', () => { if (ui.roadHighlight) { ui.roadHighlight = null; render(); } });
-  $('tiles').innerHTML = HAZARDS.filter((h) => !corridorMode() || CORRIDOR_HAZARDS.has(h.kind)).map((h) => `<button class="tile" type="button" data-kind="${h.kind}" title="${h.kind==='flood'?'Open recorded street conditions and documented flood outputs':h.label+': drag onto the city (or press to drop it mid-view)'}">${hazardIcon(h.kind)}<span>${h.label}</span></button>`).join('');
-  $('tiles').addEventListener('pointerdown', startDrag);
-  $('tiles').addEventListener('click', (e) => {
-    const tile = e.target.closest('.tile');
-    if (swallowClick) { swallowClick = false; return; }
-    if (tile && !tile.disabled) {
-      dropAt(tile.dataset.kind, innerWidth / 2, innerHeight / 2);
-    }
-  });
-  $('sev').addEventListener('input', (e) => {
-    const label = cap(SEVERITIES[e.target.value]);
-    $('sev-label').textContent = label; e.target.setAttribute('aria-valuetext', label);
-  });
-  $('draw').addEventListener('pointerdown', steerStart);
-  $('draw').addEventListener('pointermove', steerMove);
-  $('draw').addEventListener('pointerup', steerEnd);
   document.addEventListener('click', (e) => {
     const h = e.target.closest('[data-h]');
     if (h) { ui.horizon = Number(h.dataset.h); renderDock(); return; }
@@ -4512,7 +3222,7 @@ function wire() {
     if (which === 'traffic') $('p-traffic').hidden = true;
     if (which === 'answer') { ui.answer = null; ui.answerIds = null; ui.highlight = null; renderAnswer(); render(); }
     if (which === 'scenario') {
-      ui.scenario = null; ui.highlight = null; ui.drops = []; clearFx();
+      ui.scenario = null; ui.highlight = null;
       ui.trafficImpact = null; requestTraffic(); prepareCars();
       document.querySelector('[data-lens="delta"]').hidden = true;
       if (ui.lens === 'delta') setLens('forecast');
@@ -4522,9 +3232,7 @@ function wire() {
   $('p-scenario').addEventListener('mouseover', (e) => {
     const card = e.target.closest('[data-lever]');
     const lever = card && ui.scenario?.compilation?.scenario?.interventions[Number(card.dataset.lever)];
-    const hazard = e.target.closest('[data-hazard]');
-    const hits = hazard && ui.scenario?.hazards?.find((h) => h.hazard_id === hazard.dataset.hazard)?.ids;
-    const next = lever ? new Set(lever.object_ids.length ? lever.object_ids : DATA.buildings.map((b) => b.id)) : hits?.length ? new Set(hits) : null;
+    const next = lever ? new Set(lever.object_ids.length ? lever.object_ids : DATA.buildings.map((b) => b.id)) : null;
     if (next !== ui.highlight) { ui.highlight = next; render(); }
   });
   $('p-scenario').addEventListener('mouseleave', () => { ui.highlight = null; render(); });
@@ -4551,7 +3259,6 @@ function wire() {
   });
   addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { $('tool-menu').open = false; closeUsabilityPanel(); }
-    if (e.key === 'Escape' && pending?.steering) { cancelSteer(); return; }
     if (e.key === 'Escape' && ui.roadTool) { setRoadTool(ui.roadTool); return; }
     if (e.key === 'Escape' && ui.selectedRoad !== null) { selectRoad(null); return; }
     if (e.key === 'Escape' && ui.selected) { ui.selected = null; renderInspector(); render(); }
@@ -4567,8 +3274,6 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
   $('attrib').textContent = attribution();
   if (!DATA.forecast) document.querySelectorAll('[data-lens="forecast"],[data-lens="change"]').forEach((t) => (t.hidden = true));
   // Detail panels start collapsed so the city stays visible.
-  // Dropping disasters needs the server; the tray opens on demand.
-  $('t-fx').hidden = !DATA.api;
   $('t-traffic').hidden = !DATA.traffic;
   $('t-corridor').hidden = !DATA.corridor;
   if (corridorMode()) {

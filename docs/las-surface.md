@@ -1,7 +1,7 @@
 # Point-cloud ingestion
 
 `dynacity las-surface` streams a local uncompressed LAS into an observed-surface
-review package. Requires the `flood` optional dependencies for CRS validation.
+review package. Requires the `las` optional dependencies for CRS validation.
 The command requires explicit horizontal CRS evidence and aggregation spacing:
 
 ```sh
@@ -42,7 +42,7 @@ inspection. Derivatives include draft labels, car edits and recoloured copies,
 not 16 independent surveys. Their contents were not hydrated or treated as
 verified ground. Two additional ZIP archives contain derivative work.
 
-The loaded city ground model remains separate. Flood terrain adoption requires
+The loaded city ground model remains separate. Adopting it as planning terrain requires
 checked ground classification, gap boundaries, independent registration and
 vertical datum/checkpoints. Missing underground connectivity and event forcing
 cannot be obtained from a point cloud.
@@ -92,4 +92,4 @@ The LAS, exported binary positions, RGB, source hashes, horizontal coordinates
 and relative 3D geometry remain unchanged. This is a visual road-corridor anchor
 from unclassified points, not a surveyed checkpoint, ground classification or
 vertical datum conversion. Real local slopes can still differ from a flat
-basemap away from the anchor. It is not passed to the flood terrain or solver.
+basemap away from the anchor.

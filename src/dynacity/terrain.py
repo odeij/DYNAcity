@@ -1,4 +1,4 @@
-"""Ground elevation for hazards that follow terrain (floods).
+"""Approximate ground elevation over a snapshot (Copernicus GLO-30).
 
 `fetch_ground_model` reads the Copernicus GLO-30 elevation model over the
 snapshot's extent (HTTP range reads of the public cloud-optimised GeoTIFF; no

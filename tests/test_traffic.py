@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from dynacity.contracts import HazardEvent, HazardKind, UrbanObjectState, UrbanStateSnapshot
+from dynacity.contracts import UrbanObjectState, UrbanStateSnapshot
 from dynacity.service import create_app
 from dynacity.traffic import (
     COUNT_STATIONS,
@@ -16,7 +16,6 @@ from dynacity.traffic import (
     match_stations,
     TrafficModel,
     build_traffic_model,
-    road_disruption,
     road_events,
     road_crossings,
     road_graph,
@@ -276,33 +275,6 @@ def test_model_round_trips(model, tmp_path):
     assert loaded.name == model.name and loaded.class_hour_readings == model.class_hour_readings
 
 
-def test_flood_closes_roads_in_reach_only(model):
-    flood = HazardEvent(hazard_id="f", kind=HazardKind.FLOOD, magnitude=1.0,
-                        center_x_m=X0, center_y_m=Y0, radius_m=150)
-    out = road_disruption([flood], snapshot(), model)
-    assert out.closed.any()
-    assert {out.reason[i] for i in np.flatnonzero(out.closed)} == {"water"}
-    # Nothing at the far corner is touched.
-    far = [i for i, g in enumerate(model.geometry) if min(x for x, _ in g) >= X0 + 2 * STEP - 1]
-    assert not out.closed[far].any()
-
-
-def test_rubble_closes_the_street_beside_a_destroyed_building(model):
-    tornado = HazardEvent(hazard_id="t", kind=HazardKind.TORNADO, magnitude=5,
-                          path_m=[(X0 + 100, Y0 - 50), (X0 + 100, Y0 + 50)], radius_m=30)
-    out = road_disruption([tornado], snapshot(), model)
-    closed = np.flatnonzero(out.closed)
-    assert len(closed) == 1 and out.reason[closed[0]] == "rubble"
-    assert model.way_id[closed[0]] == 1
-
-
-def test_rain_slows_without_closing(model):
-    rain = HazardEvent(hazard_id="r", kind=HazardKind.RAIN, citywide=True)
-    out = road_disruption([rain], snapshot(), model)
-    assert not out.closed.any()
-    assert out.speed_factor == pytest.approx(np.full(len(model), 0.85))
-
-
 def test_impact_counts_cut_off_and_delayed_trips(model):
     untouched = RoadDisruption(closed=np.zeros(len(model), bool), speed_factor=np.ones(len(model)),
                                reason=[None] * len(model))
@@ -310,7 +282,7 @@ def test_impact_counts_cut_off_and_delayed_trips(model):
     assert calm["affected"] == 0 and calm["cut_off"] == 0 and calm["closed"] == []
 
     everything = RoadDisruption(closed=np.ones(len(model), bool), speed_factor=np.ones(len(model)),
-                                reason=["cordon"] * len(model))
+                                reason=["manual"] * len(model))
     blocked = traffic_impact(model, everything, origins=6, per_origin=6)
     assert blocked["affected"] == blocked["trips"] > 0
     assert blocked["cut_off"] == blocked["trips"]
@@ -332,25 +304,6 @@ def test_payload_is_aggregate_and_in_lonlat(model):
     lon, lat = road["path"][0]
     assert 35 < lon < 36 and 33 < lat < 35
     assert "Tari'ak" in payload["source"]
-
-
-def test_illustrative_flood_drop_cannot_invent_road_closures(model):
-    located = snapshot()
-    client = TestClient(create_app(engine_fixture(), viewer_snapshot=located, viewer_traffic=model))
-    lon, lat = utm_to_lonlat(X0 + 100, Y0, 36, True)
-    response = client.post("/v1/viewer/hazard", json={
-        "hazards": [{"kind": "flood", "points": [[lon, lat]], "severity": "severe", "radius_m": 150}],
-        "hour": 3,
-    })
-    assert response.status_code == 422
-    assert "documented hydraulic" in response.json()["detail"]
-
-
-def test_dropped_hazard_without_traffic_has_none():
-    client = TestClient(create_app(engine_fixture(), viewer_snapshot=snapshot()))
-    lon, lat = utm_to_lonlat(X0, Y0, 36, True)
-    response = client.post("/v1/viewer/hazard", json={"hazards": [{"kind": "explosion", "points": [[lon, lat]]}]})
-    assert response.status_code == 200 and response.json()["traffic"] is None
 
 
 def test_viewer_page_embeds_roads(model, bbed_collection):
@@ -392,7 +345,7 @@ def test_impact_names_the_busiest_closed_counted_road(model):
     closed = np.zeros(len(model), bool)
     closed[roads_of_way(model, 1)[0]] = True
     out = traffic_impact(model, RoadDisruption(closed=closed, speed_factor=np.ones(len(model)),
-                                               reason=["cordon" if c else None for c in closed]),
+                                               reason=["manual" if c else None for c in closed]),
                          hour=9, origins=6, per_origin=6)
     assert out["busiest_closed_vph"] == round(class_peak_volumes(model)["secondary"]["vph"], -1)
 
@@ -427,7 +380,8 @@ def test_crash_queue_backs_up_the_roads_that_feed_it(model):
 
 
 def test_disruptions_combine(model):
-    rain = road_disruption([HazardEvent(hazard_id="r", kind=HazardKind.RAIN, citywide=True)], snapshot(), model)
+    rain = RoadDisruption(closed=np.zeros(len(model), bool), speed_factor=np.full(len(model), 0.85),
+                          reason=[None] * len(model))
     spur = roads_of_way(model, 20)[0]
     both = combine_disruptions(rain, road_events(model, closed=[spur]))
     assert both.closed.sum() == 1 and both.reason[spur] == "manual"
@@ -441,9 +395,10 @@ def test_traffic_endpoint_measures_roads_without_a_forecast(model):
     body = client.post("/v1/viewer/traffic", json={"closed": [spur], "crashes": [crash], "hour": 3}).json()
     assert body["traffic"]["hour"] == 3
     assert body["traffic"]["closed_by"]["manual"] == 1 and body["traffic"]["closed_by"]["crash"] == 1
-    flood = {"hazard_id": "f", "kind": "flood", "magnitude": 1.0, "center_x_m": X0, "center_y_m": Y0, "radius_m": 150}
-    with_flood = client.post("/v1/viewer/traffic", json={"hazards": [flood], "closed": [spur]}).json()["traffic"]
-    assert with_flood["closed_by"]["water"] > 0 and with_flood["closed_by"]["manual"] == 1
+    closed_only = client.post("/v1/viewer/traffic", json={"closed": [spur]}).json()["traffic"]
+    assert closed_only["closed_by"] == {"manual": 1, "crash": 0}
+    # Disasters are gone from the request contract, so the field is refused, not ignored.
+    assert client.post("/v1/viewer/traffic", json={"hazards": [], "closed": [spur]}).status_code == 422
     assert client.post("/v1/viewer/traffic", json={}).json()["traffic"] is None
     assert client.post("/v1/viewer/traffic", json={"closed": [10_000]}).status_code == 422
 

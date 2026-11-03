@@ -2,7 +2,7 @@
 
 `las-ground-review` now extracts candidate street/open-ground observations using explicit, externally supplied polygons. It excludes buildings and vehicles before aggregation and rejects candidate cells that cross an exclusion. It reads every original point, retains counts and observed elevation quantiles, records source hashes, and leaves unavailable areas as NaN. There is no interpolation, smoothing, display alignment or implicit CRS conversion.
 
-This prepares a ground review, **not an accepted flood DTM**. An annotation says where a road appears in plan view; it does not establish whether a point is pavement, a bridge, a barrier or an outlier. Neither a small within-cell spread nor dense observations establish vertical accuracy. Elevated roads and underpasses need separate connectivity and surveyed elevations.
+This prepares a ground review, **not an accepted ground model**. An annotation says where a road appears in plan view; it does not establish whether a point is pavement, a bridge, a barrier or an outlier. Neither a small within-cell spread nor dense observations establish vertical accuracy. Elevated roads and underpasses need separate connectivity and surveyed elevations.
 
 The footprint file is a planar GeoJSON FeatureCollection with `horizontal_crs`, a nonempty `evidence` description and valid 2D Polygon/MultiPolygon features. Every feature explicitly declares `properties.role` as `include` or `exclude`. Include polygons identify draft road/open-ground review areas; exclusions take precedence. Invalid geometry is refused without repair. Footprints must already share the cloud's asserted projected metre CRS.
 

@@ -101,15 +101,15 @@ def test_speed_limit_and_lane_restriction_use_real_sumo_and_restore(sim, wide):
     assert not sim.closed
 
 
-def test_speed_cap_combines_with_hazard_slowdown(sim, wide):
+def test_speed_cap_combines_with_disruption_slowdown(sim, wide):
     factor = np.ones(7)
     factor[1] = factor[2] = 0.5
-    hazard = RoadDisruption(closed=np.zeros(7, dtype=bool), speed_factor=factor, reason=[None] * 7)
-    sim.advance(hazard, 2, planning=[{'road': 1, 'speed_limit_kmh': 30}, {'road': 2, 'speed_limit_kmh': 10}])
+    slowdown = RoadDisruption(closed=np.zeros(7, dtype=bool), speed_factor=factor, reason=[None] * 7)
+    sim.advance(slowdown, 2, planning=[{'road': 1, 'speed_limit_kmh': 30}, {'road': 2, 'speed_limit_kmh': 10}])
     scenario = sim.connections[0]
-    assert scenario.lane.getMaxSpeed('1:1_0') == pytest.approx(18 / 3.6)  # hazard is already slower than the cap
-    assert scenario.lane.getMaxSpeed('2:1_0') == pytest.approx(10 / 3.6)  # cap is slower than the hazard
-    sim.advance(hazard, 2, planning=[])
+    assert scenario.lane.getMaxSpeed('1:1_0') == pytest.approx(18 / 3.6)  # disruption is already slower than the cap
+    assert scenario.lane.getMaxSpeed('2:1_0') == pytest.approx(10 / 3.6)  # cap is slower than the disruption
+    sim.advance(slowdown, 2, planning=[])
     assert scenario.lane.getMaxSpeed('1:1_0') == pytest.approx(18 / 3.6)
     assert scenario.lane.getMaxSpeed('2:1_0') == pytest.approx(18 / 3.6)
 

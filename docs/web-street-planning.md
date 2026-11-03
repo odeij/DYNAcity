@@ -17,7 +17,7 @@ The interface offers lane reallocation only when a motor lane remains and the vi
 
 ## Comparison and evidence
 
-The SUMO comparison forks before the first intervention. Only the scenario run receives the plan; the comparison retains the original road rules with the same fleet and incoming demand. Changes reach the existing session, preserving its traffic history. Speed caps combine with existing hazard slowdowns by taking the lower limit. Caps do not currently trigger travel-time-based rerouting. Lane restrictions can affect permitted turns and queues; local calibration has not been performed.
+The SUMO comparison forks before the first intervention. Only the scenario run receives the plan; the comparison retains the original road rules with the same fleet and incoming demand. Changes reach the existing session, preserving its traffic history. Speed caps combine with existing crash slowdowns by taking the lower limit. Caps do not currently trigger travel-time-based rerouting. Lane restrictions can affect permitted turns and queues; local calibration has not been performed.
 
 Pedestrian indicators use proxy-modelled PM occupancy from the shared UNA export and illustrative viewer pavement geometry. They keep occupancy constant before and after: a larger denominator reduces the reported density without predicting additional people, different destinations, avoidance, crossing behaviour, safety or wellbeing. Pedestrianisation's whole-width space is conditional on that width actually being usable. These are geometric scenario indicators, not a coupled pedestrian-flow forecast.
 

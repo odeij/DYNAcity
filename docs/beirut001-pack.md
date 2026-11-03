@@ -75,8 +75,8 @@ its own `--bbed` file.
 
 The pack's ground grid is the highest model ground surface at each 10 m cell
 centre, north-up in EPSG:32636; cells off the ground meshes are NaN. Its keys
-match `terrain.GroundModel`, so `--terrain PACK.npz` would let floods follow
-it. Serving it that way is not the default yet; GLO-30 remains the documented
+match `terrain.GroundModel`, so `--terrain PACK.npz` would attach its ground
+levels to buildings. Serving it that way is not the default yet; GLO-30 remains the documented
 terrain.
 
 ## On the map

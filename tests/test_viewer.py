@@ -215,3 +215,10 @@ def test_forecast_evidence_survives_api_and_saved_result(bbed_collection):
     legacy_summary = build_viewer_payload(bbed_collection, snapshot, legacy)['forecast']
     assert legacy_summary['training_intervals'] == []
     assert legacy_summary['monte_carlo_draws'] is None
+
+
+def test_forward_utm_inverts_the_viewer_projection():
+    from dynacity.viewer import lonlat_to_utm
+
+    for x, y in [(732346.89, 3752967.64), (820000.0, 3800000.0), (0.0, 0.0), (5100.0, 40.0)]:
+        assert lonlat_to_utm(*utm_to_lonlat(x, y, 36), 36) == pytest.approx((x, y), abs=0.01)

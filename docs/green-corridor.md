@@ -45,8 +45,7 @@ overview. The stops are written into the corridor file by the prepare script.
 
 To keep the page on the corridor, these city-wide tools are hidden: the
 Forecast and Change risk map tabs, the KPI table, About this forecast, saved
-scenarios and the free-text scenario box. Disasters offers only the weather
-that matters for a green route: storm, rain, flood and heat. Add `?full=1` to
+scenarios and the free-text scenario box. Add `?full=1` to
 the address to bring everything back.
 
 Roads are selected whole, never clipped. Turn bans, crossings and bridge

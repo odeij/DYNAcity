@@ -35,22 +35,16 @@ These come from running the whole pipeline on the public BBED layer (3,349 build
 | **About this view (provenance and OOD score)** | **HTTP API (`dynacity serve`)** |
 | ![About panel](docs/screenshots/viewer-05-about.jpg) | ![OpenAPI docs](docs/screenshots/api-docs.png) |
 
-### Interactive traffic and disaster scenarios
+### Interactive traffic
 
 The following captures show the local `dynacity serve` viewer. Traffic combines
 historical hourly speed profiles with SUMO-generated vehicle trajectories;
 these are simulated trips, not live traffic or measured GPS tracks. Road
-closures and disaster effects use illustrative assumptions.
+closures and crashes use illustrative assumptions.
 
 | SUMO traffic playback | Interactive road closure |
 | --- | --- |
 | ![Simulated vehicles, historical road speeds and trip accounting](docs/screenshots/viewer-06-traffic.jpg) | ![A selected road closure with traffic controls and trip accounting](docs/screenshots/viewer-07-road-closure.jpg) |
-
-**Disaster scenario and change from baseline.** The earthquake example shows
-assumed damage, road impacts and KPI ranges. Its fragility curves are
-uncalibrated; the display does not predict damage to individual buildings.
-
-![Illustrative earthquake scenario, baseline comparison and KPI uncertainty](docs/screenshots/viewer-08-disaster.jpg)
 
 **Whole-city buildings.** Run with `--landscape` and `--context-buildings`, the
 map also draws about 68,700 mapped building outlines beyond the Beirut 001 and
@@ -65,10 +59,9 @@ zoom. Most of their heights are estimates, not measurements; see
 Click an animated preview to open its MP4. These are recordings of the running
 viewer; playback speed follows the simulation's on-screen indicator.
 
-| Traffic simulation | Illustrative disaster scenario |
-| --- | --- |
-| [![Animated traffic simulation preview](docs/videos/traffic-preview.gif)](docs/videos/traffic-simulation.mp4) | [![Animated earthquake scenario preview](docs/videos/disaster-preview.gif)](docs/videos/disaster-scenario.mp4) |
-| [Watch traffic playback (MP4)](docs/videos/traffic-simulation.mp4) | [Watch earthquake scenario (MP4)](docs/videos/disaster-scenario.mp4) |
+[![Animated traffic simulation preview](docs/videos/traffic-preview.gif)](docs/videos/traffic-simulation.mp4)
+
+[Watch traffic playback (MP4)](docs/videos/traffic-simulation.mp4)
 
 ## Data sources
 
@@ -81,9 +74,6 @@ viewer; playback speed follows the simulation's on-screen indicator.
 | Historical traffic speeds | [Tari’ak Lebanon Traffic Dataset](https://github.com/ramikay/lebanon-traffic-dataset) | Typical hourly speeds from 2014–2019, rather than live traffic. |
 | Traffic counts | [CDR / ELARD BRT study, 2017, Table 4-4](https://documents1.worldbank.org/curated/en/648821508851766209/pdf/SFG3708-EA-P160224-Box405306B-PUBLIC-Disclosed-10-24-2017.pdf) | Peak-hour road counts used to estimate traffic volumes. |
 | 3D point clouds | Existing local AlMasar Al Akhdar / AUB project files; no confirmed public download link | Detailed 3D views and surface/ground reviews. See [point-cloud provenance](#point-cloud-provenance). |
-| Rainfall | [NOAA Integrated Surface Database](https://www.ncei.noaa.gov/products/land-based-station/integrated-surface-database), Beirut airport station 401000-99999 | Historical rainfall records for 2005, 2010, 2018 and 2023. Missing records limit flood modelling. |
-| Ponding and street drainage conditions | [UN-Habitat Lebanon neighbourhood geoportal](https://lebanonportal.unhabitat.org/geoportal/) | Mapped ponding points and street-condition observations, not a connected drainage-pipe network. |
-| Hamra reference maps | [UN-Habitat / RELIEF Centre Hamra neighbourhood profile, 2020](https://unhabitat.org/sites/default/files/2020/11/hamraneighbourhoodprofilebeirutlebanonoct2020_0_1.pdf) | Documentary stormwater and neighbourhood context. |
 | Model buildings and bridge heights | [Beirut 001 3D model by Salim al-Kadi](https://www.salimalkadi.com/07_beirut-001), free Rhino download, January 2020 | Building outlines and heights for an optional map layer, plus measured deck heights for some bridges (evaluated, not used yet). Reduced to a small private pack; see [docs/beirut001-pack.md](docs/beirut001-pack.md). |
 
 Panels, snapshots, trained models, forecasts and planning results are generated locally from these inputs. They are not additional observed datasets. Raw data and generated artifacts stay outside Git, as described below.
