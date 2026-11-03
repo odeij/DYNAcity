@@ -9,14 +9,22 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+from unreal_build_cache import EXPECTED_PROJECT, cleanup, output_lock
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--engine',required=True,help='Unreal installation root, containing Engine/')
     parser.add_argument('--output',required=True,help='Private build/cache directory')
+    parser.add_argument('--keep-intermediates', action='store_true',
+                        help='Keep compiler caches for deliberate incremental builds (default: remove after build)')
     args=parser.parse_args()
     engine=Path(args.engine).resolve();output=Path(args.output).resolve()
+    with output_lock(output):
+        build(engine, output, args.keep_intermediates)
+
+
+def build(engine, output, keep_intermediates=False):
     for path in (engine,output):
         if any(char in str(path) for char in '"&|<>^%!\r\n'):
             raise ValueError('Build paths contain unsupported command-shell characters')
@@ -33,7 +41,7 @@ def main():
         destination=target/path.relative_to(source);destination.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2(path,destination)
     project=host/'HostProject.uproject'
-    expected={'FileVersion':3,'Plugins':[{'Name':'DynaCityDrive','Enabled':True}]}
+    expected=EXPECTED_PROJECT
     if project.exists() and json.loads(project.read_text())!=expected:
         raise RuntimeError('Host project differs from generated build; refusing to overwrite it')
     project.write_text(json.dumps(expected,indent=2),encoding='utf-8')
@@ -47,6 +55,11 @@ def main():
              'plugin':str(target),'editor_binaries':[str(p) for p in binaries],'log':str(log),
              'compiled':result.returncode==0 and bool(binaries),'runtime_verified':False}
     (host.parent/'build-result.json').write_text(json.dumps(summary,indent=2),encoding='utf-8')
+    # Keep logs/results even on compilation failure; interrupted builds retain caches
+    # for later guarded cleanup rather than risking deletion under a surviving child.
+    if not keep_intermediates:
+        records=cleanup(output, apply=True, run_name=host.parent.name)
+        (host.parent/'cache-cleanup.json').write_text(json.dumps(records,indent=2),encoding='utf-8')
     print(json.dumps(summary,indent=2))
     if not summary['compiled']:raise SystemExit(result.returncode or 1)
 

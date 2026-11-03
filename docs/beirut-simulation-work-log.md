@@ -2261,3 +2261,30 @@ Initial12turn occlusionworker loaded relevantgeometry/cameras butproducednocode;
 ### 3 November 2026, 13:48 Beirut - recovered source-ray calculation rejects unsupported occlusion inference
 
 SameOmniRoutesecond16turnrunendedmaxturns withoutpersistedcode/report, buttranscriptcontainsactualPythoncalculations. Rootrecoveredlargestactualcommand, correctedtarget-missclassification(anysourcecannotbelabelledbeforeamissingtarget), addedhashes/structuredresults, executeddiagnostic.py.25rays:5targethits20targetmisses0interveningsourcehits. Original47804triangles accountfor47760included+44excludedLGB; positive/parallel/backward/outside syntheticraycasespass, maxinverseprojectionerror1.93e-12px. These25annotatededge-neighborhoodrays donotsupportchangingforegroundsourcebuildings;20misstargetitself. Thisdoesnotprovenativeocclusionabsence: originalfullsourcewallsincludeomittedvisualfaces, currentreconstructedbalconiesarenotrepresented. No calibratedcamera/heightacceptance/nativechange. Currentownedmodelworkers0; noquotaexhaustionorproviderfallback. [Reproduciblereport](D:/private/dynacity-data/engine/resemblance-20261101-2355/reconstruction/occlusion-diagnostic/report.json), [rootreview](D:/private/dynacity-data/engine/resemblance-20261101-2355/reconstruction/occlusion-diagnostic/root-review.md). NativeMCPcontrolstillunresolved;190unsavedassetspreserved. UserOmniRoute-onlyrestrictionretained; noClaude/DeepSeek.
+
+
+### 3 November 2026 - private Unreal build cache cleanup and retention policy
+
+User authorized cleanup of accumulated private build caches and a prevention policy.
+Removed 64 validated host/plugin `Intermediate` directories across the nine historical
+build output roots, totaling 79,206,017,934 logical bytes (73.77 GiB). No city-project
+cache, Content, compiled DLL, source asset, photograph, backup, or report was targeted.
+The running editor was confirmed to use sea-highway/UnrealPrototype, outside cleanup
+scope; no active native compiler/build process was found. No editor input or scene
+change occurred. All 878 retained build files passed before/after SHA256 checks;
+post-cleanup discovery found zero remaining targeted Intermediate directories.
+
+`scripts/build_unreal_drive.py` now removes its current host/plugin compiler caches
+following a completed build, successful or failed, preserving logs/results/DLLs.
+`--keep-intermediates` is an explicit incremental-build exception; interrupted builds
+retain caches. Output locks exclude cooperating concurrent builds/cleanup.
+`scripts/unreal_build_cache.py` offers guarded dry-run/apply cleanup for the nine
+historical roots, validates generated descriptors and rejects linked/escaping paths.
+Manual cleanup must not overlap external builds. Retained binaries/source snapshots
+are not pruned; no full Unreal compilation or runtime test was needed or performed.
+Eight targeted tests passed, including destructive-scope preservation, junction
+rejection, lock exclusion, run filtering, and successful/failed build retention.
+Policy and manual commands: [driving documentation](unreal-driving.md#build-cache-retention).
+[Deletion report](C:/private/dynacity-data/engine/build-cache-cleanup-20261103/cleanup.json),
+[verification](C:/private/dynacity-data/engine/build-cache-cleanup-20261103/verification.json),
+[retained-file hashes](C:/private/dynacity-data/engine/build-cache-cleanup-20261103/preserved-files.json).

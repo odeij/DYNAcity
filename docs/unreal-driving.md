@@ -66,6 +66,33 @@ the project descriptor, save the current map, and restart Unreal. The source
 plugin is disabled by default so an unbuilt module does not prevent opening
 existing scenes.
 
+### Build cache retention
+
+By default, `build_unreal_drive.py` removes the generated host and plugin
+`Intermediate` directories after a build returns, including a failed compilation.
+Source snapshots, compiled DLLs, `build.log`, and `build-result.json` remain;
+`cache-cleanup.json` records deleted paths and logical byte counts. Builds still
+use source-hashed hosts, but no longer retain their large compiler caches.
+The next build recompiles these files. Use `--keep-intermediates` only when
+deliberately retaining an incremental cache; interrupted builds also retain
+caches for later guarded cleanup. A per-output lock rejects concurrent builds
+or cleanup. A lock left by a forcibly terminated process must only be removed
+after confirming that process and its build children have exited.
+
+For accumulated caches across the nine historical build output directories:
+
+    python scripts/unreal_build_cache.py --engine-root C:/private/dynacity-data/engine --report C:/private/dynacity-data/engine/build-cache-cleanup/dry-run.json
+
+Review the report, then repeat with `--apply` and a separate report filename.
+The command validates generated host descriptors, rejects links/junctions and
+paths outside each build output, and refuses cleanup while compiler/build
+processes or temporary host editors are running. The main city editor can stay
+open because its project is outside the allowlisted build outputs. Do not start
+external builds during manual cleanup. It preserves `Content`, `Binaries`,
+source files, logs, city projects, imagery, and backups. This policy does not
+prune those retained files or caches in arbitrary output directories; custom
+outputs still receive the builder's default post-build cleanup.
+
 In Unreal Python, with the city map open:
 
     import setup_driving
