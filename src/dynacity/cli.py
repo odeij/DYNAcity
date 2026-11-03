@@ -13,6 +13,7 @@ files rather than in-process state:
     fetch-terrain   → approximate ground-elevation grid (.npz) for terrain-following floods
     pack-beirut001  → Beirut 001 Rhino model → small private pack (.npz) of outlines, heights, ground
     build-traffic   → OSM road graph + Tari'ak hourly speeds (.json) for traffic and road closures
+    build-zones     → decision zones (.json) over the roads from OSM boundaries, for adaptation policies
     freeze-evidence → registry JSON → content-hashed EvidenceBundle
     compile-scenario→ planner prose → checked ScenarioSpec + audit trail
     train           → ModelBundle + sibling .metrics.json
@@ -476,6 +477,25 @@ def command_build_traffic(args: argparse.Namespace) -> None:
           f"{len(model.bus_routes)} bus and van routes)")
 
 
+def command_build_zones(args: argparse.Namespace) -> None:
+    from collections import Counter
+
+    from .traffic import TrafficModel
+    from .zones import build_zones
+
+    model = TrafficModel.load(args.traffic)
+    levels = tuple(args.admin_level or ("8", "7"))
+    zones = build_zones(model, _json(args.boundaries) if args.boundaries else None,
+                        levels=levels, grid_m=args.grid_m or None)
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    zones.save(destination)
+    kinds = ", ".join(f"{n} {source}" for source, n in Counter(z.source for z in zones.zones).items())
+    unzoned = int((zones.road_zone < 0).sum())
+    print(f"zones -> {args.output} ({len(zones)} zones: {kinds}; {len(zones.adjacency)} touching pairs"
+          + (f"; {unzoned} roads outside every zone" if unzoned else "") + ")")
+
+
 def _business_as_usual(engine: ForecastEngine, snapshot: UrbanStateSnapshot) -> ForecastResult:
     return engine.forecast(ForecastRequest(
         snapshot=snapshot,
@@ -818,6 +838,15 @@ def build_parser() -> argparse.ArgumentParser:
     traffic.add_argument("--margin-m", type=float, default=800.0)
     traffic.add_argument("--velocity-unit", choices=["kmh", "ms"], default="kmh")
     traffic.set_defaults(func=command_build_traffic)
+
+    zones = subparsers.add_parser("build-zones", help="decision zones over a traffic model from OSM boundaries")
+    zones.add_argument("--traffic", required=True, help="traffic model from build-traffic")
+    zones.add_argument("--boundaries", help="saved Overpass JSON of boundary relations (out geom); fetched when omitted")
+    zones.add_argument("--admin-level", action="append",
+                       help="OSM admin_level to use, finest first; repeat for more (default: 8 then 7)")
+    zones.add_argument("--grid-m", type=float, default=500.0, help="grid cell for roads outside every boundary; 0 for none")
+    zones.add_argument("--output", required=True)
+    zones.set_defaults(func=command_build_zones)
 
     train = subparsers.add_parser("train")
     train.add_argument("--panel", required=True)
