@@ -983,6 +983,11 @@ class RoadDisruption:
     speed_factor: np.ndarray
     # Why each closed road is closed: "rubble", "water", "cordon", "manual" or "crash".
     reason: list[str | None]
+    # Share of each road's length under flood water, and the mean depth (m)
+    # over that wet part; None when no flood was applied. Road damage is
+    # priced from these (`impact_costs.road_damage`).
+    flood_wet_fraction: np.ndarray | None = None
+    flood_depth_m: np.ndarray | None = None
 
 
 def _samples(model: TrafficModel) -> tuple[np.ndarray, np.ndarray]:
@@ -1073,6 +1078,8 @@ def road_disruption(
     partly = (blocked >= RUBBLE_SLOW_PROBABILITY) & (blocked < RUBBLE_CLOSE_PROBABILITY)
     factor[partly] = 1.0 - blocked[partly]
 
+    # Deepest water at each sample point over every flood.
+    water: np.ndarray | None = None
     for hazard in hazards:
         exposure = _hazard_exposure(hazard, xy)
         if hazard.kind is HazardKind.FLOOD:
@@ -1088,6 +1095,7 @@ def road_disruption(
             cap = np.full(roads, np.inf)
             np.minimum.at(cap, owner[wet], flood_speed_kmh(depth[wet]))
             factor = np.minimum(factor, np.clip(cap / np.maximum(model.free_kmh, 1.0), 0.0, 1.0))
+            water = depth if water is None else np.maximum(water, depth)
         elif hazard.kind in CORDON_KINDS:
             close(exposure >= CORDON_EXPOSURE, "cordon")
         elif hazard.kind in WEATHER_SLOWDOWN:
@@ -1095,7 +1103,17 @@ def road_disruption(
             per_road = np.ones(roads)
             np.minimum.at(per_road, owner, slow)
             factor = np.minimum(factor, per_road)
-    return RoadDisruption(closed=closed, speed_factor=factor, reason=reason)
+    wet_fraction = mean_depth = None
+    if water is not None:
+        # Sample points are evenly spaced, so counting them measures length.
+        points = np.bincount(owner, minlength=roads).astype(np.float64)
+        wet = water > 0
+        wet_points = np.bincount(owner[wet], minlength=roads).astype(np.float64)
+        wet_sum = np.bincount(owner[wet], weights=water[wet], minlength=roads)
+        wet_fraction = wet_points / np.maximum(points, 1.0)
+        mean_depth = wet_sum / np.maximum(wet_points, 1.0)
+    return RoadDisruption(closed=closed, speed_factor=factor, reason=reason,
+                          flood_wet_fraction=wet_fraction, flood_depth_m=mean_depth)
 
 
 def _feeders(model: TrafficModel) -> dict[int, list[tuple[int, int]]]:
@@ -1169,12 +1187,20 @@ def road_events(model: TrafficModel, *, closed: Sequence[int] = (), crashes: Seq
 
 
 def combine_disruptions(*parts: RoadDisruption) -> RoadDisruption:
-    """Closed where any part closes a road (the first reason wins); speeds take the strongest slowdown."""
+    """Closed where any part closes a road (the first reason wins); speeds take the strongest slowdown.
+
+    Flood water comes from the first part that carries it.
+    """
 
     closed = np.logical_or.reduce([p.closed for p in parts])
     factor = np.minimum.reduce([p.speed_factor for p in parts])
     reason = [next((p.reason[i] for p in parts if p.closed[i]), None) for i in range(len(closed))]
-    return RoadDisruption(closed=closed, speed_factor=factor, reason=reason)
+    flooded = next((p for p in parts if p.flood_depth_m is not None), None)
+    return RoadDisruption(
+        closed=closed, speed_factor=factor, reason=reason,
+        flood_wet_fraction=None if flooded is None else flooded.flood_wet_fraction,
+        flood_depth_m=None if flooded is None else flooded.flood_depth_m,
+    )
 
 
 @_cached
@@ -1451,19 +1477,25 @@ def _traffic_impact(
     load_after = np.zeros(len(model))
     delays, spill, cut, affected = [], [], 0, 0
     uncongested = []
+    # Minutes summed over sampled trips, for `vehicle_hours`: the usual trip
+    # time of those cut off, and every delay to the others however small.
+    cut_usual_min = spill_min = 0.0
     for k, origin, target, path in trips:
         direct = bool(touched[path].any())
         if direct:
             affected += 1
             if not np.isfinite(dist_final[k, sink + target]):
                 cut += 1
+                cut_usual_min += dist_before[k, sink + target] / 60.0
                 continue
             uncongested.append(max(0.0, dist_after[k, sink + target] - dist_before[k, sink + target]) / 60.0)
         late = max(0.0, dist_final[k, sink + target] - dist_before[k, sink + target]) / 60.0
         if direct:
             delays.append(late)
-        elif late > DELAYED_MIN:
-            spill.append(late)
+        else:
+            spill_min += late
+            if late > DELAYED_MIN:
+                spill.append(late)
         if direct or late > 0:
             np.add.at(load_after, _path_roads(pred_final[k], origin, target, arcs_final), 1)
         else:
@@ -1516,6 +1548,14 @@ def _traffic_impact(
         "cut_off_vph": int(round(cut_vph, -1)),
         # Vehicles per hour each sampled trip stands for at this hour.
         "vph_per_trip": round(per_trip, 1),
+        # Vehicle-hours lost for each hour the disruption lasts at this hour
+        # of day: delay to the affected trips, delay the detours spill onto
+        # other trips, and the usual travel time of the trips cut off.
+        "vehicle_hours": {
+            "delay": round(per_trip * float(sum(delays)) / 60.0, 1),
+            "spillover": round(per_trip * float(spill_min) / 60.0, 1),
+            "cut_off_usual": round(per_trip * float(cut_usual_min) / 60.0, 1),
+        },
         "jammed_km": round(float(model.length_m[jammed].sum()) / 1000.0, 2),
         # Roads that run faster because detouring traffic left them.
         "relieved_km": round(float(model.length_m[relieved].sum()) / 1000.0, 2),
