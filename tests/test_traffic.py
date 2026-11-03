@@ -13,6 +13,7 @@ from dynacity.traffic import (
     class_peak_volumes,
     combine_disruptions,
     estimated_flow,
+    flood_speed_kmh,
     match_stations,
     TrafficModel,
     build_traffic_model,
@@ -285,6 +286,25 @@ def test_flood_closes_roads_in_reach_only(model):
     # Nothing at the far corner is touched.
     far = [i for i, g in enumerate(model.geometry) if min(x for x, _ in g) >= X0 + 2 * STEP - 1]
     assert not out.closed[far].any()
+
+
+def test_flood_speed_follows_the_depth_curve():
+    speeds = flood_speed_kmh(np.array([0.0, 0.1, 0.2, 0.3, 0.31]))
+    assert speeds == pytest.approx([86.94, 40.65, 12.36, 2.07, 0.0], abs=0.01)
+    assert (np.diff(speeds) < 0).all()
+
+
+def test_shallow_flood_slows_without_closing(model):
+    flood = HazardEvent(hazard_id="f", kind=HazardKind.FLOOD, magnitude=0.2,
+                        center_x_m=X0, center_y_m=Y0, radius_m=150)
+    out = road_disruption([flood], snapshot(), model)
+    assert not out.closed.any()
+    wet = np.flatnonzero(out.speed_factor < 1)
+    assert len(wet) > 0
+    # No car goes faster than the curve allows at the deepest water it meets.
+    assert (out.speed_factor[wet] * model.free_kmh[wet] <= flood_speed_kmh(np.array([0.2]))[0] + 1e-9).all()
+    far = [i for i, g in enumerate(model.geometry) if min(x for x, _ in g) >= X0 + 2 * STEP - 1]
+    assert (out.speed_factor[far] == 1).all()
 
 
 def test_rubble_closes_the_street_beside_a_destroyed_building(model):

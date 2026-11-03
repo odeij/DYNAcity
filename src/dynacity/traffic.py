@@ -30,7 +30,8 @@ Disasters act on roads through `road_disruption`:
   reach of its collapse (half its height plus half its footprint width); a road
   is closed when it is more likely blocked than not, and slowed below that;
 - water: a flood closes a road where it stands deeper than `FLOOD_CLOSE_DEPTH_M`
-  (following terrain when the snapshot carries ground elevations);
+  (following terrain when the snapshot carries ground elevations), and slows
+  it below that to the safe speed for its deepest water (`flood_speed_kmh`);
 - cordons: fires, riots, blasts, crashes and strikes close the roads in the
   inner part of the footprint (exposure at least `CORDON_EXPOSURE`);
 - weather: storms and rain slow the roads they reach.
@@ -103,6 +104,11 @@ MAX_SPEED_KMH = 160.0
 
 # Road disruption rules (assumptions, see the module docstring).
 FLOOD_CLOSE_DEPTH_M = 0.3
+# Shallower water slows cars instead: the highest safe speed, km/h, at depth d
+# mm is a d² + b d + c (Pregnolato et al. 2017, the curve Costa et al. 2024 use
+# for Copenhagen). About 2 km/h at the 300 mm closure depth; a car's free-flow
+# speed takes over below the depth where the curve rises past it.
+FLOOD_SPEED_CURVE = (0.0009, -0.5529, 86.9448)
 RUBBLE_CLOSE_PROBABILITY = 0.5
 # Below that, a road likely to carry some debris is slowed in proportion.
 RUBBLE_SLOW_PROBABILITY = 0.15
@@ -1008,6 +1014,14 @@ def _hazard_exposure(hazard: HazardEvent, xy: np.ndarray) -> np.ndarray:
     return _exposure(distance, radius_of(hazard), PROFILES[hazard.kind].core_fraction)
 
 
+def flood_speed_kmh(depth_m: np.ndarray) -> np.ndarray:
+    """Highest safe car speed through standing water (`FLOOD_SPEED_CURVE`); 0 where the road closes."""
+
+    a, b, c = FLOOD_SPEED_CURVE
+    mm = np.asarray(depth_m, dtype=np.float64) * 1000.0
+    return np.where(mm > FLOOD_CLOSE_DEPTH_M * 1000.0, 0.0, a * mm**2 + b * mm + c)
+
+
 def _collapse_reach(item: UrbanObjectState) -> float:
     height = item.height_m or (item.floors * 3.2 if item.floors else 6.0)
     width = math.sqrt(item.footprint_area_m2) if item.footprint_area_m2 else 10.0
@@ -1069,6 +1083,11 @@ def road_disruption(
                 with np.errstate(invalid="ignore"):
                     depth = np.nan_to_num(level - ground.sample(xy[:, 0], xy[:, 1]), nan=0.0).clip(0.0) * exposure
             close(depth > FLOOD_CLOSE_DEPTH_M, "water")
+            # The deepest point a road keeps open sets its speed.
+            wet = (depth > 0) & (depth <= FLOOD_CLOSE_DEPTH_M)
+            cap = np.full(roads, np.inf)
+            np.minimum.at(cap, owner[wet], flood_speed_kmh(depth[wet]))
+            factor = np.minimum(factor, np.clip(cap / np.maximum(model.free_kmh, 1.0), 0.0, 1.0))
         elif hazard.kind in CORDON_KINDS:
             close(exposure >= CORDON_EXPOSURE, "cordon")
         elif hazard.kind in WEATHER_SLOWDOWN:
