@@ -1,6 +1,33 @@
-# DynaCITY — Beirut Urban-Form Forecasting
+# DynaCITY — Beirut Urban-Form Forecasting and Mobility Twin
 
-This branch implements the forecasting portion of DynaCITY Task 5.1. Backcasting and reinforcement learning are deliberately out of scope here.
+An open-source urban-forecasting engine and street-level digital twin of Beirut. It predicts how buildings change state over the next 2–6 years with honest uncertainty bands, lets a planner try scenarios in plain language, and shows the result in a 3D browser viewer with simulated traffic. It was written for Task 5.1 of the EU-funded DynaCITY project at the American University of Beirut (see [Project context and credits](#project-context-and-credits)).
+
+## What is in this repository
+
+| Part | Where | What it does |
+| --- | --- | --- |
+| Forecasting engine | `src/dynacity/` (`panel`, `models`, `engine`, `kpis`, `uncertainty`) | Leakage-safe BBED transition panel, time-forward benchmark, Monte Carlo KPI forecasts. |
+| Scenario front end | `scenario_compiler.py`, `evidence.py`, `planning.py`, `providers.py` | Plain-language scenarios checked by deterministic code, cited evidence, backcasting and Pareto fronts. |
+| API and CLI | `service.py`, `cli.py`, `contracts.py` | One JSON contract shared by the `dynacity` CLI and a FastAPI service. |
+| Mobility | `traffic.py`, `traffic_sumo.py` | OSM road graph with historical Tari'ak speeds; SUMO replay of road closures and crashes. See [docs/traffic-sumo.md](docs/traffic-sumo.md). |
+| 3D browser viewer | `viewer.py`, `viewer_template.html` | deck.gl page served by `dynacity serve`, citywide or cut to the [Al Masar al Akhdar corridor](docs/green-corridor.md). |
+| Unreal street twin | `engine/unreal/` | Unreal Engine 5 project and plugins for driving and walking through the city. See [docs/unreal-handover.md](docs/unreal-handover.md). |
+| Tests | `tests/` | Synthetic LAS and BBED fixtures; no real data is downloaded or redistributed. |
+
+Backcasting by reinforcement learning is deliberately out of scope.
+
+## Quick start
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e '.[dev]'
+pytest
+```
+
+The full pipeline needs the data described under [Data sources](#data-sources), kept outside the repository; see [Pipeline](#pipeline).
+
+## Overview
 
 The engine builds a leakage-safe transition panel from the Beirut Built Environment Database (BBED), including a direct descriptive 2018→2024 interval, optionally enriches the 2022→2024 interval with the post-port-blast 2020 AUB point clouds (photogrammetric reconstructions built in Agisoft Metashape and exported to LAS via PDAL — not laser-scanned LiDAR; see [Point-cloud provenance](#point-cloud-provenance)), benchmarks simple and learned transition models, and produces probabilistic 2-, 4-, or 6-year urban-form KPI forecasts.
 
@@ -222,6 +249,15 @@ python -m pip install -e '.[dev]'
    dynacity serve --model C:\private\forecast.joblib
    ```
 
+11. Add traffic. Build the road model, then serve it with the viewer. SUMO playback needs `pip install -e '.[sumo]'` and SUMO on `PATH`; without it the static road-impact view still works:
+
+   ```powershell
+   dynacity build-traffic --snapshot C:\private\snapshot.json --velocities C:\private\tariak-velocities.csv --output C:\private\traffic.json
+   dynacity serve --model C:\private\forecast.joblib --snapshot C:\private\snapshot.json --bbed C:\private\bbed.geojson --traffic C:\private\traffic.json
+   ```
+
+   Add `--corridor <line.geojson>` to cut every input to 250 m around Al Masar al Akhdar ([docs/green-corridor.md](docs/green-corridor.md)).
+
 See [the forecasting design](docs/forecasting-engine.md) for the status taxonomy, evaluation gate, API behavior, and limitations.
 
 See [the implementation rationale](docs/implementation-rationale.md) for the full reasoning behind the canonical states, data boundaries, temporal panel, model gate, uncertainty design, interfaces, and current implementation limits.
@@ -236,3 +272,15 @@ The tests use synthetic LAS and BBED fixtures. They do not download or redistrib
 
 For repeatable extract, snapshot and panel coverage checks and immutable private
 update candidates, see [Data coverage and checked updates](docs/data-coverage.md).
+
+## Project context and credits
+
+DynaCITY is an EU-funded research project at the American University of Beirut. This repository holds the Task 5.1 forecasting engine and the Beirut mobility and street twin built on it.
+
+- **Author and maintainer:** John Kofdarelli, who designed and wrote the engine, the traffic model, the viewers and the Unreal integration.
+- **Repository set up by:** [odeij](https://github.com/odeij), DynaCITY project.
+- **Data:** BBED by the Beirut Urban Lab at AUB; OpenStreetMap contributors (ODbL); Overture Maps; Copernicus DEM; the Tari'ak Lebanon Traffic Dataset; CDR / ELARD; Beirut 001 by Salim al-Kadi. Each is credited with its licence under [Data sources](#data-sources). No raw data is redistributed here.
+
+## License
+
+Code is released under the [MIT License](LICENSE). Data used by the pipeline keeps its own licence and is not covered by it.
