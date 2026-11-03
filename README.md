@@ -1,6 +1,6 @@
 # DynaCITY — Beirut Urban-Form Forecasting
 
-This branch implements the forecasting portion of DynaCITY Task 5.1. Backcasting and reinforcement learning are deliberately out of scope here.
+This branch implements the forecasting portion of DynaCITY Task 5.1, and is where reinforcement learning for flood adaptation of the street network is being built, after Costa et al.'s Copenhagen work: see [docs/rl-flood-transport.md](docs/rl-flood-transport.md). The forecasting engine itself remains observational, as described below.
 
 The engine builds a leakage-safe transition panel from the Beirut Built Environment Database (BBED), including a direct descriptive 2018→2024 interval, optionally enriches the 2022→2024 interval with the post-port-blast 2020 AUB point clouds (photogrammetric reconstructions built in Agisoft Metashape and exported to LAS via PDAL — not laser-scanned LiDAR; see [Point-cloud provenance](#point-cloud-provenance)), benchmarks simple and learned transition models, and produces probabilistic 2-, 4-, or 6-year urban-form KPI forecasts.
 

@@ -52,9 +52,9 @@ change the method.
 | Depth to car speed | `traffic.road_disruption` closes roads above 0.3 m and, as of this change, slows them below that on the Pregnolato curve (`flood_speed_kmh`) | none for cars |
 | Transport | OSM road graph, Tari'ak hourly observed speeds, CDR peak counts, BPR congestion with successive-averages rerouting (`traffic_impact`), SUMO microsimulation (`traffic_sumo.py`) | none for cars; the flood side is richer than the paper's |
 | Other modes | OSM bus and van routes, so a closure can name the lines it cuts | No walking or cycling network, no pedestrian or transit demand (`docs/mobility-data-readiness.md`) |
-| Impacts | trips cut off, delay p50/p90, diverted vehicles per hour, spillover | No money: no road damage curves, no value of time, no intervention costs |
+| Impacts | trips cut off, delay p50/p90, diverted vehicles per hour, spillover; priced in US$ by `impact_costs.py` (step 1 below) | No intervention costs |
 | Actions | `flood_planning.InterventionKind`: drain maintenance, retention, permeable surface, access protection, with caller-supplied costs and budgets | Effects must come from a real evaluator; none are assumed |
-| Planner | `flood_planning.compare_plans` (budgeted portfolios, Pareto set) and `planning.plan` (enumerated backcast) | No sequential, learned policy. CLAUDE.md and the README put RL out of scope on this branch. |
+| Planner | `flood_planning.compare_plans` (budgeted portfolios, Pareto set) and `planning.plan` (enumerated backcast) | No sequential, learned policy yet (steps 3–4 below) |
 
 ## Where the contribution is
 
@@ -90,16 +90,57 @@ Done in this change: the Pregnolato depth-speed curve for cars
 the safe speed for the deepest water along it, below the existing 0.3 m closure.
 Before this change, water shallower than 0.3 m had no effect at all.
 
-Next steps, in order:
+### Step 1, done: what a flood costs (`impact_costs.py`)
 
-1. **A cost layer for the existing impact report.** Add road depth-damage by class
-   (van Ginkel curves, the same ones the paper's code uses), delay cost at a stated
-   value of time, and cut-off trips at a stated share of trip cost. Each number gets a
-   source and an `assumed` status, like the costs in `flood_planning`. This alone gives
-   a monetised flood-to-traffic impact for Beirut.
-2. **Zones.** Choose the decision unit. Copenhagen uses its national transport zones,
-   and Beirut has no published equivalent. Options are cadastral sectors, a regular
-   grid, or the Al Masar al Akhdar corridor's segments (`corridor.py`).
+`event_cost(model, disruption, Prices(), start_hour=8, duration_h=3)` returns road
+damage, delay, spillover delay and cut-off trips in US dollars, hour by hour, with
+every unit value and its source. `road_disruption` now records each road's flooded
+share and mean depth, and `traffic_impact` reports `vehicle_hours` lost per hour of
+disruption.
+
+| Unit value (`Prices`) | Default | Source |
+|---|---|---|
+| Road construction cost | van Ginkel Table 1 range per type: motorways and trunks at the 25th percentile (no OSM `lit` tag, so "simple"), other types at the 50th; ±25% per lane from the type's default | van Ginkel et al. 2021, Tables 1 and 2 and Sect. 2.5 (read from the paper) |
+| Damage share | Table 2 curves C3 (motorway, trunk) and C5 (other), low flow, over the flooded length at its mean depth | same; Costa et al. also use the low-flow curves |
+| EU-28 2015 € → Lebanon US$ | ×0.262: Lebanon / EU-28 GDP per capita in 2015 (7,714 / 32,624 US$), then the 2015 euro rate (1.1095 US$ per €) | van Ginkel's own GDP-per-capita scaling; World Bank API data |
+| Value of time | US$2.62 per person-hour | World Bank ICR3868 (2016), Annex 3, from the Beirut Peripherique Highway Feasibility Study (2011). Price year not stated. |
+| Occupancy | 1.3 persons per vehicle | World Bank PAD2574 (2018), para. 7 |
+| Cut-off trip | 80% of its usual trip cost | Costa et al. 2026, Sect. 3.4 |
+
+Other published values: the 1996 World Bank roads appraisal used US$1.72 per car
+passenger-hour. Anas et al. (2017) value time at the wage, 4,363 LBP/h in municipal
+Beirut (US$2.91 at 1,500 LBP). Car occupancy is 1.7 in the 2002 PAD and the CDR BRT
+studies. Any of these can be passed in `Prices`.
+
+On the real road model (10,818 roads), the whole network's replacement value comes out
+at about US$221 M. A 500 m-radius flood at the city centre, lasting 3 hours from 08:00,
+costs about US$5k at 0.15 m (75 roads slowed, none closed) and about US$25k at 0.6 m
+(123 roads closed), mostly road damage. Each hour's routing takes 0.4–0.7 s. These are
+scales of magnitude, not loss estimates: the unit values come from other places and
+years, and nothing is checked against observed Beirut flood losses.
+
+### Step 2, done: zones (`zones.py`, `dynacity build-zones`)
+
+Zones come from OpenStreetMap administrative boundaries, finest level first. First are
+Beirut's sectors (admin_level 8, 60 inside the municipality). Then come the coarser
+boundaries (admin_level 7) only where no sector lies: the neighbouring municipalities,
+Burj Hammoud, Sinn El Fil, Haret Hreik and others. Finally a 500 m grid covers the
+rest of the road model. Every road gets one zone by its midpoint, every building by its
+centroid, and `adjacency` lists the zones that touch, for a graph policy.
+
+On the current road model this gives 110 zones: 60 sectors, 9 municipalities and 41 grid
+cells, with 325 touching pairs and a median of 6 neighbours. All 10,818 roads are placed,
+and 3,345 of the 3,349 buildings (the other 4 lie beyond the roads). Sectors are small
+(median 5.4 km of road), but the municipalities are not: Burj Hammoud holds 63 km. With
+`--admin-level 8` alone, the suburbs fall to the grid instead, giving 147 zones of more
+even size. Sectors are administrative, not traffic or drainage units; a flood and a
+detour cross them freely.
+
+The raw boundaries and the zone map live in the private data root
+(`zones/osm-admin.json`, `zones/beirut-zones.json`), like the road model.
+
+### Next
+
 3. **An environment.** A Gymnasium environment with an annual step. Each year it
    samples a rain event, makes a flood, runs `road_disruption` and `traffic_impact`,
    and returns the negative cost. The actions are the `flood_planning` kinds per zone,
@@ -120,12 +161,11 @@ Next steps, in order:
   projections. Possible sources are the Lebanese Meteorological Department or
   published regional IDF curves.
 - A drainage network: inlets, pipes, outfalls.
-- Lebanese value of time and road construction costs per class, or an explicit
-  decision to transfer European values with a stated adjustment.
+- Local road construction or repair costs per class, to replace the GDP-scaled
+  European values, and a current Beirut value of time with a price year. The World
+  Bank figure dates from a 2011 study and predates the 2019 crisis.
 - Unit costs and lifetimes for the intervention kinds in Beirut.
 
-## Decision needed
+## Branch
 
-RL is explicitly out of scope on this branch (CLAUDE.md, README,
-`docs/implementation-rationale.md`). Steps 1 and 2 above stay within that scope. Steps 3
-and 4 bring RL in and need either a scope change here or a separate branch.
+The RL work lives on `T5.1_RL`, branched from `T5.1_Tech`, where RL stays out of scope.

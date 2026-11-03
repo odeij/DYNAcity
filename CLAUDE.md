@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-DynaCITY Task 5.1 forecasting engine — Beirut urban-form forecasting from BBED (Beirut Built Environment Database) building-status transitions, optionally enriched with AUB point-cloud morphology. Python package `dynacity-forecasting`, source in `src/dynacity/`. Backcasting and reinforcement learning are deliberately out of scope on this branch.
+DynaCITY Task 5.1 forecasting engine — Beirut urban-form forecasting from BBED (Beirut Built Environment Database) building-status transitions, optionally enriched with AUB point-cloud morphology. Python package `dynacity-forecasting`, source in `src/dynacity/`. Branch `T5.1_RL` (from `T5.1_Tech`) adds reinforcement learning for flood adaptation of the street network, after Costa et al. (Copenhagen); plan and progress in `docs/rl-flood-transport.md`. The forecasting engine itself stays observational.
 
 ## Commands
 
@@ -39,6 +39,7 @@ CLI entry point `dynacity` (`src/dynacity/cli.py`, registered via `[project.scri
 - `dynacity fetch-terrain --snapshot --output [--cell-m]` — approximate ground-elevation grid (`.npz`) from Copernicus GLO-30 over the snapshot extent (`terrain` extra: rasterio); floods follow it when served with `--terrain`
 - `dynacity pack-beirut001 --model --bbed --output [--cell-m]` — Beirut 001 Rhino model (~730 MB) → ~2.6 MB private `.npz` of building outlines, heights above model ground, BBED links, bridge levels and a ground grid (`beirut001_pack.py`, `overlay` extra); served with `serve --beirut001` (loopback only)
 - `dynacity build-traffic --snapshot --velocities [--roads --bus-routes] --output` — OSM road graph (Overpass, or a saved Overpass JSON) + Tari'ak hourly median speeds per road (`traffic.py`); served with `--traffic`, disasters close roads and report cut-off and delayed trips
+- `dynacity build-zones --traffic --output [--boundaries --admin-level --grid-m]` — decision zones over the road model (`zones.py`): OSM admin boundaries finest first (Beirut sectors, admin_level 8, then 7), a grid for the rest; road→zone, building→zone and touching pairs, for an adaptation policy. Flood costs for those roads are in `impact_costs.py` (van Ginkel road damage, World Bank Beirut value of time; every unit value in `Prices` with its source)
 - `dynacity train --panel --output` — runs `temporal_benchmark`, writes the selected `ModelBundle` + a sibling `.metrics.json`
 - `dynacity compile-scenario --snapshot --text|--text-file --output [--request-output] [--provider anthropic|gemini --llm-model]` — planner prose → LLM draft → deterministic check (`scenario_compiler.check_draft`) → `ScenarioSpec`; providers in `providers.py` (`llm` extra + `ANTHROPIC_API_KEY`, or `gemini` extra + `GEMINI_API_KEY`)
 - `dynacity freeze-evidence --registry --as-of --output` — curated source registry → content-hashed `evidence.EvidenceBundle`; `compile-scenario --evidence` lets levers cite it
