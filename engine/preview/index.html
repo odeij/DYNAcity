@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DynaCITY · Engine asset preview</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;font-family:Arial,Helvetica,sans-serif;color:#202e32;background:#dae2e3}
+canvas{display:block}aside{position:absolute;left:22px;top:22px;width:min(370px,calc(100vw - 80px));padding:18px 20px;background:#ffffffeb;border:1px solid #cbd6d7;border-radius:14px;box-shadow:0 8px 30px #142c3820}
+h1{font-size:20px;margin:0 0 8px}p{font-size:13px;line-height:1.5;margin:7px 0}.tag{color:#47716e;font-weight:600;font-size:12px}.status{font-size:12px;color:#516269}button{font:inherit;font-size:12px;border:1px solid #b4c6c6;padding:7px 10px;background:white;border-radius:7px;cursor:pointer;margin-top:8px}#selection{white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}footer{position:absolute;bottom:18px;left:22px;font-size:12px;padding:9px 13px;background:#ffffffdf;border-radius:8px}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>
+</head><body>
+<aside><div class="tag">PRIVATE GEOMETRY PROTOTYPE</div><h1>Sea Highway · Beirut</h1>
+<p>Source geometry exported for Unreal. This preview validates the GLB asset in a browser; it is not an Unreal render.</p>
+<p id="status" class="status">Loading neighbourhood…</p><p id="traffic-status" class="status">Loading recorded SUMO traffic…</p><button id="reset">Reset camera</button> <button id="play" disabled>Pause traffic</button>
+<p id="selection">Click a building or road to inspect its source identity.</p></aside>
+<footer>Drag to orbit · scroll to zoom · right-drag to pan. Materials, tree forms and bridge supports are illustrative.</footer>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+const status=document.getElementById('status'),selection=document.getElementById('selection');
+const scene=new THREE.Scene();scene.background=new THREE.Color('#dce5e7');
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.25;document.body.prepend(renderer.domElement);
+const camera=new THREE.PerspectiveCamera(43,innerWidth/innerHeight,0.2,6000);
+const controls=new OrbitControls(camera,renderer.domElement);controls.maxPolarAngle=Math.PI*.48;controls.enableDamping=true;
+function reset(){camera.position.set(500,550,650);controls.target.set(0,15,0);controls.update()}
+reset();document.getElementById('reset').addEventListener('click',reset);
+scene.add(new THREE.HemisphereLight(0xe3f2ff,0x756444,2));
+const sun=new THREE.DirectionalLight(0xfff0d5,3);sun.position.set(-250,700,250);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+Object.assign(sun.shadow.camera,{left:-550,right:550,top:550,bottom:-550,near:10,far:1800});sun.shadow.bias=-.0002;scene.add(sun);
+let root;
+new GLTFLoader().load('./neighbourhood.glb',gltf=>{
+ root=gltf.scene;let triangles=0,objects=0;
+ root.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;objects++;triangles+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3}});
+ scene.add(root);status.textContent=`${objects.toLocaleString()} mesh objects · ${triangles.toLocaleString()} triangles · GLB loaded`;
+},undefined,error=>{status.textContent='Asset load failed: '+error.message;console.error(error)});
+const trafficStatus=document.getElementById('traffic-status'),play=document.getElementById('play');
+let replay,clockStart=performance.now(),paused=false,pausedTime=0,frameIndex=0;
+const body=new THREE.InstancedMesh(new THREE.BoxGeometry(4.4,1.15,1.8),new THREE.MeshStandardMaterial({color:0x627b89,roughness:.5}),2000);
+const cabin=new THREE.InstancedMesh(new THREE.BoxGeometry(2.2,.65,1.6),new THREE.MeshStandardMaterial({color:0x263c48,roughness:.25}),2000);
+const lamps=new THREE.InstancedMesh(new THREE.SphereGeometry(.23,6,4),new THREE.MeshBasicMaterial(),2000);
+body.count=cabin.count=lamps.count=0;body.castShadow=true;cabin.castShadow=true;scene.add(body,cabin,lamps);
+const dummy=new THREE.Object3D(),signalColour=new THREE.Color();
+fetch('./traffic-replay.json').then(r=>{if(!r.ok)throw new Error('No replay file');return r.json()}).then(data=>{
+ replay=data;clockStart=performance.now();play.disabled=false;
+}).catch(error=>{trafficStatus.textContent='Traffic replay unavailable. Geometry remains usable.'});
+play.addEventListener('click',()=>{paused=!paused;if(paused)pausedTime=performance.now();else clockStart+=performance.now()-pausedTime;play.textContent=paused?'Play traffic':'Pause traffic'});
+function updateTraffic(now){
+ if(!replay)return;
+ const frames=replay.frames,firstTime=frames[0].time_s,duration=frames.at(-1).time_s-firstTime;
+ const time=firstTime+(((paused?pausedTime:now)-clockStart)/1000)%duration;
+ while(frameIndex<frames.length-2&&frames[frameIndex+1].time_s<=time)frameIndex++;
+ if(frames[frameIndex].time_s>time)frameIndex=0;
+ const a=frames[frameIndex],b=frames[frameIndex+1],fraction=(time-a.time_s)/(b.time_s-a.time_s),next=new Map(b.vehicles.map(v=>[v.id,v]));
+ let count=0;
+ for(const vehicle of a.vehicles){
+  const after=next.get(vehicle.id)||vehicle,p=vehicle.position.map((x,i)=>x+(after.position[i]-x)*fraction);
+  const change=(after.heading_deg-vehicle.heading_deg+540)%360-180,heading=(vehicle.heading_deg+change*fraction)*Math.PI/180;
+  dummy.position.set(p[0]-Math.sin(heading)*2.2,p[2]+.70,-p[1]+Math.cos(heading)*2.2);
+  dummy.rotation.set(0,Math.PI/2-heading,0);dummy.updateMatrix();body.setMatrixAt(count,dummy.matrix);
+  dummy.position.y+=.85;dummy.updateMatrix();cabin.setMatrixAt(count,dummy.matrix);count++;
+ }
+ body.count=cabin.count=count;body.instanceMatrix.needsUpdate=cabin.instanceMatrix.needsUpdate=true;
+ count=0;
+ for(const signal of a.signals){
+  const p=signal.position;dummy.position.set(p[0],p[2]+3.5,-p[1]);dummy.rotation.set(0,0,0);dummy.updateMatrix();lamps.setMatrixAt(count,dummy.matrix);
+  signalColour.set(signal.state.toLowerCase()==='r'?0xff3026:signal.state.toLowerCase()==='y'?0xffbd25:signal.state.toLowerCase()==='g'?0x35db7b:0x777777);
+  lamps.setColorAt(count,signalColour);count++;
+ }
+ lamps.count=count;lamps.instanceMatrix.needsUpdate=true;if(lamps.instanceColor)lamps.instanceColor.needsUpdate=true;
+ trafficStatus.textContent=`Recorded SUMO · ${a.time_s.toFixed(0)} s · ${body.count} vehicles · ${lamps.count} signal movements${paused?' · paused':''}`;
+}
+const ray=new THREE.Raycaster(),pointer=new THREE.Vector2();let press;
+renderer.domElement.addEventListener('pointerdown',e=>press=[e.clientX,e.clientY]);
+renderer.domElement.addEventListener('pointerup',e=>{
+ if(!root||!press||Math.hypot(e.clientX-press[0],e.clientY-press[1])>5)return;
+ pointer.set(e.clientX/innerWidth*2-1,-e.clientY/innerHeight*2+1);ray.setFromCamera(pointer,camera);
+ const hit=ray.intersectObject(root,true)[0];if(!hit)return;
+ const d=hit.object.userData;
+ selection.textContent=[d.source_id||hit.object.name,d.kind,
+ d.source||d.height_source,d.height_m!=null?`Height: ${d.height_m.toFixed(2)} m`:null,
+ d.bbed_objectid>=0?`Provisional BBED link: ${d.bbed_objectid}`:null,d.alignment].filter(Boolean).join('\n');
+});
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+renderer.setAnimationLoop(now=>{updateTraffic(now);controls.update();renderer.render(scene,camera)});
+</script></body></html>

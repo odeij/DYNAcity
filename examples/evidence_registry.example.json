@@ -1,0 +1,27 @@
+{
+  "registry_id": "dynacity-beirut-evidence",
+  "sources": [
+    {
+      "source_id": "law-194-2020",
+      "title": "Lebanese Law 194/2020 on protecting and supporting the reconstruction of areas affected by the Beirut port explosion",
+      "kind": "law",
+      "publisher": "Lebanese Parliament",
+      "url": null,
+      "published": null,
+      "effective_from": null,
+      "effective_until": null,
+      "status": "in_force",
+      "supersedes": [],
+      "excerpt": null,
+      "aliases": [
+        "Law 194/2020",
+        "Law 194",
+        "Loi 194",
+        "القانون 194",
+        "قانون 194"
+      ],
+      "verified": false,
+      "notes": "Template entry. Fill in the official title, gazette date, effective window and the excerpt a lever relies on from the primary text, then set verified to true."
+    }
+  ]
+}

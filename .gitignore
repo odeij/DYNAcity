@@ -1,0 +1,37 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Raw AUB/BBED data and generated research artifacts never belong in Git.
+data/
+artifacts/
+models/
+*.las
+*.laz
+*.copc.laz
+*.parquet
+*.joblib
+
+# Local presentation decks, inspection dumps, and rendered slide exports.
+/outputs/
+/tmp/
+*.ppt
+*.pptx
+*.pptm
+*.key
+*.pptx.inspect.ndjson
+DynaCITY-T5.1-Data-Acquisition-and-Results/
+
+# Local configuration and secrets.
+.env
+.env.*
+!.env.example
+!.env.sample
+config.local.json
+

@@ -1,0 +1,8 @@
+{
+  "data_root": "C:/path/to/private/dynacity-data",
+  "artifact_root": "C:/path/to/private/dynacity-artifacts",
+  "source_crs": "EPSG:32636",
+  "las_acquisition_year": 2020,
+  "bbed_layer_url": "https://services3.arcgis.com/tuNLpt6Wfhd22qmO/ArcGIS/rest/services/BBED2024_/FeatureServer/1"
+}
+

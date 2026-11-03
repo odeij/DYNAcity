@@ -1,0 +1,229 @@
+# Destination traffic and SUMO replay
+
+The traffic adapter (`src/dynacity/traffic_sumo.py`) exports the existing road graph to SUMO, generates an initial fleet of destination-based trips, optionally adds continuous boundary entries, and advances the scenario in SUMO at SUMO's default one-second step. The undisrupted baseline it is compared with starts as an exact copy of the scenario (state and random number generators, `Simulation.fork`) just before the first closure or slowdown; until then the two would be identical, so only one runs. After the copy both are stepped side by side, as separate SUMO processes. The viewer enables continuous entries. It draws scenario TraCI positions, headings and lanes, interpolating one-second samples at 1× playback, pausing when delivery falls behind. Every active vehicle is simulated and counted in the metrics; the viewer receives only the cars in and around its view (`view`, `max_vehicles`). Insertion queues and completed arrivals are counted separately.
+
+This integration follows the inspected God's Plan reference at commit `23997b0482f8ad2cd94386b622f029ca5842c8c1`: its `frontend/src/babylon/traffic.ts` draws TraCI tracks and `backend/cityshift/live/network.py` updates lane permissions, reroutes to the existing destination and retains vehicles without detours. No reference source was copied.
+
+Road geometry uses a shared 3.2 m assumed lane width and the same rounded lane counts in SUMO and the viewer. One-way carriageways are centred on their OSM way; two-way ways put each direction to the right of the shared centreline. The viewer receives the full carriageway width, replacing fixed road-class widths that could leave simulated cars outside the coloured road. These widths are simulation assumptions, not surveyed kerb boundaries.
+
+## Runtime
+
+Install the optional runtime in the environment that runs the DynaCITY server:
+
+```sh
+python -m pip install -e ".[sumo]"
+```
+
+SUMO and netconvert must be discoverable on PATH, or under `SUMO_HOME/bin`. This is optional: normal forecasting and static road-impact endpoints still work without SUMO; the traffic viewer reports an explicit unavailable message instead of generating local random motion. Temporary XML and compiled networks are kept outside Git. Private road data stays in the configured private data root.
+
+Run the existing `dynacity serve` command with its real `--traffic`, `--snapshot`, and `--bbed` inputs. The integration is independent of the scenario AI provider. A fake preview provider is not evidence of real provider behavior.
+
+## API and playback
+
+### Street appearance
+
+Simulated traffic lights are visible by default during traffic playback across the
+full network, including without the optional corridor mobility package. The Traffic
+panel's **Show simulated traffic lights** toggle controls the stop-line markers.
+Red, amber and green come from the controller at the displayed simulation sample;
+they do not establish real-world timing or current operation.
+At zoom 18.5 and closer, nearby markers become 3D poles with three-lamp housings.
+Each controlled movement retains its own head and state. Pole dimensions and
+roadside offsets are illustrative, derived from the incoming SUMO lane direction
+and width; they are not surveyed street furniture. Distant markers remain dots.
+Left/right controlled movements use arrow-shaped lenses and matching coloured
+overview arrows. Directions come from SUMO lane connections, including combined
+movements; they do not establish that a physical arrow lamp exists on the street.
+
+The Traffic panel switches between **Street view** and **Traffic colours**.
+Street view uses opaque asphalt, a narrow road-edge casing and close-up lane
+markings. Traffic colours retains the historical hourly speed overlay. Switching
+appearance does not restart the session, reseed demand or alter any vehicle route.
+Closures and detour overlays remain visible in both appearances.
+
+Lane markings use the same assumed 3.2 m lane width and rounded lane counts as
+the SUMO export. They are illustrative, not surveyed road paint or kerbs. Markings
+are generated near the camera at zoom 16.5 or higher, leave junction-end margins,
+and are omitted on short segments. No turn restrictions, crossings or signal
+locations are inferred from these visual details.
+
+The existing Kenney sedan/SUV geometry now supports stable body-paint variations,
+contact shadows and brake lamps. Glass, tyres and original light lenses retain
+their source colours. Lamps indicate sampled deceleration/stops, not a separate
+driver-intent prediction. Sampled positions and headings are still authoritative;
+interpolation does not create intermediate lane paths or eliminate all sampling limitations at tight turns.
+
+Replay caches per-frame identity matching and mutates existing pose arrays during
+screen refreshes. Close-up drawing culls cars outside the viewport with a 100 m
+margin, while full-fleet positions and metrics are retained. This is a presentation
+optimization, not a smaller simulated demand. Diagnostics distinguish total active
+cars from drawn cars. Real-time citywide throughput is still a measurement question.
+
+- `POST /v1/viewer/traffic/simulation`: create a session; body has `hour`, `seconds` (1–10, one SUMO step per second), `continuous` (default false for existing API clients), `closed`, `crashes`, and optionally `view` ([west, south, east, north]) and `max_vehicles`. The viewer sends `continuous: true`, its view widened by half a screen on each side, and at most 8,000 cars. With a view, every step reads full detail only for cars around it (a SUMO context subscription on a point of interest at the view centre); the whole fleet is read once per request, for the metrics, so intermediate frames repeat the last metrics. Signal states are read for the signals in view only.
+- `POST /v1/viewer/traffic/simulation/{key}`: apply current disruptions and advance this same fleet.
+- `DELETE /v1/viewer/traffic/simulation/{key}`: close both SUMO processes.
+
+Responses contain `frames`, an assumptions statement, and the session key on creation. Each frame contains `time_s`, vehicle rows `[id, longitude, latitude, SUMO_angle, speed_mps, edge_id, lane_index]`, and metrics. Internal junction positions are returned too; cars do not jump between street endpoints. The viewer fetches two-second buffers, pauses when exhausted, and never extrapolates beyond SUMO data. The viewer prefetches when fewer than four simulated seconds remain; closure commands take effect at the next server request, after already buffered traffic has played. Changing the hour starts a new fleet; toggling detail does not.
+
+Sessions are limited to four per server worker and expire after two idle minutes when the next session is created. Shutdown closes all sessions. Use a single API worker, since session storage is process-local. Closing Traffic releases the session. This is a local pilot API, not an authenticated multi-user simulation service.
+
+Closures prohibit passenger entry in both directed edges of a road. Vehicles upstream reroute while preserving their destination. Those with no permitted detour stay queued; SUMO teleportation is disabled, and the gridlock breaker below never moves them. Vehicles already within a newly closed street stop in place. Reopening restores original permissions and releases stopped vehicles. Junction-internal vehicles retry rerouting after leaving the intersection. New entry requests at a closed origin wait in an explicit entry queue, counted as pending, and enter SUMO after reopening. SUMO's own car-following, safe insertion, lane changing, junction priority and signals determine actual movement.
+
+### Continuous boundary demand
+
+`BoundaryInflow` identifies inward-facing directed roads in a fringe of the network
+bounding box (3% of the smaller dimension, at least 25 m). Their existing estimated
+directional vehicles/hour set seeded Poisson departure rates. Up to four reachable
+routes per origin are sampled toward outward-facing fringe roads; disconnected
+origins fall back to a legal local walk. These are explicit synthetic demand rules,
+not measured entry counts, an OD matrix or a calibrated trip-distribution model.
+
+Both runs receive identical IDs, destinations and scheduled departure times,
+quantized to SUMO's one-second step. Demand never depends on scenario completion rates.
+The scheduler is independent of API request chunk size. Future departures are not
+counted as represented trips until eligible in SUMO; blocked-origin entry requests
+remain accounted for outside SUMO until their origin reopens. Once admitted, safe
+insertion controls spacing. The initial fleet can still redistribute or shrink;
+continuous entries do not impose a constant vehicle count or establish equilibrium.
+There is no calibrated warm-up period or automatic change to the next hourly profile.
+
+`metrics.demand` reports `mode`, `initial_trips`, `added_trips` (of which
+`interior_trips` started inside the area), `entry_roads`, `expected_entry_vph` and `interior_vph`. `total` grows with eligible trips. If no fringe origins are
+available, mode remains `finite`, making the limitation visible. Changing demand
+mode or hour requires a fresh session. Legacy clients keep finite-fleet behavior.
+
+## Calibration and limits
+
+### Mobility comparison
+
+In the Traffic panel, choose **Make car-free**, then click individual road segments.
+Click a selected segment again to reopen it. This uses the existing passenger-car
+closure mechanics; pedestrian activity and benefits are not simulated.
+
+The **Normal traffic vs your changes** table compares the undisrupted baseline and
+scenario at the displayed simulation time, using identical initial trips, destinations
+and random seed, including the same continuous entry schedule. It shows completed trips, cars on the road, cars awaiting entry, and
+cars stopped below 0.1 m/s. Stopped cars include signals and initial acceleration;
+these instantaneous counts are not measured queue lengths or sustained congestion.
+The viewer adds continuous boundary entries; no calibrated warm-up period is applied.
+
+New entries reroute to their fixed destinations before insertion when a legal detour
+exists. If their origin/destination is closed or no legal route exists, they stay in
+the explicit entry queue; reopening retries these requests without losing them.
+
+The panel also reports delay for trips completed in both runs, overdue trips and active
+trips without detours. Roads with diverted or stopped cars can be clicked to frame
+them on the map; the list shows up to five segments ranked by diverted count, then
+stopped count. Counts describe cars currently on those segments, not hourly flow.
+Historical road colours retain their existing meaning.
+
+**Restart comparison** retains current closures and crashes and resets both
+runs. Reopening a road during a run does not erase its previous effects. The panel
+flags active crashes so a mixed scenario is not presented as a pure
+pedestrianisation trial. Old API responses without baseline metrics show no invented
+comparison results.
+
+### Bridges and tunnels
+
+Each road keeps its OSM vertical level (`TrafficModel.level`, from `layer`, else 1 for `bridge`, -1 for `tunnel`); the page receives it as `lvl` on roads that are not at grade. In the 23 October 2026 extract 132 road pieces are bridges at level 1, 3 at level 2 and 63 are tunnels, mostly the motorway flyovers (Fouad Chéhab, Charles Hélou, the port interchange) and the Saëb Salam and Corniche underpasses. No bridge shares a node mid-span with a road below it, so SUMO already keeps the levels apart; the level is used only for drawing. OSM holds no deck heights. When `serve` has the Beirut 001 pack (`--beirut001`), a bridge road that runs along one of the pack's bridge pieces for at least half its length or 20 m takes that piece's measured deck height above the model ground (`beirut001_pack.bridge_decks`): 46 of the 135 bridge roads in the 24 October 2026 citywide extract, 5–14 m (median 8.9 m). Beirut 001 has no piece within 30 m of 70 of the rest, and Copernicus GLO-30 cannot stand in (on the 46 measured decks it reads a median 1.2 m and does not correlate). Elsewhere the viewer draws each level 6 m up, reached over 40 m from any end where the bridge meets a lower road, with a soft shadow on the ground beneath. Cars on a bridge ride at its height; cars in a tunnel are not drawn but stay in every metric. Tunnels are drawn faint, with no pavement or markings.
+
+### Gridlock
+
+Bridge road pieces share exact endpoint elevations, including when a piece is
+shorter than the nominal 40 m transition. Ramp corners are explicit vertices;
+vehicle height interpolates along the displayed path. Concrete sections use the
+same full 3D endpoint vector with vertical thickness, avoiding shortened tilted
+boxes and surfaces protruding through asphalt. These display transitions are not
+surveyed longitudinal grades.
+
+Replay preserves junction blocking and disables time-based impatience. Junction collision checking is enabled. The adapter no longer calls the gridlock relocation helper, and SUMO teleportation remains disabled. Cars queue rather than being moved through occupied junctions or relocated to downstream roads. Gridlock can therefore persist where the assumed network, controls or demand are inconsistent; it must be addressed in those inputs rather than hidden by moving vehicles. Collision warnings are diagnostic, not proof of collision-free traffic.
+
+
+Clipping the network at the map edge leaves stub entry roads, some only a few metres long, where a car cannot be inserted. Boundary inflow trips start on the first road of their route at least 60 m long (`MIN_ENTRY_M`). The boundary queue still grows: the busy entry trunks are congested back to the map edge, which stands for queues outside the modelled area.
+
+### Trips inside the area
+
+The initial fleet stands for cars already mid-trip. Its destinations are short walks along the network (mean 0.76 km at 08:00), so on its own it finishes within a few minutes, and boundary entries cannot replace it because the entry trunks are congested back to the map edge: active cars at 08:00 fell from about 27,000 to 3,500 within ten minutes and simulated speeds ran 28% above observed. Continuous mode therefore also starts trips inside the area (`BoundaryInflow._schedule_interior`). They start on roads in proportion to the vehicles each holds at that hour and go to a destination drawn the same way at least 1 km away in a straight line (`INTERIOR_MIN_TRIP_M`), giving trips of about 4 km. The rate replaces the initial fleet once per mean trip time at the hour's historical speeds: about 2,200 trips a minute at 08:00 and 2,800 at 17:00, beside 1,300 and 1,600 boundary entries. The schedule is seeded and shared by both runs. The 1 km minimum is a modelling assumption; no Beirut trip-length data are loaded.
+
+This is not yet calibrated. After ten simulated minutes the median speed ratio is 1.14 at 08:00, 0.96 at 13:00 and 0.87 at 17:00, but the active fleet is still rising (to 22,600, 26,600 and 28,800) because queues make trips longer than the historical speeds imply. The steady state, and the rate that holds it near the count-based density, are still to be established.
+
+A queued car whose departure road is then closed would abort SUMO. Such cars are withdrawn into the explicit entry queue, counted as pending, and enter once a route from their origin is open (`Simulation.withhold`).
+
+The available Beirut model has 10,817 split road segments / 14,900 directed edges, with 5,811 estimated speed profiles and 6,125 segments missing tagged lane counts. At 08:00, its density formula represents about 29,583 vehicles before stochastic rounding. OSM node identity, one-way direction, shape and per-direction lanes are preserved. Missing lanes borrow existing road-class defaults, and fractional lane estimates are rounded to integers. Signal locations come from OSM `highway=traffic_signals` nodes: one on a junction is used as is, one tagged on an approach is moved to the nearest junction of three or more roads within 25 m, and mid-block crossings are dropped (`traffic.SIGNAL_SNAP_M`). OSM turn restrictions through a via node become deleted SUMO connections (`only_*` deletes every other way out for that approach); via-way and conditional restrictions are left out. A road file built before this, without signal nodes, falls back to assumed lights at junctions with at least four incident segments, and `network.signal_source` says which applies. Signal timing is still SUMO's default program, and the model does not retain physical closure locations within a segment, bus fleet schedules, or verified lane connectors. SUMO generates lane connections geometrically. These are approximate junction controls, not a validated model of Beirut intersections. Overlapping roads connect only at shared graph nodes.
+
+Each road's speed limit is its free-flow speed: the fastest of its Tari'ak 2014–2019 hourly medians. Using the chosen hour's median as the limit, as an earlier version did, counted congestion twice: the median already contains that hour's queues, and SUMO then queued the cars again on top. The hourly medians are now the check on the run instead. While nothing is closed or slowed, after a one-minute warm-up, each frame adds every car's speed to its road; `metrics.speed_check` compares the simulated mean with the observed median for that hour over roads with at least 20 vehicle-seconds (`roads`, `simulated_kmh`, `observed_kmh`, `ratio_p50`, `mae_kmh`). A ratio above 1 means the simulation runs faster than Beirut did, which points at too little demand or too generous junctions. CDR 2016–17 class counts and probe-hour shapes estimate initial density as directional flow × edge length / hourly speed. Uncounted classes use the existing assumed fraction of lane capacity. This is historical input calibration; no measured OD matrix or disruption validation exists. Destinations are sampled by legal connected walks, followed by shortest legal routing to that fixed destination. These **generated trajectories are not measured GPS trips**. Initial vehicles start at rest and accelerate; safe insertion queues excess demand rather than overlapping cars or discarding vehicles. Legacy finite mode drains as trips arrive. The viewer's continuous mode adds estimated boundary entries and interior trips as described above; it does not provide activity schedules or a current demand forecast.
+
+Metrics use exactly the displayed fleet, without extrapolation to citywide vehicles/hour:
+
+- `total = active + pending + arrived`; `pending` is awaiting safe insertion.
+- `unstuck` is always 0: the gridlock breaker is no longer called (see Gridlock).
+- `rerouted` counts distinct vehicles whose SUMO route changed, not commands issued.
+- `stopped_on_closed` counts vehicles held within a newly closed edge.
+- `no_detour` counts active vehicles whose remaining route still contains a prohibited road; pending trips remain in `pending`.
+- `paired_arrivals` counts trips completed in both runs; `mean_completed_delay_s` is their scenario arrival time minus baseline arrival time, observed at one-second sample boundaries. It can be negative and is not an estimate for unfinished trips.
+- `overdue` counts trips that arrived in baseline but remain unfinished in the scenario.
+
+Completed delay has survivor bias while blocked trips are unfinished, so overdue and no-detour counts must be read alongside it. The older `/v1/viewer/traffic` static assignment remains for closure/slowdown road overlays and offline scenario summaries; it is separate sampled-trip sensitivity analysis. While Traffic is enabled, the viewer presents SUMO fleet metrics instead of those static trip counts. Purple overlays while Traffic is enabled count rerouted vehicles on their actual current road, rather than sampled static detour assignment. Road colors still show historical hourly medians, not instantaneous SUMO lane speeds.
+
+## Verification
+
+### Optional mobility evidence package
+
+`dynacity serve --traffic <pilot-model.json> --mobility-inputs <mobility.json>`
+adds the source-labelled mobility controls to the existing viewer. The bundle
+uses schema `dynacity-mobility/1`, validated by `mobility_inputs.py`. Sources,
+bounds, features, vehicle types and missing observations travel with the input.
+Opening the viewer never downloads mobility inputs.
+
+Prepare a package from an already available OSM XML extract, optionally producing
+a separate whole-road pilot network:
+
+```powershell
+$env:PYTHONPATH='src'
+python scripts/prepare_mobility_pilot.py --osm <local-extract.xml> --bounds 35.522 33.895 35.530 33.900 --retrieved-on 2026-10-22 --output <mobility.json> --traffic-model <beirut-traffic.json> --output-traffic <pilot-model.json>
+```
+
+The command is offline. Its historical fleet option transfers the 2015 report's
+aggregate shares; it is not a measured local mix. The UI starts with that option
+off. Enabling it starts a new paired simulation with stable class assignment in
+both runs, including continuous incoming vehicles. Class dimensions and driving
+parameters use SUMO defaults. The supplied profile excludes motorcycles because
+their share was unmeasured. See [the source assessment](mobility-data-readiness.md).
+
+Optional signal programs and vehicle stop events require survey sources. Signals
+reference existing graph node IDs and must match SUMO's controlled-link count.
+Stops reference an initial generated vehicle ID, a route edge, lane, position and
+duration; invalid or off-route records fail rather than being silently relocated.
+`parking: false` stops in the lane; `parking: true` uses SUMO's off-road parking
+behaviour. These imports are mechanics, not a substitute for local observations;
+the current pilot loads neither. Imported programs do not certify that supplied
+movement phases are conflict-free.
+
+Replay vehicle rows append a type ID at index 7; `network.vehicle_types` supplies
+its actual SUMO dimensions and class. Positions are front-bumper coordinates;
+the renderer offsets mesh centres without changing the authoritative position.
+Signal rows contain `[node, linkIndex, lon, lat, state, surveyed]`. Signal colours
+use the displayed sample, without interpolating discrete states or using future
+buffered samples. Mapped parking areas and bus stops represent infrastructure,
+not occupied spaces or scheduled transit demand.
+
+### Runtime checks
+
+Run the real-runtime integration scenarios and replay adapter checks:
+
+```sh
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 PYTHONPATH=src python -m pytest tests/test_mobility_inputs.py tests/test_traffic_sumo.py tests/test_traffic.py tests/test_viewer.py
+node tests/viewer_traffic.test.cjs
+```
+
+The integration tests skip explicitly if SUMO is unavailable. They exercise blocked destinations, no vehicle disappearance, reopening, actual detour edge positions, fixed destinations, queue spacing, stopping within newly closed roads, and an identical baseline producing zero delay. Browser checks must use this isolated checkout's server; the shared preview on port 8767 does not contain the integration until it is applied.
+
+## Measured performance and network exclusions
+
+On the citywide Beirut network (29,300 cars at 08:00) through the real API on one Windows PC, with a street-level view of about 2,100 cars: a session starts in about 19 seconds; a two-second advance takes about 1.8 seconds before any closure and about 2.1 seconds after it, so playback keeps up with real time; each two-second response is about 0.55 MB. The first closure costs a one-off pause of about 7 seconds while the baseline copy is made. Earlier, with a 0.2-second step, both runs always stepped, every car's full state read at every step, routes asked of SUMO one at a time (6–8 ms each whatever its routing algorithm) and a subscription per signal, the same advance took 4.5 seconds and startup about 70 seconds.
+
+New trips are routed by `EdgeRouter`: Dijkstra over SUMO's edge graph (its connections, so turn bans hold) with free-flow travel times, one search per origin road serving every destination from it. The initial fleet uses one search per origin road, bounded by its longest walk.
+
+The converted network contains 14,898 directed edges and 1,269 assumed signal controls (from the road file built before OSM signals were kept). SUMO drops the two directed arcs of road index 10714, a 20.4-metre self-loop. The API reports this in `network.excluded_roads`; it is excluded from generated demand rather than silently inventing connectivity. Supporting this small ring requires explicitly splitting its geometry and validating lane connections. All trips generated on the converted network remain accounted for, including trips without detours. These counts are a synthetic fleet estimate, not observed traffic volume.
+
+A full-network closure/reopening run retained total accounting throughout: a closure on road 0 changed 11 vehicle routes and left 10 active vehicles without a permitted detour; reopening cleared the no-detour count. The finite run's baseline arrival comparison stayed coherent (zero delay before disruptions). This short run verifies mechanics and accounting, not calibrated incident impact or steady-state throughput.
