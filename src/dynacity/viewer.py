@@ -30,6 +30,7 @@ apart from the deck.gl script.
 
 from __future__ import annotations
 
+import base64
 import json
 import math
 import re
@@ -342,6 +343,12 @@ def forecast_summary(forecast: ForecastResult) -> dict[str, Any]:
     }
 
 
+def _brand_image(name: str) -> str:
+    """An official DynaCITY logo from assets/brand as a data URI."""
+    data = files("dynacity").joinpath(f"assets/brand/{name}").read_bytes()
+    return "data:image/webp;base64," + base64.b64encode(data).decode("ascii")
+
+
 def render_viewer(payload: dict[str, Any], *, title: str = "DynaCITY · Beirut") -> str:
     template = files("dynacity").joinpath("viewer_template.html").read_text(encoding="utf-8")
     # `</` is escaped so no string inside the data can close the script tag.
@@ -355,4 +362,6 @@ def render_viewer(payload: dict[str, Any], *, title: str = "DynaCITY · Beirut")
         for name in ("viewer_street_edges.js", "viewer_intersections.js", "viewer_building_details.js", "viewer_osm_context.js", "viewer_camera.js", "viewer_pedestrians.js")
     )
     return (template.replace(_PLACEHOLDER, data).replace("__DYNACITY_CARS__", car_models)
-            .replace("/*__DYNACITY_DETAILS__*/", details).replace("__DYNACITY_TITLE__", title))
+            .replace("/*__DYNACITY_DETAILS__*/", details).replace("__DYNACITY_TITLE__", title)
+            .replace("__DYNACITY_LOGO__", _brand_image("dynacity-logo.webp"))
+            .replace("__DYNACITY_ICON__", _brand_image("favicon.webp")))

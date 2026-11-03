@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>__DYNACITY_TITLE__</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="__DYNACITY_ICON__">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -78,8 +78,8 @@ button { cursor: pointer; touch-action: manipulation; }
 
 /* brand */
 .brand { position: absolute; top: var(--edge); left: var(--edge); display: flex; align-items: center; gap: 10px; min-height: 38px; text-shadow: 0 1px 10px rgba(20, 50, 80, 0.55), 0 0 2px rgba(20, 50, 80, 0.35); pointer-events: none; }
-.brand svg { width: 28px; height: 28px; flex: none; }
-.brand .word { font-size: 21px; font-weight: 600; letter-spacing: -0.5px; }
+/* Official DynaCITY wordmark (assets/brand); the header bar stays light in both themes. */
+.brand .logo { display: block; height: 24px; width: auto; flex: none; }
 .brand .div { width: 1px; height: 20px; background: #f6fcff66; }
 .brand .city { font-size: 13px; font-weight: 500; color: #f4f9fd; }
 
@@ -318,8 +318,6 @@ button, summary, select { transition: color 140ms cubic-bezier(.22,1,.36,1), bac
 .chrome::before { content: ''; position: absolute; inset: 0 0 auto; height: 64px; background: #fafbfc; border-bottom: 1px solid var(--line); pointer-events: none; }
 .glass { background: var(--glass); border-color: var(--rim); box-shadow: var(--glass-shadow); backdrop-filter: none; -webkit-backdrop-filter: none; }
 .brand { top: 12px; gap: 12px; min-height: 40px; text-shadow: none; }
-.brand svg { width: 24px; height: 24px; color: var(--ink-2); }
-.brand .word { font-size: 20px; font-weight: 500; letter-spacing: 0; }
 .brand .div { background: var(--line); }
 .brand .city { color: var(--ink-2); font-size: 13px; }
 .tabs { top: 12px; height: 40px; padding: 4px; gap: 4px; background: #f0f2f4; border: 1px solid var(--line); border-radius: 12px; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
@@ -333,7 +331,7 @@ button, summary, select { transition: color 140ms cubic-bezier(.22,1,.36,1), bac
 .rail { width: 48px; padding: 4px; gap: 4px; border-radius: 12px; }
 .rail button, .tool-menu summary { width: 38px; height: 40px; border-radius: 8px; color: var(--ink-2); letter-spacing: 0; }
 .rail button[aria-pressed=true] { color: var(--accent); background: #e8eff7; }
-.chrome svg:not(.brand svg) { width: 18px; height: 18px; stroke-width: 1.5; }
+.chrome svg { width: 18px; height: 18px; stroke-width: 1.5; }
 .tool-options { left: 60px; width: 216px; padding: 8px; border-radius: 12px; }
 .tool-options button { width: 100%; gap: 8px; padding: 0 8px; font-size: 13px; }
 .tool-options select { margin: 4px 0; padding: 8px; background: #fff; border-color: var(--line); }
@@ -418,7 +416,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 @media (max-width: 760px) {
   :root { --edge: 12px; }
   .brand { top: 12px; left: 12px; gap: 8px; }
-  .brand .word { font-size: 18px; }
+  .brand .logo { height: 20px; }
   .status { right: 12px; padding: 8px 0; max-width: calc(100vw - 176px); }
   .badge { font-size: 11px; }
   .tabs { top: 64px; max-width: calc(100vw - 24px); }
@@ -455,8 +453,8 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 
 <div class="chrome">
   <div class="brand">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19M12 2.5c2.6 2.7 3.9 5.9 3.9 9.5s-1.3 6.8-3.9 9.5c-2.6-2.7-3.9-5.9-3.9-9.5s1.3-6.8 3.9-9.5z"/></svg>
-    <span class="word">DynaCITY</span><span class="div"></span><span class="city" id="brand-city">Beirut</span>
+    <img class="logo" src="__DYNACITY_LOGO__" alt="DynaCITY">
+    <span class="div"></span><span class="city" id="brand-city">Beirut</span>
   </div>
 
   <div class="tabs" role="tablist" aria-label="Map lens">
@@ -2421,6 +2419,8 @@ function planeMesh() {
   return meshOf(v);
 }
 function cubeMesh() { const v = []; box(v, [-0.5, -0.5, -0.5], [0.5, 0.5, 0.5], [1, 1, 1]); return meshOf(v); }
+// Unit box standing on the ground (z 0 to 1): building details and OSM boundary walls.
+function blockMesh() { const v = []; box(v, [-0.5, -0.5, 0], [0.5, 0.5, 1], [1, 1, 1]); return meshOf(v); }
 function concreteSectionMesh(profile) {
   const v=[],white=[1,1,1];
   for(let i=0;i<profile.length;i++) {
