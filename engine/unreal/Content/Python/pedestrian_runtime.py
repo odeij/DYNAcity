@@ -47,12 +47,69 @@ def prepare_pool(count=None):
             component.set_skeletal_mesh_asset(unreal.load_asset(choice['mesh']))
             component.set_animation_mode(unreal.AnimationMode.ANIMATION_SINGLE_NODE)
             component.set_animation(unreal.load_asset(choice['walk']))
+        else:
+            _vary(actor, index)
         actor.set_actor_label(f'PedestrianPool_{index:02d}')
         actor.set_actor_enable_collision(False)
         actor.set_actor_hidden_in_game(True)
         actor.set_editor_property('is_spatially_loaded', False)
         actor.tags = [TAG, POOL_TAG]
+    refresh_pool()   # hair from bindings that were already compiled; run again later if some is missing
     return count
+
+
+def _vary(actor, index):
+    """Give a City Sample Crowd character its own look, the same for a given pool index on every run.
+
+    `BP_CrowdCharacter` defaults to one man in a blazer. Skeleton A is male and B female; body weight
+    swaps the whole mesh set. Indices past the end of a list wrap in the blueprint (6 heads and at
+    least 10 outfits per gender, checked 3 November 2026), so the ranges below never miss.
+    Blueprints without these properties are left as they are.
+    """
+    import random
+    rng = random.Random(1000 + index)
+    try:
+        skeleton = type(actor.get_editor_property('Skeleton'))
+        body = type(actor.get_editor_property('Body Shape'))
+    except Exception:
+        return
+    female = index % 2 == 1
+    actor.set_editor_property('Skeleton', skeleton.B if female else skeleton.A)
+    actor.set_editor_property('Body Shape', rng.choices(
+        (body.NORMAL_WEIGHT, body.OVER_WEIGHT, body.UNDER_WEIGHT), (0.65, 0.2, 0.15))[0])
+    # Skin textures as seen in a line-up (3 November 2026): 1-3 light to olive, 4 medium brown, 0 and 5
+    # darker (5 reads lighter on women). Weighted towards light and olive tones as an illustrative mix
+    # for Beirut streets, not a census figure.
+    actor.set_editor_property('SkinTextureIndex', rng.choices(range(6), (0.04, 0.27, 0.27, 0.26, 0.12, 0.04))[0])
+    choices = {'HeadIndex': 6, 'HairIndex': 5, 'HairColorIndex': 4, 'EyebrowsIndex': 3,
+               'OutfitIndex': 10, 'OutfitMaterialIndex': 4, 'PatternOptionIndex': 3, 'PatternColorIndex': 4}
+    if not female:
+        choices.update(BeardIndex=4, MustacheIndex=3)
+    for name, count in choices.items():
+        try:
+            actor.set_editor_property(name, rng.randrange(count))
+        except Exception:
+            pass   # property absent in this blueprint version
+
+
+def refresh_pool():
+    """Rebuild each pooled character's components so hair shows.
+
+    Hair grooms created while their face bindings are still compiling (first use, or after a shader
+    change) stay invisible. Changing a property reruns the blueprint's construction script, which
+    makes new groom components with the finished bindings; setting the same value does nothing, so the
+    hair index is moved and put back.
+    """
+    sub = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+    pool = [a for a in sub.get_all_level_actors() if POOL_TAG in [str(t) for t in a.tags]]
+    for actor in pool:
+        try:
+            hair = actor.get_editor_property('HairIndex')
+            actor.set_editor_property('HairIndex', hair + 1)
+            actor.set_editor_property('HairIndex', hair)
+        except Exception:
+            pass
+    return len(pool)
 
 
 def remove_pool():
