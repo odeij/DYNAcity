@@ -1,0 +1,751 @@
+{
+  "schema_version": "1.0",
+  "interval": {
+    "start_year": 2018,
+    "target_year": 2024,
+    "years": 6
+  },
+  "total_rows": 3318,
+  "canonical_changed": 694,
+  "canonical_changed_rate": 0.20916214587100662,
+  "raw_label_changed": 3057,
+  "raw_label_changed_rate": 0.9213381555153707,
+  "canonical_start_state_counts": [
+    {
+      "state": "stable_built",
+      "count": 2344
+    },
+    {
+      "state": "unknown",
+      "count": 297
+    },
+    {
+      "state": "active_construction",
+      "count": 291
+    },
+    {
+      "state": "vacant_or_evicted",
+      "count": 132
+    },
+    {
+      "state": "renovated",
+      "count": 113
+    },
+    {
+      "state": "empty_or_parking",
+      "count": 91
+    },
+    {
+      "state": "stalled_or_cancelled",
+      "count": 48
+    },
+    {
+      "state": "demolished",
+      "count": 2
+    }
+  ],
+  "canonical_target_state_counts": [
+    {
+      "state": "stable_built",
+      "count": 2729
+    },
+    {
+      "state": "empty_or_parking",
+      "count": 204
+    },
+    {
+      "state": "renovated",
+      "count": 126
+    },
+    {
+      "state": "active_construction",
+      "count": 114
+    },
+    {
+      "state": "vacant_or_evicted",
+      "count": 91
+    },
+    {
+      "state": "stalled_or_cancelled",
+      "count": 53
+    },
+    {
+      "state": "demolished",
+      "count": 1
+    }
+  ],
+  "canonical_transitions": [
+    {
+      "from_state": "stable_built",
+      "to_state": "stable_built",
+      "count": 2335,
+      "share": 0.7037371910789633
+    },
+    {
+      "from_state": "active_construction",
+      "to_state": "stable_built",
+      "count": 171,
+      "share": 0.051537070524412296
+    },
+    {
+      "from_state": "renovated",
+      "to_state": "renovated",
+      "count": 112,
+      "share": 0.03375527426160337
+    },
+    {
+      "from_state": "unknown",
+      "to_state": "empty_or_parking",
+      "count": 105,
+      "share": 0.03164556962025317
+    },
+    {
+      "from_state": "unknown",
+      "to_state": "stable_built",
+      "count": 97,
+      "share": 0.02923447860156721
+    },
+    {
+      "from_state": "vacant_or_evicted",
+      "to_state": "stable_built",
+      "count": 92,
+      "share": 0.027727546714888487
+    },
+    {
+      "from_state": "active_construction",
+      "to_state": "active_construction",
+      "count": 84,
+      "share": 0.02531645569620253
+    },
+    {
+      "from_state": "unknown",
+      "to_state": "vacant_or_evicted",
+      "count": 69,
+      "share": 0.020795660036166366
+    },
+    {
+      "from_state": "empty_or_parking",
+      "to_state": "empty_or_parking",
+      "count": 59,
+      "share": 0.01778179626280892
+    },
+    {
+      "from_state": "empty_or_parking",
+      "to_state": "stable_built",
+      "count": 21,
+      "share": 0.006329113924050633
+    },
+    {
+      "from_state": "active_construction",
+      "to_state": "stalled_or_cancelled",
+      "count": 20,
+      "share": 0.006027727546714889
+    },
+    {
+      "from_state": "stalled_or_cancelled",
+      "to_state": "stalled_or_cancelled",
+      "count": 17,
+      "share": 0.005123568414707656
+    },
+    {
+      "from_state": "vacant_or_evicted",
+      "to_state": "vacant_or_evicted",
+      "count": 17,
+      "share": 0.005123568414707656
+    },
+    {
+      "from_state": "active_construction",
+      "to_state": "empty_or_parking",
+      "count": 13,
+      "share": 0.0039180229053646775
+    },
+    {
+      "from_state": "unknown",
+      "to_state": "active_construction",
+      "count": 13,
+      "share": 0.0039180229053646775
+    },
+    {
+      "from_state": "vacant_or_evicted",
+      "to_state": "empty_or_parking",
+      "count": 13,
+      "share": 0.0039180229053646775
+    },
+    {
+      "from_state": "stalled_or_cancelled",
+      "to_state": "active_construction",
+      "count": 11,
+      "share": 0.003315250150693189
+    },
+    {
+      "from_state": "stalled_or_cancelled",
+      "to_state": "stable_built",
+      "count": 11,
+      "share": 0.003315250150693189
+    },
+    {
+      "from_state": "stalled_or_cancelled",
+      "to_state": "empty_or_parking",
+      "count": 9,
+      "share": 0.0027124773960217
+    },
+    {
+      "from_state": "unknown",
+      "to_state": "stalled_or_cancelled",
+      "count": 7,
+      "share": 0.002109704641350211
+    },
+    {
+      "from_state": "empty_or_parking",
+      "to_state": "stalled_or_cancelled",
+      "count": 6,
+      "share": 0.0018083182640144665
+    },
+    {
+      "from_state": "vacant_or_evicted",
+      "to_state": "renovated",
+      "count": 6,
+      "share": 0.0018083182640144665
+    },
+    {
+      "from_state": "stable_built",
+      "to_state": "empty_or_parking",
+      "count": 5,
+      "share": 0.0015069318866787222
+    },
+    {
+      "from_state": "unknown",
+      "to_state": "renovated",
+      "count": 5,
+      "share": 0.0015069318866787222
+    },
+    {
+      "from_state": "vacant_or_evicted",
+      "to_state": "active_construction",
+      "count": 4,
+      "share": 0.0012055455093429777
+    },
+    {
+      "from_state": "empty_or_parking",
+      "to_state": "vacant_or_evicted",
+      "count": 3,
+      "share": 0.0009041591320072332
+    },
+    {
+      "from_state": "active_construction",
+      "to_state": "vacant_or_evicted",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "demolished",
+      "to_state": "stable_built",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "empty_or_parking",
+      "to_state": "active_construction",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "stable_built",
+      "to_state": "renovated",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "stable_built",
+      "to_state": "stalled_or_cancelled",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "active_construction",
+      "to_state": "renovated",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "renovated",
+      "to_state": "stalled_or_cancelled",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "unknown",
+      "to_state": "demolished",
+      "count": 1,
+      "share": 0.0003013863773357444
+    }
+  ],
+  "raw_transitions": [
+    {
+      "from_state": "Complete Residential",
+      "to_state": "Complete Building",
+      "count": 1653,
+      "share": 0.49819168173598555
+    },
+    {
+      "from_state": "Non-Residential Building",
+      "to_state": "Non-Residential",
+      "count": 671,
+      "share": 0.20223025919228452
+    },
+    {
+      "from_state": "Under Construction",
+      "to_state": "Complete Building",
+      "count": 160,
+      "share": 0.04822182037371911
+    },
+    {
+      "from_state": "Renovated",
+      "to_state": "Renovated",
+      "count": 112,
+      "share": 0.03375527426160337
+    },
+    {
+      "from_state": "Under Construction",
+      "to_state": "Under Construction",
+      "count": 82,
+      "share": 0.02471368294153104
+    },
+    {
+      "from_state": "Not Available",
+      "to_state": "Empty Lot",
+      "count": 72,
+      "share": 0.0216998191681736
+    },
+    {
+      "from_state": "Not Available",
+      "to_state": "Old-Bldg-Uninhabited",
+      "count": 69,
+      "share": 0.020795660036166366
+    },
+    {
+      "from_state": "Old threat of Eviction",
+      "to_state": "Old-Bldg-Inhabited",
+      "count": 64,
+      "share": 0.019288728149487643
+    },
+    {
+      "from_state": "Not Available",
+      "to_state": "Non-Residential",
+      "count": 54,
+      "share": 0.0162748643761302
+    },
+    {
+      "from_state": "Empty Lot",
+      "to_state": "Empty Lot",
+      "count": 33,
+      "share": 0.009945750452079566
+    },
+    {
+      "from_state": "Not Available",
+      "to_state": "Parking Lot",
+      "count": 33,
+      "share": 0.009945750452079566
+    },
+    {
+      "from_state": "Not Available",
+      "to_state": "Old-Bldg-Inhabited",
+      "count": 31,
+      "share": 0.009342977697408076
+    },
+    {
+      "from_state": "Parking Lot",
+      "to_state": "Parking Lot",
+      "count": 18,
+      "share": 0.0054249547920434
+    },
+    {
+      "from_state": "Under Construction",
+      "to_state": "Construction on-Hold",
+      "count": 18,
+      "share": 0.0054249547920434
+    },
+    {
+      "from_state": "Evicted Building",
+      "to_state": "Old-Bldg-Uninhabited",
+      "count": 13,
+      "share": 0.0039180229053646775
+    },
+    {
+      "from_state": "Construction on-Hold",
+      "to_state": "Construction on-Hold",
+      "count": 12,
+      "share": 0.003616636528028933
+    },
+    {
+      "from_state": "Not Available",
+      "to_state": "Complete Building",
+      "count": 12,
+      "share": 0.003616636528028933
+    },
+    {
+      "from_state": "Not Available",
+      "to_state": "Under Construction",
+      "count": 12,
+      "share": 0.003616636528028933
+    },
+    {
+      "from_state": "Construction on-Hold",
+      "to_state": "Under Construction",
+      "count": 11,
+      "share": 0.003315250150693189
+    },
+    {
+      "from_state": "Old threat of Eviction",
+      "to_state": "Non-Residential",
+      "count": 11,
+      "share": 0.003315250150693189
+    },
+    {
+      "from_state": "Under Construction",
+      "to_state": "Empty Lot",
+      "count": 11,
+      "share": 0.003315250150693189
+    },
+    {
+      "from_state": "Evicted Building",
+      "to_state": "Old-Bldg-Inhabited",
+      "count": 9,
+      "share": 0.0027124773960217
+    },
+    {
+      "from_state": "Under Construction",
+      "to_state": "Non-Residential",
+      "count": 9,
+      "share": 0.0027124773960217
+    },
+    {
+      "from_state": "Empty Lot",
+      "to_state": "Complete Building",
+      "count": 8,
+      "share": 0.0024110910186859553
+    },
+    {
+      "from_state": "Construction on-Hold",
+      "to_state": "Complete Building",
+      "count": 7,
+      "share": 0.002109704641350211
+    },
+    {
+      "from_state": "Empty Lot",
+      "to_state": "Parking Lot",
+      "count": 7,
+      "share": 0.002109704641350211
+    },
+    {
+      "from_state": "Not Available",
+      "to_state": "Construction on-Hold",
+      "count": 7,
+      "share": 0.002109704641350211
+    },
+    {
+      "from_state": "Cancelled Construction",
+      "to_state": "Empty Lot",
+      "count": 6,
+      "share": 0.0018083182640144665
+    },
+    {
+      "from_state": "Evicted Building",
+      "to_state": "Empty Lot",
+      "count": 6,
+      "share": 0.0018083182640144665
+    },
+    {
+      "from_state": "Complete Residential",
+      "to_state": "Non-Residential",
+      "count": 5,
+      "share": 0.0015069318866787222
+    },
+    {
+      "from_state": "Not Available",
+      "to_state": "Renovated",
+      "count": 5,
+      "share": 0.0015069318866787222
+    },
+    {
+      "from_state": "Old threat of Eviction",
+      "to_state": "Complete Building",
+      "count": 5,
+      "share": 0.0015069318866787222
+    },
+    {
+      "from_state": "Parking Lot",
+      "to_state": "Complete Building",
+      "count": 5,
+      "share": 0.0015069318866787222
+    },
+    {
+      "from_state": "Cancelled Construction",
+      "to_state": "Cancelled Construction",
+      "count": 4,
+      "share": 0.0012055455093429777
+    },
+    {
+      "from_state": "Old threat of Eviction",
+      "to_state": "Empty Lot",
+      "count": 4,
+      "share": 0.0012055455093429777
+    },
+    {
+      "from_state": "Old threat of Eviction",
+      "to_state": "Old-Bldg-Uninhabited",
+      "count": 4,
+      "share": 0.0012055455093429777
+    },
+    {
+      "from_state": "Parking Lot",
+      "to_state": "Non-Residential",
+      "count": 4,
+      "share": 0.0012055455093429777
+    },
+    {
+      "from_state": "Cancelled Construction",
+      "to_state": "Old-Bldg-Inhabited",
+      "count": 3,
+      "share": 0.0009041591320072332
+    },
+    {
+      "from_state": "Complete Residential",
+      "to_state": "Old-Bldg-Inhabited",
+      "count": 3,
+      "share": 0.0009041591320072332
+    },
+    {
+      "from_state": "Empty Lot",
+      "to_state": "Cancelled Construction",
+      "count": 3,
+      "share": 0.0009041591320072332
+    },
+    {
+      "from_state": "Empty Lot",
+      "to_state": "Construction on-Hold",
+      "count": 3,
+      "share": 0.0009041591320072332
+    },
+    {
+      "from_state": "Empty Lot",
+      "to_state": "Old-Bldg-Inhabited",
+      "count": 3,
+      "share": 0.0009041591320072332
+    },
+    {
+      "from_state": "Evicted Building",
+      "to_state": "Renovated",
+      "count": 3,
+      "share": 0.0009041591320072332
+    },
+    {
+      "from_state": "Non-Residential Building",
+      "to_state": "Complete Building",
+      "count": 3,
+      "share": 0.0009041591320072332
+    },
+    {
+      "from_state": "Old threat of Eviction",
+      "to_state": "Renovated",
+      "count": 3,
+      "share": 0.0009041591320072332
+    },
+    {
+      "from_state": "Complete Residential",
+      "to_state": "Renovated",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Construction on-Hold",
+      "to_state": "Empty Lot",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Demolished",
+      "to_state": "Complete Building",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Empty Lot",
+      "to_state": "Old-Bldg-Uninhabited",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Empty Lot",
+      "to_state": "Under Construction",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Evicted Building",
+      "to_state": "Complete Building",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Evicted Building",
+      "to_state": "Under Construction",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Non-Residential Building",
+      "to_state": "Parking Lot",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Old threat of Eviction",
+      "to_state": "Parking Lot",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Old threat of Eviction",
+      "to_state": "Under Construction",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Under Construction",
+      "to_state": "Cancelled Construction",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Under Construction",
+      "to_state": "Construction Site",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Under Construction",
+      "to_state": "Old-Bldg-Inhabited",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Under Construction",
+      "to_state": "Old-Bldg-Uninhabited",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Under Construction",
+      "to_state": "Parking Lot",
+      "count": 2,
+      "share": 0.0006027727546714888
+    },
+    {
+      "from_state": "Cancelled Construction",
+      "to_state": "Complete Building",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Complete Residential",
+      "to_state": "Construction on-Hold",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Complete Residential",
+      "to_state": "Empty Lot",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Complete Residential",
+      "to_state": "Parking Lot",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Construction on-Hold",
+      "to_state": "Cancelled Construction",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Construction on-Hold",
+      "to_state": "Parking Lot",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Empty Lot",
+      "to_state": "Non-Residential",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Evicted Building",
+      "to_state": "Non-Residential",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Evicted Building",
+      "to_state": "Parking Lot",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Non-Residential Building",
+      "to_state": "Construction on-Hold",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Non-Residential Building",
+      "to_state": "Empty Lot",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Not Available",
+      "to_state": "Construction Site",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Not Available",
+      "to_state": "Demolished",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Parking Lot",
+      "to_state": "Empty Lot",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Parking Lot",
+      "to_state": "Old-Bldg-Uninhabited",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Renovated",
+      "to_state": "Construction on-Hold",
+      "count": 1,
+      "share": 0.0003013863773357444
+    },
+    {
+      "from_state": "Under Construction",
+      "to_state": "Renovated",
+      "count": 1,
+      "share": 0.0003013863773357444
+    }
+  ],
+  "notes": [
+    "Raw BBED labels changed between survey waves; canonical transitions remove label-only changes such as Complete Residential to Complete Building.",
+    "Counts are descriptive observations, not causal effects."
+  ]
+}

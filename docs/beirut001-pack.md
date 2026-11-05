@@ -123,8 +123,10 @@ and the endpoints (`/v1/beirut001`, `/v1/beirut001/buildings`) send
 ## Licence
 
 The author's page calls the model open source and free to download, but it
-names no licence and gives no terms for web redistribution. Packs and their
-derived geometry therefore stay in private data and are served only locally.
+names no licence and gives no terms for web redistribution. The source `.3dm`
+is not redistributed. The two derived packs are published in
+`datasets/beirut001/` (Git LFS) with attribution to the author, and the server
+still serves them only on a loopback host.
 A request for the coordinate reference and reuse terms is drafted in
 [data-requests/beirut-3d-access.md](data-requests/beirut-3d-access.md) and has
 not been sent.

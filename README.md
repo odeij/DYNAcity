@@ -74,9 +74,20 @@ viewer; playback speed follows the simulation's on-screen indicator.
 | Historical traffic speeds | [Tari’ak Lebanon Traffic Dataset](https://github.com/ramikay/lebanon-traffic-dataset) | Typical hourly speeds from 2014–2019, rather than live traffic. |
 | Traffic counts | [CDR / ELARD BRT study, 2017, Table 4-4](https://documents1.worldbank.org/curated/en/648821508851766209/pdf/SFG3708-EA-P160224-Box405306B-PUBLIC-Disclosed-10-24-2017.pdf) | Peak-hour road counts used to estimate traffic volumes. |
 | 3D point clouds | Existing local AlMasar Al Akhdar / AUB project files; no confirmed public download link | Detailed 3D views and surface/ground reviews. See [point-cloud provenance](#point-cloud-provenance). |
-| Model buildings and bridge heights | [Beirut 001 3D model by Salim al-Kadi](https://www.salimalkadi.com/07_beirut-001), free Rhino download, January 2020 | Building outlines and heights for an optional map layer, plus measured deck heights for some bridges (evaluated, not used yet). Reduced to a small private pack; see [docs/beirut001-pack.md](docs/beirut001-pack.md). |
+| Model buildings and bridge heights | [Beirut 001 3D model by Salim al-Kadi](https://www.salimalkadi.com/07_beirut-001), free Rhino download, January 2020 | Building outlines and heights for an optional map layer, plus measured deck heights for some bridges (evaluated, not used yet). Reduced to a small derived pack; see [docs/beirut001-pack.md](docs/beirut001-pack.md). |
 
-Panels, snapshots, trained models, forecasts and planning results are generated locally from these inputs. They are not additional observed datasets. Raw data and generated artifacts stay outside Git, as described below.
+Panels, snapshots, trained models, forecasts and planning results are generated from these inputs. They are not additional observed datasets.
+
+## Datasets in this repository
+
+The shareable data lives in [`datasets/`](datasets/README.md): BBED buildings and the 2024 snapshot, the transition panel, Overture context buildings, the citywide traffic model with the raw Tari'ak speeds, OSM bus routes, modelled pedestrian flows, the 2024–2030 forecast, the terrain grid, the green-corridor line and the Beirut 001 packs. Large and binary files (`velocities.csv`, `streets.geojson`, `*.npz`) are stored with Git LFS, so install it before cloning:
+
+```bash
+git lfs install
+git clone https://github.com/odeij/DYNAcity.git
+```
+
+[datasets/README.md](datasets/README.md) lists every file, how it was made, its licence and the attribution to keep, plus a `dynacity serve` command that runs the viewer from these files. AUB point clouds, the Beirut 001 source model and trained `.joblib` models are not included.
 
 ## Data coverage
 
@@ -96,7 +107,7 @@ What each dataset actually covers in the current local build. Missing mapping in
 | Traffic speeds (Tari'ak) | 2014–2019 | Hourly median speeds: 5,006 road pieces have their own readings, about 2.9 million readings in total | The other 5,812 pieces use their road class's profile; no live or post-2019 traffic |
 | Traffic counts (CDR / ELARD) | 2016–17 | Peak-hour counts by road class at the study's count stations | Not a measured origin-destination matrix; trip patterns are generated |
 | Elevation (Copernicus GLO-30) | Global 30 m surface model | Ground height over the snapshot area | Too coarse for street-level detail, kerbs or bridge decks |
-| Buildings (Beirut 001) | Model published January 2020 | 17,569 building outlines with heights over about 6.7 × 4.9 km; 687 provisionally linked to BBED footprints | Alignment to BBED is inferred, not surveyed. Heights are measured from the model ground (agrees with GLO-30 to a median 0.4 m) and run a median 5.4 m above BBED's recorded heights. No named licence, so the pack stays private and is served locally only |
+| Buildings (Beirut 001) | Model published January 2020 | 17,569 building outlines with heights over about 6.7 × 4.9 km; 687 provisionally linked to BBED footprints | Alignment to BBED is inferred, not surveyed. Heights are measured from the model ground (agrees with GLO-30 to a median 0.4 m) and run a median 5.4 m above BBED's recorded heights. No named licence: only the derived pack is published (`datasets/beirut001/`), never the source model |
 | Buildings (OpenStreetMap and Microsoft, through Overture) | OpenStreetMap downloaded 24 October 2026; Overture release 2026-09 | 64,846 OpenStreetMap outlines and 3,871 Microsoft footprints over 35.4693–35.5720 E, 33.8288–33.9076 N | Only about 160 have a mapped height and 110 a floor count. The rest use the median Beirut 001 height for their footprint size; 219 fall back to 6 m. No status or forecast data |
 | Bridge heights (Beirut 001) | Model published January 2020 | Usable heights for 31 of the 135 bridge pieces, about 6.6 km of 23.3 km of bridges; their median is 6.1 m, half between about 5 and 9 m | The model has no map position: alignment to BBED is inferred (median 2.8 m off). No named licence, so measured values stay in private data and are not published |
 
@@ -108,7 +119,7 @@ The 2020 point-cloud capture is **photogrammetric (structure-from-motion), not l
 
 ## Private data boundary
 
-Raw LAS/COPC files, BBED downloads, features, trained models, and forecast artifacts are ignored by Git. Set private locations outside the repository:
+Raw LAS/COPC files, point-cloud features, trained models and new working outputs are ignored by Git; only the curated files in [`datasets/`](datasets/README.md) are committed. Set private working locations outside the repository:
 
 ```powershell
 $env:DYNACITY_DATA_ROOT='C:\private\dynacity-data'
