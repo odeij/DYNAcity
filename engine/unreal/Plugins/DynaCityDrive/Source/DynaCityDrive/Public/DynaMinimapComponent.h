@@ -33,6 +33,11 @@ public:
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Beirut|Minimap") EDynaBasemap Mode = EDynaBasemap::Street;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Beirut|Minimap") bool HeadingUp = true;
+    // GPS route still ahead of the car, in local metres, and its waypoint. Set by the
+    // mobility world before each Draw; empty when no route is active.
+    TArray<FVector2D> RoutePoints;
+    bool RouteHasGoal = false;
+    FVector2D RouteGoal = FVector2D::ZeroVector;
 private:
     friend class FDynaMinimapStatusTest;
     friend class FDynaMinimapPreferencesTest;

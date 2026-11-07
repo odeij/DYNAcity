@@ -622,6 +622,40 @@ void UDynaMinimapComponent::Draw(AHUD* HUD,UCanvas* Canvas,const APawn* Player,f
             if(ClipRoad(A,B,Size))HUD->DrawLine(X+A.X,Y+A.Y,X+B.X,Y+B.Y,FLinearColor(.88f,.91f,.81f,.9f),1.5f);
         }
     }
+    // GPS route: dark casing under a bright magenta line, then the waypoint blip, pinned to
+    // the map edge (toward the destination) when it is off the map.
+    if(RoutePoints.Num()>=2)
+    {
+        // Inset by half the casing width so the thick line never crosses the map border.
+        const FVector2D Inset(4,4);
+        TArray<TPair<FVector2D,FVector2D>> Drawn;
+        for(int32 I=1;I<RoutePoints.Num();++I)
+        {
+            FVector2D A=Project(Mercator(RoutePoints[I-1]))-Inset,B=Project(Mercator(RoutePoints[I]))-Inset;
+            if(!ClipRoad(A,B,Size-8))continue;
+            A+=Inset; B+=Inset;
+            HUD->DrawLine(X+A.X,Y+A.Y,X+B.X,Y+B.Y,FLinearColor(.16f,.02f,.2f,.9f),7.f);
+            Drawn.Add({A,B});
+        }
+        for(const auto& Line:Drawn)
+            HUD->DrawLine(X+Line.Key.X,Y+Line.Key.Y,X+Line.Value.X,Y+Line.Value.Y,FLinearColor(.86f,.22f,1.f,1.f),4.f);
+    }
+    if(RouteHasGoal)
+    {
+        FVector2D G=Project(Mercator(RouteGoal));
+        const FVector2D Mid(Size*.5,Size*.5);
+        const bool Inside=G.X>=10 && G.Y>=10 && G.X<=Size-10 && G.Y<=Size-10;
+        if(!Inside)
+        {
+            const FVector2D D=G-Mid;
+            const double Scale=(Size*.5-10)/FMath::Max(FMath::Abs(D.X),FMath::Abs(D.Y));
+            G=Mid+D*Scale;
+        }
+        const float R=Inside?8.f:6.f;
+        HUD->DrawRect(FLinearColor(.08f,.0f,.1f,1),X+G.X-R-2,Y+G.Y-R-2,2*R+4,2*R+4);
+        HUD->DrawRect(FLinearColor(.86f,.22f,1.f,1.f),X+G.X-R,Y+G.Y-R,2*R,2*R);
+        HUD->DrawRect(FLinearColor::White,X+G.X-2,Y+G.Y-2,4,4);
+    }
     // Marker follows the actual vehicle position within the smoothed camera.
     const FVector2D PlayerAt=Project(Target)+FVector2D(X,Y);
     const double ArrowAngle=Heading-Rotation;

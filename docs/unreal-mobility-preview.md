@@ -14,6 +14,19 @@ before confirmation, apply to the native HUD immediately, and reload across
 panel, Play and editor restarts. Failed writes preserve the previous selection
 and display an error. The atlas itself remains north-up.
 
+**GPS route (waypoint).** In the City map, click a point and choose **Set GPS route
+here**. Unreal plans the fastest path from the car over the exported road network
+(A* over 0.5 m-keyed shared junction vertices; dead ends within 12 m of another road
+are stitched) using each road's Tari'ak 2015-2019 hourly median speed at the in-game
+hour. The driving minimap draws the route still ahead as a magenta line with a
+waypoint blip that pins to the map edge when off-screen, and a GPS card beside it
+shows the next instruction with distance and street, the one after it, remaining
+distance and time, progress, the hour's average route speed and the slowest stretch.
+Leaving the line for 1.5 s recalculates from the car; arriving within 25 m ends the
+route. The atlas shows the same route, figures and a turn list, with **Clear route**.
+One-way rules and turn bans are not in the export, so this is a travel-time shortest
+path, not a legal driving route. Native test: `DynaCity.Route.Planner`.
+
 The native HUD smooths position, shortest-angle rotation and street-mode
 speed-dependent zoom each rendered frame, snaps after teleports, clips raster tiles to the map
 border, and fetches only visible tiles with at most four concurrent loads.

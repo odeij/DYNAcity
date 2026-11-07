@@ -12,6 +12,7 @@ window.beirutMap = (() => {
   let map, roadLayer, playerMarker, layers = {}, active = [], visible = false;
   let reference = null, player = null, roads = [], loaded = false, mode = null;
   let fitPending = false, tileTimer, dataRequested = false, loadGeneration = 0;
+  let routeLayer, route = null, routeDrawn = null, playing = false, fitRouteNext = false;
   const finitePoint = value => Array.isArray(value) && value.length >= 2 && value.slice(0, 2).every(Number.isFinite);
 
   function tileMessage() {
@@ -78,13 +79,15 @@ window.beirutMap = (() => {
     roadLayer = L.featureGroup();
     map.on('zoomend moveend', detailMessage);
     map.on('dragstart', () => setFollow(false));
-    map.on('click', event => pick(event.latlng));
+    map.on('click', event => choose(event.latlng));
     element.addEventListener('keydown', event => {
       if (event.target !== element) return;
       if (event.key.startsWith('Arrow')) setFollow(false);
-      if (event.key === 'Enter') { event.preventDefault(); pick(map.getCenter()); }
+      if (event.key === 'Enter') { event.preventDefault(); choose(map.getCenter()); }
     });
+    routeLayer = L.featureGroup().addTo(map);
     renderRoads();
+    renderRoute();
     updatePlayer();
   }
   function applyMode() {
@@ -129,10 +132,74 @@ window.beirutMap = (() => {
     playerMarker.setLatLng(latlng).addTo(map);
     if (followControl.checked) centrePlayer();
   }
-  function pick(latlng) {
-    if (!reference) return;
-    try { action('map_pick', reference.latLngToLocal(latlng)); }
-    catch (error) { status.textContent = 'Choose a destination inside UTM zone 36N (longitude 30–36° E).'; }
+  // GTA-style choice at the clicked point: plan a GPS route there, or jump the car there.
+  function choose(latlng) {
+    if (!reference || !map) return;
+    let local;
+    try { local = reference.latLngToLocal(latlng); }
+    catch (error) { status.textContent = 'Choose a destination inside UTM zone 36N (longitude 30–36° E).'; return; }
+    const box = document.createElement('div');
+    box.className = 'map-choice';
+    const button = (label, style, run) => {
+      const element = document.createElement('button');
+      element.type = 'button'; element.className = `btn btn-sm ${style}`; element.textContent = label;
+      element.addEventListener('click', () => { map.closePopup(); run(); });
+      box.append(element);
+      return element;
+    };
+    const routeButton = button('Set GPS route here', 'btn-primary', () => { fitRouteNext = true; action('route_to', local); });
+    button('Go there (move the car)', 'btn-outline-dark', () => action('map_pick', local));
+    if (!playing) {
+      routeButton.disabled = true;
+      const note = document.createElement('p');
+      note.textContent = 'GPS routes start from your car: choose Start driving first.';
+      box.append(note);
+    }
+    L.popup({closeButton: true, autoPan: true}).setLatLng(latlng).setContent(box).openOn(map);
+    (routeButton.disabled ? box.querySelector('button:not([disabled])') : routeButton).focus();
+  }
+  const km = metres => metres < 1000 ? `${Math.max(0, Math.round(metres / 10) * 10)} m` : `${(metres / 1000).toFixed(1)} km`;
+  const minutes = seconds => { const m = Math.max(1, Math.round(seconds / 60)); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`; };
+  function fitRoute() {
+    if (!map || !visible || !routeLayer) return;
+    const bounds = routeLayer.getBounds();
+    if (!bounds.isValid()) return;
+    setFollow(false);
+    map.fitBounds(bounds, {padding: [36, 36], maxZoom: Math.min(16, map.getMaxZoom())});
+  }
+  function renderRoute() {
+    const panel = document.querySelector('#map-route');
+    const active = route && route.active && Array.isArray(route.points) && route.points.length > 1;
+    panel.classList.toggle('d-none', !active);
+    if (!active) { if (routeLayer) routeLayer.clearLayers(); routeDrawn = null; return; }
+    if (map && reference && routeDrawn !== route.version) {
+      routeLayer.clearLayers();
+      const path = route.points.filter(finitePoint).map(point => reference.localToLatLng(point));
+      L.polyline(path, {color: '#2a0533', weight: 9, opacity: .75, interactive: false, lineCap: 'round', lineJoin: 'round'}).addTo(routeLayer);
+      L.polyline(path, {color: '#db38ff', weight: 5, opacity: 1, interactive: false, lineCap: 'round', lineJoin: 'round'}).addTo(routeLayer);
+      L.circleMarker(path[path.length - 1], {radius: 8, color: '#2a0533', weight: 3, fillColor: '#db38ff', fillOpacity: 1, interactive: false}).addTo(routeLayer);
+      routeDrawn = route.version;
+      if (fitRouteNext) { fitRouteNext = false; fitRoute(); }
+    }
+    document.querySelector('#map-route-title').textContent = route.arrived ? `Arrived · ${route.destination_road}` : `GPS route to ${route.destination_road}`;
+    const figures = [
+      ['Remaining', km(route.remaining_m)], ['Time left', minutes(route.eta_s)],
+      ['Total', `${km(route.length_m)} · ${minutes(route.total_s)}`], ['Average speed', `${Math.round(route.average_kmh)} km/h`],
+      ['Turns', String(Math.max(0, route.turns))], ['Recalculated', `${route.recalculations}×`]
+    ];
+    if (route.slowest) figures.push(['Slowest stretch', `${route.slowest.road}, ${Math.round(route.slowest.kmh)} km/h`]);
+    document.querySelector('#map-route-figures').replaceChildren(...figures.map(([label, value]) => {
+      const cell = document.createElement('span'), strong = document.createElement('strong');
+      strong.textContent = value; cell.append(strong, label); return cell;
+    }));
+    const steps = (route.steps || []).slice(0, 8);
+    document.querySelector('#map-route-steps').replaceChildren(...steps.map((step, index) => {
+      const item = document.createElement('li');
+      item.textContent = step.arrive ? `Arrive at ${step.road} · ${km(step.distance_m)}` : `${step.instruction} onto ${step.road} · in ${km(step.distance_m)}`;
+      if (index === 0) item.className = 'next';
+      return item;
+    }));
+    document.querySelector('#map-route-basis').textContent = `Planned at ${String(route.hour).padStart(2, '0')}:00 in-game. ${route.basis || ''}`;
   }
   function resize() {
     if (!map || !visible) return;
@@ -144,6 +211,8 @@ window.beirutMap = (() => {
   document.querySelector('#map-in').addEventListener('click', () => { if (map) map.zoomIn(); });
   document.querySelector('#map-out').addEventListener('click', () => { if (map) map.zoomOut(); });
   document.querySelector('#map-fit').addEventListener('click', fit);
+  document.querySelector('#map-route-show').addEventListener('click', fitRoute);
+  document.querySelector('#map-route-clear').addEventListener('click', () => action('route_clear'));
   document.querySelector('#map-player').addEventListener('click', () => { setFollow(false); centrePlayer(); });
   followControl.addEventListener('change', () => setFollow(followControl.checked));
   overlayControl.addEventListener('change', () => {
@@ -177,6 +246,8 @@ window.beirutMap = (() => {
         status.textContent = `${error.message} Local overlay and destination picking are unavailable; geographic basemaps still work.`;
       }
       renderRoads();
+      routeDrawn = null;
+      renderRoute();
       resize();
       updatePlayer();
     },
@@ -199,6 +270,8 @@ window.beirutMap = (() => {
     },
     zoomTo(zoom) { if (map && visible) map.setZoom(zoom, {animate: false}); },
     position(value) { player = finitePoint(value) ? value : null; updatePlayer(); },
+    route(value, isPlaying) { playing = !!isPlaying; route = value && typeof value === 'object' ? value : null; renderRoute(); },
+    fitRoute,
     resize
   };
 })();

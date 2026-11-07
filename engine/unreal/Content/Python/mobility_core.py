@@ -30,8 +30,19 @@ def map_payload(index):
         'origin_utm_m': list(origin),
         'map_reference': {'crs': 'EPSG:32636',
                           'origin_lonlat': list(location_core.utm_to_lonlat(*origin[:2]))},
-        'roads': [{'id': r['id'], 'name': r.get('name') or '', 'path': simplify(r['path'])} for r in index['roads']],
+        'roads': [dict({'id': r['id'], 'name': r.get('name') or '', 'path': simplify(r['path'])}, **_speeds(r))
+                  for r in index['roads']],
     }
+
+
+def _speeds(road):
+    # Tari'ak hourly median speeds (km/h, hours 0-23) let the native GPS plan by travel time.
+    speeds = road.get('speed_kmh')
+    if (not isinstance(speeds, list) or len(speeds) != 24 or
+            any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v <= 0
+                for v in speeds)):
+        return {}
+    return {'speed_kmh': [round(v, 1) for v in speeds]}
 
 
 def traffic_view(index, local, radius=900):

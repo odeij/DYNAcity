@@ -42,7 +42,7 @@
       <div class="entry-grid mb-3" id="entry-points">
         <button class="entry entry-primary" data-action="drive" id="drive"><strong>Start driving</strong><span>Test vehicle on Charles Malek Avenue. Arcade handling, not calibrated.</span></button>
         <button class="entry" data-page="search"><strong>Find a place</strong><span>Search a street or landmark, or paste a map link.</span></button>
-        <button class="entry" data-page="map"><strong>City map</strong><span>2D atlas of modeled roads. Pick a destination.</span></button>
+        <button class="entry" data-page="map"><strong>City map</strong><span>2D atlas of modeled roads. Set a GPS route or pick a destination.</span></button>
         <button class="entry editor-only" data-action="overview" id="entry-overview"><strong>See the whole city</strong><span>Editor camera over Beirut. No car.</span></button>
         <button class="entry editor-only" data-action="street"><strong>Visit Charles Malek Avenue</strong><span>Eye-level view of the best-detailed street.</span></button>
         <button class="entry" data-page="layers"><strong>Map layers</strong><span>Show or hide trees, vegetation, data markers.</span></button>
@@ -73,7 +73,7 @@
 
     <section data-section="map" class="d-none">
       <h1 class="h3" tabindex="-1">Beirut / City atlas</h1>
-      <p class="text-body-secondary mb-2">Drag, scroll to zoom, click to choose a destination. Only local modeled roads support driving.</p>
+      <p class="text-body-secondary mb-2">Drag, scroll to zoom, click a point to <strong>set a GPS route</strong> (shown on the driving minimap) or go there. Only local modeled roads support driving.</p>
       <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
         <div class="btn-group" role="group" aria-label="Basemap style">
           <button class="btn btn-outline-light" data-map-mode="street" aria-pressed="false" disabled>Street</button>
@@ -98,6 +98,16 @@
       </div>
       <p class="small text-body-secondary mt-1 mb-0" id="map-detail"></p>
       <p class="small text-body-secondary mt-1 mb-0" id="map-status" role="status">Waiting for local road geometry and geographic reference…</p>
+      <div id="map-route" class="map-route d-none mt-3" role="region" aria-label="GPS route" aria-live="polite">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="map-route-swatch" aria-hidden="true"></span><strong id="map-route-title">GPS route</strong>
+          <button class="btn btn-sm btn-outline-light ms-auto" id="map-route-show">Show route</button>
+          <button class="btn btn-sm btn-outline-warning" id="map-route-clear">Clear route</button>
+        </div>
+        <div class="map-route-figures" id="map-route-figures"></div>
+        <ol class="small mb-2 mt-2" id="map-route-steps"></ol>
+        <p class="small text-body-secondary mb-0" id="map-route-basis"></p>
+      </div>
       <div class="mt-3">
         <label><input class="form-check-input me-2" id="map-heading" type="checkbox" disabled>Heading-up on native driving HUD</label>
         <p class="small text-body-secondary mt-2 mb-0">Atlas always stays north-up. Mode and HUD heading are shared with Unreal and saved for the next driving session.</p>
@@ -144,6 +154,7 @@
         <tr><td>Find a place</td><td><kbd>F3</kbd></td></tr>
         <tr><td>Native map mode</td><td><kbd>M</kbd> · cycle street / satellite / hybrid on the driving HUD</td></tr>
         <tr><td>Native map heading</td><td><kbd>B</kbd> · toggle north-up / heading-up on the driving HUD</td></tr>
+        <tr><td>GPS route</td><td>City map → click a point → <strong>Set GPS route here</strong> · magenta line and turn card beside the minimap; recalculates if you leave it</td></tr>
         <tr><td>End driving</td><td><kbd>Esc</kbd> in the game viewport</td></tr>
       </tbody></table></div></div>
       <div class="card mb-4"><div class="card-header">City view in the editor</div><div class="card-body">

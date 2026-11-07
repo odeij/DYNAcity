@@ -78,6 +78,7 @@ function render(next) {
   if (typeof next.map_settings_error === 'string') mapSettingsError = next.map_settings_error;
   if (!applyMapSettings(next.map_settings)) renderMapSettings();
   window.beirutMap.position(next.map_position || null);
+  window.beirutMap.route(next.route || null, !!next.playing);
   const mode = next.mode || (next.playing ? 'driving' : 'city_view');
   $('#mode').textContent = MODE_LABELS[mode] || mode;
   $('#mode-title').textContent = 'Now:';
@@ -123,6 +124,7 @@ async function action(name, values = {}) {
     if (response.error) feedback(response.error, true);
     else if (response.message) feedback(response.message);
     if (name === 'map_data' && response.map) window.beirutMap.load(response.map);
+    if ((name === 'route_to' || name === 'route_clear') && response.route) window.beirutMap.route(response.route, !!state.playing);
     if (name === 'map_pick' && !response.error) {
       $('#query').value = displayedQuery = 'Selected map location';
       showPage('search');

@@ -27,6 +27,15 @@ def test_map_simplifies_without_changing_endpoints_or_source():
     assert json.dumps(data)==original
 
 
+def test_map_payload_carries_valid_hourly_speeds_for_gps_travel_time():
+    data=index()
+    data['roads'][0]['speed_kmh']=[30.04]*23+[45]
+    data['roads'][1]['speed_kmh']=[30]*23+[None]   # incomplete rows are dropped, not guessed
+    roads=map_payload(data)['roads']
+    assert roads[0]['speed_kmh']==[30.0]*23+[45]
+    assert 'speed_kmh' not in roads[1]
+
+
 def test_map_payload_registers_native_and_web_maps_to_the_same_utm_origin():
     data = index()
     payload = map_payload(data)

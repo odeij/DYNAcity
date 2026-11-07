@@ -99,7 +99,12 @@ def state():
         path=Path(unreal.Paths.project_saved_dir())/'DynaCity'/'mobility-coverage.json'
         _coverage=json.loads(path.read_text(encoding='utf-8')) if path.is_file() else {}
     preferences, preferences_error = map_settings(pawn)
-    return {'playing':world is not None,'mode':_mode(world),'menu':_menu,'area':drive.get('start_area','Beirut'),
+    route={'active':False}
+    mobility=getattr(pawn,'mobility',None) if pawn else None
+    if mobility is not None and hasattr(mobility,'route_status'):
+        try:route=json.loads(mobility.route_status())
+        except ValueError:pass
+    return {'route':route,'playing':world is not None,'mode':_mode(world),'menu':_menu,'area':drive.get('start_area','Beirut'),
             'map_settings': preferences, 'map_settings_error': preferences_error,
             'page_request':dict(_page_request),
             'coverage':_coverage,
@@ -199,6 +204,20 @@ def execute(request):
     if action=='map_data':
         from mobility_core import map_payload
         return {'map':map_payload(location_search._data())}
+    if action in ('route_to','route_clear'):
+        mobility=getattr(pawn,'mobility',None) if pawn else None
+        if mobility is None or not hasattr(mobility,'set_waypoint'):
+            raise ValueError('Start driving to plan a GPS route.')
+        if action=='route_clear':
+            mobility.clear_waypoint();return {'message':'GPS route cleared.','route':{'active':False}}
+        import math
+        x,y=data.get('x'),data.get('y')
+        if any(isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or abs(v)>100000 for v in (x,y)):
+            raise ValueError('Choose a point on the Beirut road map.')
+        route=json.loads(mobility.set_waypoint(float(x),float(y)))
+        if route.get('error'):return {'error':route['error']}
+        minutes=max(1,round(route['eta_s']/60))
+        return {'route':route,'message':f"GPS route set to {route['destination_road']}: {route['length_m']/1000:.1f} km, about {minutes} min at {route['hour']:02d}:00 traffic. Resume driving to follow it on the minimap."}
     if action=='map_pick':
         import math,location_core
         x,y=data.get('x'),data.get('y')
