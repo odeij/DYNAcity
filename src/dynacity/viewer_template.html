@@ -825,6 +825,48 @@ function daylightSettings(hour) {
   return {direction:[-Math.cos(phase),.45,-(.12+.88*height)],
     colour:mix([255,250,238],[255,207,158],warm),intensity:.85+.3*height};
 }
+// The basemap style's own water colour, read once per style load (dark theme keeps it).
+let styleWater = null;
+// Fog colour as the deck layers should blend to it: the map canvas is dimmed
+// with a CSS filter at night, the deck canvas is not, so apply the same
+// brightness/saturation here and the two meet at the horizon.
+const HAZE = { color: [.87, .91, .94], strength: .85 };
+// Sky, horizon and fog follow the theme, the night level and (while the
+// traffic clock runs) the dawn/dusk glow, so the distance fades with the light.
+function applySky() {
+  if (!map) return;
+  const dark = isDark(), night = nightLevel(), h = ui.traffic ? ui.hour : 12;
+  const daySky = dark ? [22, 33, 44] : [143, 178, 207];
+  const dayHorizon = dark ? [47, 65, 82] : [227, 237, 243];
+  const dayFog = dark ? [34, 49, 63] : [223, 233, 239];
+  // Dawn and dusk peak at 6.5 and 18.5 (1.5 h either side): a warm band at the horizon.
+  let warm = 0;
+  if (ui.traffic) warm = clamp01(1 - Math.abs(h - (h < 12 ? 6.5 : 18.5)) / 1.5);
+  const skyRgb = mix(daySky, [20, 30, 46], night);
+  const horizonRgb = mix(mix(dayHorizon, [46, 66, 92], night), [248, 200, 150], warm * (1 - night * .4));
+  const fogRgb = mix(mix(dayFog, [34, 48, 68], night), [236, 204, 176], warm * .3);
+  const hex = (rgb) => '#' + rgb.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+  try {
+    // MapLibre 5.24 style-spec sky properties.
+    map.setSky({
+      'sky-color': hex(skyRgb), 'horizon-color': hex(horizonRgb), 'fog-color': hex(fogRgb),
+      'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.75, 'fog-ground-blend': 0.6, 'atmosphere-blend': 0.8,
+    });
+  } catch (err) { /* older style spec: plain background is fine */ }
+  // Same canvas dimming as applyNight, so deck haze matches the dimmed fog.
+  const bright = 1 - (dark ? 0.3 : 0.5) * night, sat = 1 - 0.3 * night;
+  const grey = 0.299 * fogRgb[0] + 0.587 * fogRgb[1] + 0.114 * fogRgb[2];
+  HAZE.color = fogRgb.map((v) => clamp01(((grey + (v - grey) * sat) * bright) / 255));
+  // One water colour family: light theme the teal of the mapped OSM water,
+  // dark theme the style's own water colour. No shore band: OpenFreeMap's
+  // ocean polygons are clipped at tile edges, so a coast line draws a grid.
+  // The sea's depth comes from MapLibre's fog fading it toward the horizon.
+  try {
+    const water = dark ? styleWater : '#80aab6';
+    if (water) for (const id of ['water', 'water_shadow', 'sea-ofm']) if (map.getLayer(id)) map.setPaintProperty(id, 'fill-color', water);
+  } catch (err) { /* style still loading: style.load reapplies */ }
+  deckgl?.redraw?.();
+}
 function lighting(night = 0) {
   const daylight=daylightSettings(ui.traffic?ui.hour:12);
   const ambient = new deck.AmbientLight({ color: mix([246,248,250], [150,170,215], night), intensity: .9-.25*night });
@@ -839,6 +881,7 @@ function applyNight() {
   if (key === appliedNightKey) return;
   appliedNight = night; appliedNightKey = key;
   deckgl.setProps({ effects: [lighting(night)] });
+  applySky();
   const canvas = map?.getCanvas();
   if (canvas) canvas.style.filter = night ? `brightness(${(1 - (isDark() ? 0.3 : 0.5) * night).toFixed(2)}) saturate(${(1 - 0.3 * night).toFixed(2)})` : '';
 }
@@ -902,14 +945,14 @@ function beirutBuildingLayers(){
 
  return [new deck.SolidPolygonLayer({
   id:'beirut-001-buildings',data:beirutOverlay.polygons,getPolygon:(p)=>(p.g??=groundedPolygon(p.rings)),extruded:true,
-  getElevation:(p)=>d.buildings[p.beirutModel].height_m,getFillColor:colour,material:MATERIAL,
+  getElevation:(p)=>d.buildings[p.beirutModel].height_m,getFillColor:colour,material:MATERIAL,extensions:[HAZE_EXT],
   pickable:!ui.roadTool,autoHighlight:true,highlightColor:[80,161,220,130],
   updateTriggers:{getFillColor:[ui.lens,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey()]},
  }),
   new deck.SolidPolygonLayer({
    id:'beirut-001-roofs',data:beirutOverlay.polygons,getPolygon:(p)=>(p.rg??=groundedPolygon(p.rings,d.buildings[p.beirutModel].height_m+ROOF_LIFT_M)),extruded:false,
    getFillColor:roofColour,
-   pickable:false,
+   pickable:false,extensions:[HAZE_EXT],
    updateTriggers:{getFillColor:[ui.lens,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey()]},
   })];
 }
@@ -1097,7 +1140,7 @@ function layers() {
         getFillColor: (f) => {
           const base = baseBeirutColor(f.properties?.id ?? 'context');
           return [...base, 235];
-        }, material: MATERIAL,
+        }, material: MATERIAL, extensions: [HAZE_EXT],
 
       }),
     }));
@@ -1114,7 +1157,7 @@ function layers() {
       data,
       getPolygon: (d) => (d.g ??= groundedRing(d.ring)), extruded: true, getElevation: (d) => elevation(d.b), getFillColor: (d) => cameraSafeColour(fill(d.b),'bbed',d.b.id,occlusion),
       // While a road tool is on, clicks go through buildings to the roads.
-      pickable: !ui.roadTool, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL,
+      pickable: !ui.roadTool, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL, extensions: [HAZE_EXT],
       // No colour transition: an interrupted fade can leave a lens showing the
       // previous lens's colours, and a data view must never show stale values.
       updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey()], getElevation: [ui.lens] },
@@ -1124,7 +1167,7 @@ function layers() {
       data,
       getPolygon: (d) => groundedRing(d.ring, elevation(d.b) + ROOF_LIFT_M), extruded: false,
       getFillColor: (d) => cameraSafeColour(mix(fill(d.b), [255, 255, 255], 0.25), 'bbed', d.b.id, occlusion),
-      pickable: false,
+      pickable: false, extensions: [HAZE_EXT],
       updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey()], getPolygon: [ui.lens] },
     }));
   }
@@ -1177,6 +1220,39 @@ const ON_TOP = { depthCompare: 'always', depthWriteEnabled: false };
 // Translucent layers test depth (buildings in front hide them) but
 // do not write it, so they blend with each other instead of punching holes.
 const SOFT = { depthWriteEnabled: false };
+// Distance haze for the extruded building layers. deck draws over MapLibre, so
+// MapLibre's fog cannot fade deck buildings; this LayerExtension blends their
+// colour toward the fog colour (HAZE, set by applySky) with distance from the
+// camera. Hooks checked against the deck.gl 9.4.0 dist: vs/fs DECKGL_FILTER_COLOR.
+// The vertex hook only measures the distance in metres; the fragment hook mixes.
+class HazeExtension extends deck.LayerExtension {
+  getShaders() {
+    return {
+      modules: [{
+        name: 'haze',
+        vs: 'out float vHazeDist;',
+        fs: 'in float vHazeDist;\nuniform hazeUniforms {\n  vec3 color;\n  float start;\n  float end;\n  float strength;\n} haze;',
+        uniformTypes: { color: 'vec3<f32>', start: 'f32', end: 'f32', strength: 'f32' },
+      }],
+      inject: {
+        'vs:DECKGL_FILTER_COLOR': 'vHazeDist = length(geometry.position.xyz - project.cameraPosition) / project.commonUnitsPerMeter.y;',
+        'fs:DECKGL_FILTER_COLOR': `
+          float hz = clamp((vHazeDist - haze.start) / (haze.end - haze.start), 0.0, 1.0);
+          color.rgb = mix(color.rgb, haze.color, hz * hz * (3.0 - 2.0 * hz) * haze.strength);`,
+      },
+    };
+  }
+  draw() {
+    // Distances scale with the camera-to-centre distance (1.5 x viewport height
+    // in pixels), so the same haze reads the same at any zoom: none up to just
+    // short of the centre of the view, full toward the horizon at pitch.
+    const vp = this.context.viewport;
+    const centreM = 1.5 * vp.height * 78271.517 * Math.cos((vp.latitude * Math.PI) / 180) / 2 ** vp.zoom;
+    this.setShaderModuleProps({ haze: { color: HAZE.color, start: centreM * 0.9, end: centreM * 2.6, strength: HAZE.strength } });
+  }
+}
+HazeExtension.extensionName = 'HazeExtension';
+const HAZE_EXT = new HazeExtension();
 // Lights add to what is behind them rather than cover it.
 const GLOW = { ...SOFT, blend: true, blendColorOperation: 'add', blendColorSrcFactor: 'src-alpha', blendColorDstFactor: 'one',
   blendAlphaOperation: 'add', blendAlphaSrcFactor: 'one', blendAlphaDstFactor: 'one-minus-src-alpha' };
@@ -2708,12 +2784,8 @@ function initScene() {
     if (linkedCamera) map.jumpTo({ center: [linkedCamera.longitude, linkedCamera.latitude], zoom: linkedCamera.zoom, pitch: linkedCamera.pitch, bearing: linkedCamera.bearing });
     map.on('style.load', () => {
       const dark = isDark();
-      try {
-        map.setSky({
-          'sky-color': dark ? '#16212c' : '#8fb2cf', 'horizon-color': dark ? '#2f4152' : '#e3edf3',
-          'fog-color': dark ? '#22313f' : '#dfe9ef', 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.7, 'fog-ground-blend': 0.55,
-        });
-      } catch (err) { /* older style spec: plain background is fine */ }
+      styleWater = map.getLayer('water') ? map.getPaintProperty('water', 'fill-color') : null;
+      applySky();
       // The style paints open sea as its land-coloured background and only
       // draws water polygons near the coast, so most of the sea shows as blank.
       // Make the background the water colour and draw the land (the tiles'
@@ -2725,11 +2797,13 @@ function initScene() {
           // paint blue over land. The sea comes from OpenFreeMap's ocean polygons.
           map.addSource('ofm', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
           // One water colour everywhere (sea, harbour, basemap water and its
-          // shadow copy), the teal of the mapped OSM water. Light style only.
-          const waterColour = isDark() ? map.getPaintProperty('water', 'fill-color') : '#80aab6';
+          // shadow copy), the teal of the mapped OSM water in the light style;
+          // the dark style keeps its own water colour.
+          const waterColour = isDark() ? styleWater : '#80aab6';
           for (const id of ['water', 'water_shadow']) if (map.getLayer(id)) map.setPaintProperty(id, 'fill-color', waterColour);
           map.addLayer({ id: 'sea-ofm', type: 'fill', source: 'ofm', 'source-layer': 'water',
             paint: { 'fill-color': waterColour, 'fill-antialias': false } }, 'landcover');
+          applySky();
         }
       } catch (err) { /* offline or style without these layers: leave it as is */ }
       // Relief: the basemap and imagery drape over the same ground grid the layers' z comes from.
