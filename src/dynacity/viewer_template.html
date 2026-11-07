@@ -631,9 +631,11 @@ const argmax = (p) => Object.entries(p).reduce((a, e) => (e[1] > a[1] ? e : a), 
 const leaveProb = (p, s) => 1 - (p?.[s] ?? 0);
 
 function fill(b) {
-  let rgb;
-  if (ui.lens === 'observed') rgb = hex(STATES[b.state].color);
-  else if (ui.lens === 'forecast') { const p = activeP(b); rgb = p ? hex(STATES[argmax(p)].color) : hex(NO_DATA); }
+  let rgb = baseBeirutColor(b.id);
+  if (ui.lens === 'observed') {
+    const statusRgb = hex(STATES[b.state].color);
+    rgb = mix(rgb, statusRgb, 0.6); // Increased from 0.35
+  } else if (ui.lens === 'forecast') { const p = activeP(b); rgb = p ? hex(STATES[argmax(p)].color) : hex(NO_DATA); }
   else if (ui.lens === 'change') { const p = activeP(b); rgb = p ? rampColor(leaveProb(p, b.state)) : hex(NO_DATA); }
   else { const d = deltaFor(b); rgb = d === null ? hex(NO_DATA) : divergeColor(d); }
   if (ui.selected === b.id) rgb = mix(rgb, [255, 255, 255], 0.45);
@@ -768,7 +770,22 @@ function applyNight() {
   const canvas = map?.getCanvas();
   if (canvas) canvas.style.filter = night ? `brightness(${(1 - (isDark() ? 0.3 : 0.5) * night).toFixed(2)}) saturate(${(1 - 0.3 * night).toFixed(2)})` : '';
 }
-const MATERIAL = { ambient: 0.42, diffuse: 0.62, shininess: 24, specularColor: [70, 76, 84] };
+const BEIRUT_PALETTE = [[218, 206, 183], [225, 214, 192], [232, 222, 202], [210, 200, 180]];
+const DARK_BEIRUT_PALETTE = [[120, 115, 105], [130, 125, 115], [140, 135, 125], [110, 105, 95]];
+const hash = (s) => {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h) + s.charCodeAt(i);
+  return Math.abs(h);
+};
+function baseBeirutColor(id) {
+  const palette = isDark() ? DARK_BEIRUT_PALETTE : BEIRUT_PALETTE;
+  const h = hash(String(id));
+  const c = palette[h % palette.length];
+  // Subtle jitter
+  return c.map((v, i) => Math.max(0, Math.min(255, v + (h % 31) - 15)));
+}
+const MATERIAL = { ambient: 0.55, diffuse: 0.75, shininess: 12, specularColor: [100, 100, 100] };
+
 const BRIDGE_MATERIAL = {ambient:.58,diffuse:.78,shininess:2,specularColor:[12,12,10]};
 
 // Optional Beirut 001 buildings (a pack from `dynacity pack-beirut001`): model
@@ -804,13 +821,23 @@ function renderBeirutRecord(){
 function beirutBuildingLayers(){
  if(!beirutOverlay.active||!beirutOverlay.data)return [];
  const d=beirutOverlay.data,plain=isDark()?[111,126,139]:[219,222,216],occlusion=cameraOcclusion();
- const colour=(p)=>{const o=d.buildings[p.beirutModel];const b=o.objectid==null?null:beirutOverlay.snapshotById.get(String(o.objectid));return cameraSafeColour(b?fill(b):plain,'model',p.beirutModel,occlusion);};
+  const colour=(p)=>{const o=d.buildings[p.beirutModel];const b=o.objectid==null?null:beirutOverlay.snapshotById.get(String(o.objectid));return cameraSafeColour(b?fill(b):baseBeirutColor(p.beirutModel),'model',p.beirutModel,occlusion);};
+  const roofColour=(p)=>{const o=d.buildings[p.beirutModel];const b=o.objectid==null?null:beirutOverlay.snapshotById.get(String(o.objectid));const base=b?fill(b):baseBeirutColor(p.beirutModel);return cameraSafeColour(mix(base,[255,255,255],.25),'model',p.beirutModel,occlusion);};
+
  return [new deck.SolidPolygonLayer({
   id:'beirut-001-buildings',data:beirutOverlay.polygons,getPolygon:(p)=>p.rings,extruded:true,
   getElevation:(p)=>d.buildings[p.beirutModel].height_m,getFillColor:colour,material:MATERIAL,
   pickable:!ui.roadTool,autoHighlight:true,highlightColor:[80,161,220,130],
   updateTriggers:{getFillColor:[ui.lens,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey()]},
- })];
+ }),
+  new deck.SolidPolygonLayer({
+   id:'beirut-001-roofs',data:beirutOverlay.polygons,getPolygon:(p)=>p.rings,extruded:true,
+   getElevation:(p)=>d.buildings[p.beirutModel].height_m,
+   getBottomElevation:(p)=>d.buildings[p.beirutModel].height_m - 0.8,
+   getFillColor:roofColour,
+   pickable:false,
+   updateTriggers:{getFillColor:[ui.lens,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey()],getElevation:[ui.lens]},
+  })];
 }
 function beirutBridgeLayers(){
  const source=beirutOverlay.data?.bridge_mesh;
@@ -975,7 +1002,11 @@ function layers() {
         data: props.data ? contextData(props.data, props.tile) : [],
         extruded: true, stroked: false, filled: true, pickable: false,
         getElevation: (f) => Math.max(Number(f.properties?.render_height) || 6, 3),
-        getFillColor: isDark() ? [92, 104, 116, 235] : [...CONTEXT_RGB, 235], material: MATERIAL,
+        getFillColor: (f) => {
+          const base = baseBeirutColor(f.properties?.id ?? 'context');
+          return [...base, 235];
+        }, material: MATERIAL,
+
       }),
     }));
   }
@@ -984,16 +1015,26 @@ function layers() {
   out.push(...osmContextLayers());
   if (ui.traffic) out.push(...roadLayers());
   out.push(...streetEdgeDetailLayers());
-  if (!beirutOverlay.active) out.push(new deck.SolidPolygonLayer({
-    id: 'buildings',
-    data: buildingsData(),
-    getPolygon: (d) => d.ring, extruded: true, getElevation: (d) => elevation(d.b), getFillColor: (d) => cameraSafeColour(fill(d.b),'bbed',d.b.id,occlusion),
-    // While a road tool is on, clicks go through buildings to the roads.
-    pickable: !ui.roadTool, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL,
-    // No colour transition: an interrupted fade can leave a lens showing the
-    // previous lens's colours, and a data view must never show stale values.
-    updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey()], getElevation: [ui.lens] },
-  }));
+  if (!beirutOverlay.active) {
+    const data = buildingsData();
+    out.push(new deck.SolidPolygonLayer({
+      id: 'buildings',
+      data,
+      getPolygon: (d) => d.ring, extruded: true, getElevation: (d) => elevation(d.b), getFillColor: (d) => cameraSafeColour(fill(d.b),'bbed',d.b.id,occlusion),
+      pickable: !ui.roadTool, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL,
+      updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey()], getElevation: [ui.lens] },
+    }));
+    out.push(new deck.SolidPolygonLayer({
+      id: 'buildings-roofs',
+      data,
+      getPolygon: (d) => d.ring, extruded: true,
+      getElevation: (d) => elevation(d.b),
+      getBottomElevation: (d) => elevation(d.b) - 0.8,
+      getFillColor: (d) => cameraSafeColour(mix(fill(d.b), [255, 255, 255], 0.25), 'bbed', d.b.id, occlusion),
+      pickable: false,
+      updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey()], getElevation: [ui.lens] },
+    }));
+  }
   out.push(...beirutBuildingLayers());
   out.push(...buildingDetailLayers());
   out.push(...beirutBridgeLayers());
