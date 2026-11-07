@@ -52,7 +52,9 @@ BBED buildings, from the southern suburbs to east of the Beirut River, at every
 zoom. Most of their heights are estimates, not measurements; see
 [docs/beirut-context-buildings.md](docs/beirut-context-buildings.md).
 
-![Beirut and its southern suburbs with mapped buildings, viewed from the airport](docs/screenshots/viewer-09-citywide-buildings.jpg)
+| Mapped buildings on the street map | The same view over satellite imagery |
+| --- | --- |
+| ![Beirut and its southern suburbs with mapped buildings, viewed from the airport](docs/screenshots/viewer-09-citywide-buildings.jpg) | ![The same view with the satellite imagery layer on](docs/screenshots/viewer-10-citywide-satellite.jpg) |
 
 ### Video demos
 
