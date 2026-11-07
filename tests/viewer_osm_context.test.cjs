@@ -12,7 +12,7 @@ function scene(features,extra={}) {
  class Layer {constructor(props){Object.assign(this,props);}}
  const c={DATA:{landscape:{features},traffic:{roads:[{source_way:7}]}},ui:{satellite:false},beirutOverlay:{active:false},
  map:{getZoom:()=>19,getCenter:()=>({toArray:()=>centre}),getBounds:()=>({toArray:()=>[p(-300,-300),p(300,300)]})},
- nightLevel:()=>0,shade:x=>x,mesh:()=>({}),blockMesh:()=>{},MATERIAL:{},ON_TOP:{depthCompare:'always',depthWriteEnabled:false},coveredByBbed:()=>false,
+ nightLevel:()=>0,shade:x=>x,mesh:()=>({}),blockMesh:()=>{},MATERIAL:{},HAZE_EXT:{},ON_TOP:{depthCompare:'always',depthWriteEnabled:false},coveredByBbed:()=>false,
  cameraOcclusion:()=>({model:new Set(),bbed:new Set(),osm:new Set()}),cameraSafeColour:x=>x,sceneCameraKey:()=>'',
  metresBetween:(a,b)=>Math.hypot((a[0]-b[0])*sx,(a[1]-b[1])*sy),
  ringBox:r=>[Math.min(...r.map(p=>p[0])),Math.min(...r.map(p=>p[1])),Math.max(...r.map(p=>p[0])),Math.max(...r.map(p=>p[1]))],
