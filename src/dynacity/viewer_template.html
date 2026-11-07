@@ -1924,7 +1924,9 @@ function landscapeLayers() {
   // Cache static source geometry; replay frames do not rebuild every park ring.
   if(landscapeLayers.source!==features) {
     landscapeLayers.source=features;
-    landscapeLayers.areas=features.filter(f=>!f.properties.context_group&&['Polygon','MultiPolygon'].includes(f.geometry.type))
+    // Water is the basemap's job (one colour, sea included); a second teal
+    // overlay on part of the sea made the patchwork.
+    landscapeLayers.areas=features.filter(f=>!f.properties.context_group&&f.properties.kind!=='water'&&['Polygon','MultiPolygon'].includes(f.geometry.type))
       .flatMap(f=>f.geometry.type==='MultiPolygon'?f.geometry.coordinates.map(coordinates=>({...f,geometry:{type:'Polygon',coordinates}})):[f]);
     landscapeLayers.edges=landscapeLayers.areas.flatMap(f=>f.geometry.coordinates.map(ring=>({...f,ring})));
     landscapeLayers.trees=features.filter(f=>f.geometry.type==='Point'&&f.properties.kind==='tree');
@@ -2572,12 +2574,18 @@ function initScene() {
       // `earth` layer) over it in what was the background colour.
       try {
         const bg = map.getLayer('background'), water = map.getLayer('water');
-        if (bg && water && !map.getLayer('earth-land') && map.getSource('protomaps')) {
-          const land = map.getPaintProperty('background', 'background-color');
-          map.setPaintProperty('background', 'background-color', map.getPaintProperty('water', 'fill-color'));
-          map.addLayer({ id: 'earth-land', type: 'fill', source: 'protomaps', 'source-layer': 'earth', paint: { 'fill-color': land } }, 'landcover');
+        if (bg && water && !map.getLayer('sea-ofm')) {
+          // Land stays the background colour, so an unloaded tile can never
+          // paint blue over land. The sea comes from OpenFreeMap's ocean polygons.
+          map.addSource('ofm', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' });
+          // One water colour everywhere (sea, harbour, basemap water and its
+          // shadow copy), the teal of the mapped OSM water. Light style only.
+          const waterColour = isDark() ? map.getPaintProperty('water', 'fill-color') : '#80aab6';
+          for (const id of ['water', 'water_shadow']) if (map.getLayer(id)) map.setPaintProperty(id, 'fill-color', waterColour);
+          map.addLayer({ id: 'sea-ofm', type: 'fill', source: 'ofm', 'source-layer': 'water',
+            paint: { 'fill-color': waterColour, 'fill-antialias': false } }, 'landcover');
         }
-      } catch (err) { /* style without these layers: leave it as is */ }
+      } catch (err) { /* offline or style without these layers: leave it as is */ }
       // The basemap's own flat building fills sit under our 3D buildings.
       for (const id of ['building', 'building-top']) if (map.getLayer(id)) map.setPaintProperty(id, 'fill-opacity', 0.35);
       applySatellite();
