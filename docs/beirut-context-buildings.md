@@ -28,8 +28,9 @@ Overture release 2026-09 over the traffic-map extent
 Only 159 footprints have a mapped height and 111 a floor count. The other
 52,980 use the median Beirut 001 height for the same footprint-area bin
 (8.5 m under 100 m², 17 m for 100–200 m², about 25 m for 200–800 m²). These
-are estimates, labelled per building as `height_source`; they are not BBED
-records and carry no status or forecast data.
+are estimates, labelled per building as `height_source` and `height_kind`; they
+are not BBED records and carry no status or forecast data. Floor counts use the
+fitted 3.0 m per floor; the order is in [building-heights.md](building-heights.md).
 
 Footprints sit on the same extended visual ground as the terrain extension:
 the base is 1 m below the lowest ground point under the outline, and the roof
@@ -56,7 +57,7 @@ dynacity serve ... --landscape PRIVATE/osm-beirut-context-infrastructure-2026102
 ```
 
 OSM outlines keep their own mapped heights; only the flat 6 m fallback is
-replaced. The viewer still hides buildings covered by BBED or Beirut 001,
+replaced. Every feature carries `height_kind` and `estimated`; the legend counts them and the viewer draws estimates lighter. The viewer still hides buildings covered by BBED or Beirut 001,
 depending on the building mode, and draws the rest across the whole map at
 every zoom as one array built once per mode. Hover shows the source and how each
 height was set. Unreal drops Microsoft footprints overlapping Beirut 001 at build

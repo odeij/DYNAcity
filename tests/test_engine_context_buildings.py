@@ -37,9 +37,9 @@ def test_footprints_overlapping_beirut001_are_dropped_and_others_kept_unchanged(
 def test_mapped_heights_win_and_missing_heights_are_labelled_estimates():
     medians = [5, 6, 7, 8, 9, 10, 11]
     assert building_height({'height': 31}, {}, 60, medians) == (31.0, 'mapped height')
-    assert building_height({'num_floors': 5}, {}, 60, medians) == (16.0, 'mapped floor count x 3.2 m')
+    assert building_height({'num_floors': 5}, {}, 60, medians) == (15.0, 'Estimated from 5 floors × 3 m')
     height, source = building_height({}, {}, 60, medians)
-    assert height == 6 and source.startswith('estimated')
+    assert height == 6 and source.lower().startswith('estimated')
 
 
 def test_packages_sit_on_the_ground_and_keep_source_identity(tmp_path):
@@ -66,7 +66,8 @@ def test_web_companion_gives_osm_heights_by_id_and_adds_only_non_osm_footprints(
             dict(row(box(300, 300, 320, 315), source='Microsoft ML Buildings', identifier='ml-1'), lonlat=lonlat)]
     web = web_buildings(rows, pack)
     assert osm_identifier('r12@1') == 'relation/12' and osm_identifier('ms-123') is None
-    assert web['osm_heights'] == {'way/875': [20.0, 'estimated: Beirut 001 median for similar footprint area']}
+    assert web['osm_heights'] == {'way/875': [20.0, 'Estimated: median recorded height for similar footprint area in Beirut 001', 'size_bin']}
+    assert web['features'][0]['properties']['height_kind'] == 'size_bin' and web['features'][0]['properties']['estimated'] is True
     assert [f['properties']['id'] for f in web['features']] == ['overture/ml-1']
     assert web['features'][0]['properties']['source'] == 'Microsoft ML Buildings'
 
