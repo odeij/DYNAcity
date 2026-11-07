@@ -236,6 +236,20 @@ table.kpis td { text-align: right; padding: 5px 0 5px 10px; border-top: 1px soli
 :root[data-theme="dark"] .attrib { color: rgba(220, 235, 248, 0.6); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .attrib { color: rgba(220, 235, 248, 0.6); } }
 :root[data-satellite] .attrib { color: rgba(240, 247, 252, 0.85); text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8); }
+.attrib { pointer-events: auto; }
+.attrib .sources-open { font: inherit; color: inherit; background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.attrib .sources-open + span:not(:empty)::before { content: " · "; }
+dialog.sources { width: min(560px, calc(100vw - 32px)); max-height: min(80vh, 720px); overflow: auto; padding: 20px 22px; border-radius: 16px; color: var(--ink); font-family: var(--font); }
+dialog.sources::backdrop { background: rgba(15, 25, 35, 0.35); }
+.sources-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sources-head h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.sources-close { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer; }
+.sources-sub { margin: 6px 0 14px; font-size: 13px; color: var(--ink-2); }
+.sources-list { list-style: none; margin: 0; padding: 0; }
+.sources-list li { padding: 10px 0; border-top: 1px solid var(--line); }
+.sources-list .name { font-size: 14px; font-weight: 600; }
+.sources-list .use { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+.sources-list .credit { font-size: 12px; color: var(--ink-2); margin-top: 4px; line-height: 1.45; }
 
 #beirut-map-controls{position:absolute;left:calc(var(--edge) + 70px);top:calc(var(--edge) + 64px);padding:10px 12px;border-radius:14px;display:flex;gap:10px;flex-wrap:wrap;max-width:420px;pointer-events:auto;font-size:11px}
 #beirut-map-controls[hidden]{display:none}#beirut-map-controls label{display:flex;gap:6px;align-items:center}#beirut-map-controls select{font:inherit;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:5px}#beirut-map-note{width:100%;color:var(--ink-3);font-size:10px}
@@ -534,10 +548,15 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
       <button class="go" id="go" type="submit" aria-label="Run scenario"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
     </form>
     <div class="dock glass" id="dock"></div>
-    <div class="attrib" id="attrib"></div>
+    <div class="attrib" id="attrib"><button type="button" class="sources-open" id="t-sources" aria-haspopup="dialog">Sources &amp; credits</button><span id="attrib-short"></span></div>
   </div>
 </div>
 <div class="tip" id="tip" hidden></div>
+<dialog class="sources glass" id="sources" aria-labelledby="sources-title">
+  <div class="sources-head"><h2 id="sources-title">Sources &amp; credits</h2><button type="button" class="sources-close" id="sources-close">Close</button></div>
+  <p class="sources-sub">Every dataset this page draws on, what it is used for, and its credit and licence.</p>
+  <ul class="sources-list" id="sources-list"></ul>
+</dialog>
 
 <script>
 const DATA = /*__DYNACITY_DATA__*/null;
@@ -1038,11 +1057,11 @@ async function wireBeirutOverlay(){
   data.buildings.forEach((o,i)=>{if(o.objectid!=null)beirutOverlay.modelByObjectid.set(String(o.objectid),i)});
   beirutOverlay.snapshotById=new Map(DATA.buildings.map(b=>[String(b.id).match(/OBJECTID:([^|]+)/)?.[1],b]));
   beirutOverlay.active=true;$('beirut-mode').value='model';$('beirut-map-note').textContent=`${data.buildings.length.toLocaleString()} buildings · ${data.matched} provisional BBED links${beirutLinkNote(data.alignment)} · ${beirutAlignmentText(data.alignment)}`;
-  $('beirut-mode').onchange=e=>{beirutOverlay.active=e.target.value==='model';beirutOverlay.pinned=false;$('p-beirut-record').hidden=true;render();$('attrib').textContent=attribution()};
+  $('beirut-mode').onchange=e=>{beirutOverlay.active=e.target.value==='model';beirutOverlay.pinned=false;$('p-beirut-record').hidden=true;render();renderSources()};
   $('beirut-source').onchange=e=>{beirutOverlay.source=e.target.value;renderBeirutRecord()};
   $('beirut-pin').onclick=()=>{beirutOverlay.pinned=!beirutOverlay.pinned;renderBeirutRecord()};
   $('beirut-close').onclick=()=>{beirutOverlay.pinned=false;$('p-beirut-record').hidden=true};
-  render();$('attrib').textContent=attribution();
+  render();renderSources();
  }catch(error){beirutOverlay.active=false;$('beirut-map-note').textContent='Beirut 001 unavailable: '+error.message;console.warn(error);render();}
 }
 
@@ -1138,7 +1157,7 @@ async function setPointCloudVisible(visible) {
     $('cloud-visible').checked = false;
     $('cloud-note').textContent = error.message;
   }
-  render(); $('attrib').textContent = attribution();
+  render(); renderSources();
 }
 function focusPointCloud() {
   if (!pointCloud.metadata) return;
@@ -1244,8 +1263,34 @@ function layers() {
   }
   return out;
 }
-function attribution() {
-  return [beirutOverlay.active && `Beirut 001: Salim al-Kadi and team · January 2020 · ${beirutAlignmentText(beirutOverlay.data?.alignment,true)}.`, DATA.attribution, DATA.basemap?.attribution, ui.satellite && DATA.basemap?.imagery?.[ui.imagery]?.attribution, ui.traffic && DATA.traffic?.source, ui.traffic && DATA.traffic?.stations?.length && DATA.traffic.volume_source, cloudActive() && `Point cloud: ${pointCloud.metadata.name} · source RGB · display Z offset; datum unverified.`].filter(Boolean).join(' ');
+// Every source the page draws on, for the Sources & credits panel. Only the credits a
+// basemap or imagery provider requires on the map itself stay visible (attributionShort).
+function dataSources() {
+  const out = [];
+  const add = (name, use, credit) => credit && out.push({ name, use, credit });
+  if (beirutOverlay.active) add('Beirut 001 city model', '3D building outlines and heights, bridge decks',
+    `Salim al-Kadi and team, January 2020. ${beirutAlignmentText(beirutOverlay.data?.alignment, true).replace(/^./, (c) => c.toUpperCase())}.`);
+  add('Beirut Built Environment Database (BBED)', 'Building records, states, floors and heights; forecast inputs', DATA.attribution);
+  add('Base map', 'Streets, labels, water and land', DATA.basemap?.attribution);
+  (DATA.basemap?.imagery || []).forEach((img, i) => add(`Satellite imagery: ${img.label || `option ${i + 1}`}`,
+    ui.satellite && i === ui.imagery ? 'Satellite view (shown now)' : 'Satellite view (when selected)', img.attribution));
+  add('Terrain (ground heights)', 'Hills under buildings, roads and cars', DATA.terrain?.attribution);
+  add('Context buildings', 'Buildings outside the city model', DATA.landscape?.context_buildings?.attribution);
+  if (DATA.landscape) add('OpenStreetMap context', 'Trees, paths, street furniture, place names', `${DATA.landscape.source || 'OpenStreetMap contributors'}, ODbL.`);
+  add('Traffic speeds and roads', 'Traffic simulation', DATA.traffic?.source);
+  if (DATA.traffic?.stations?.length) add('Traffic counts', 'Peak-hour volumes for the simulation', DATA.traffic.volume_source);
+  if (cloudActive()) add('Point cloud', '3D survey points', `${pointCloud.metadata.name}; source RGB; display Z offset, datum unverified.`);
+  return out;
+}
+function attributionShort() {
+  return [DATA.basemap?.attribution, ui.satellite && DATA.basemap?.imagery?.[ui.imagery]?.attribution].filter(Boolean).join(' ');
+}
+// Kept for callers that want the full text in one line (e.g. exports).
+function attribution() { return dataSources().map((d) => d.credit).join(' '); }
+function renderSources() {
+  $('attrib-short').textContent = attributionShort();
+  const list = $('sources-list');
+  if (list) list.innerHTML = dataSources().map((d) => `<li><div class="name">${esc(d.name)}</div><div class="use">${esc(d.use)}</div><div class="credit">${esc(d.credit)}</div></li>`).join('');
 }
 // Colour imagery goes over every road, water, and flat building fill of the
 // basemap but under its trailing label layers, so place names stay readable.
@@ -1274,7 +1319,7 @@ function setSatellite(on, imagery = ui.imagery) {
   $('t-sat').setAttribute('aria-pressed', String(on));
   $('sat-source').value = String(imagery);
   document.documentElement.toggleAttribute('data-satellite', on);
-  $('attrib').textContent = attribution();
+  renderSources();
   applySatellite(); render();
 }
 // Animation frames rebuild only the moving layers (cars, pedestrians) on top
@@ -2382,7 +2427,7 @@ function setTraffic(on) {
   if (!ui.traffic && ui.roadTool) setRoadTool(ui.roadTool);
   $('t-traffic').setAttribute('aria-pressed', String(ui.traffic));
   $('p-traffic').hidden = !ui.traffic;
-  $('attrib').textContent = attribution();
+  renderSources();
   prepareCars(); renderTraffic(); renderScenario(); render();
   if (ui.traffic) animate();
 }
@@ -3522,6 +3567,10 @@ function wire() {
     if (e.target.closest('[data-corridor-all]')) { stopCorridorTour(); ui.corridorStop = null; flyTo({}); renderCorridorPanel(); }
   });
   $('t-kpis').onclick = (e) => togglePanel('p-kpis', e.currentTarget);
+  // Sources & credits: a centred dialog listing every dataset; a click outside or Esc closes it.
+  $('t-sources').onclick = () => { renderSources(); $('sources').showModal(); };
+  $('sources-close').onclick = () => $('sources').close();
+  $('sources').addEventListener('click', (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
   $('t-info').onclick = (e) => togglePanel('p-info', e.currentTarget);
   $('t-traffic').onclick = () => {
     if (ui.traffic && $('p-traffic').hidden) {
@@ -3620,7 +3669,7 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
   document.querySelector('.chrome').hidden = true;
   if (DATA && typeof deck === 'undefined') $('empty').querySelector('p').textContent = 'The 3D library could not load. Check your connection and reload.';
 } else {
-  $('attrib').textContent = attribution();
+  renderSources();
   if (!DATA.forecast) document.querySelectorAll('[data-lens="forecast"],[data-lens="change"]').forEach((t) => (t.hidden = true));
   // Detail panels start collapsed so the city stays visible.
   $('t-traffic').hidden = !DATA.traffic;
