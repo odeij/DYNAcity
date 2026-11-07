@@ -35,10 +35,54 @@ test('sun shadows cast from buildings only onto the ground, and fade out at nigh
  assert.equal(ctx.lighting(0).shadowColor[3],0.5);assert.equal(ctx.lighting(1).shadowColor[3],0);
  ctx.nightLevel=()=>1;assert.ok(!ctx.shadowsOn());
  ctx.nightLevel=()=>0;ctx.ui.shadows=false;assert.ok(!ctx.shadowsOn());
- // The receiving plane is flat at sea level: with terrain loaded, shadows stay off.
- ctx.ui.shadows=true;ctx.ground.grid={};assert.ok(!ctx.shadowsOn());ctx.ground.grid=null;
+ // Terrain no longer switches shadows off: the receiver follows the ground instead.
+ ctx.ui.shadows=true;ctx.ground.grid={};assert.ok(ctx.shadowsOn());ctx.ground.grid=null;
  // Roof caps sit on the building tops and must not cast a second shadow.
  for(const id of ['buildings-roofs','beirut-001-roofs'])assert.ok(!vm.runInContext('SHADOW_CASTERS',ctx).test(id),id);
  for(const id of ['buildings','beirut-001-buildings','osm-gap-buildings','bridge-deck-slabs','mapped-tree-canopies'])assert.ok(vm.runInContext('SHADOW_CASTERS',ctx).test(id),id);
- assert.ok(!vm.runInContext('SHADOW_CASTERS',ctx).test('shadow-ground'));assert.ok(vm.runInContext('SHADOW_RECEIVERS',ctx).test('shadow-ground'));assert.ok(!vm.runInContext('SHADOW_RECEIVERS',ctx).test('buildings'));
+ for(const id of ['shadow-ground','shadow-terrain']){assert.ok(!vm.runInContext('SHADOW_CASTERS',ctx).test(id),id);assert.ok(vm.runInContext('SHADOW_RECEIVERS',ctx).test(id),id);}
+ // The depth-only copy of the terrain mesh neither casts nor receives.
+ assert.ok(!vm.runInContext('SHADOW_CASTERS',ctx).test('shadow-terrain-depth'));assert.ok(!vm.runInContext('SHADOW_RECEIVERS',ctx).test('shadow-terrain-depth'));
+ assert.ok(!vm.runInContext('SHADOW_RECEIVERS',ctx).test('buildings'));
+});
+// A synthetic 12 x 9 node grid, 1e-4 degrees a cell, height = 2 m per column + 1 m per row.
+function terrainScene(bounds){
+ const {ctx}=scene(),cols=12,rows=9,grid=new Int16Array(cols*rows);
+ for(let r=0;r<rows;r++)for(let c=0;c<cols;c++)grid[r*cols+c]=(2*c+r)*100;
+ ctx.DATA={terrain:{west:35.5,north:33.9,cell:1e-4,cols,rows,unit_m:.01},bounds};
+ ctx.ground.grid=grid;
+ class Layer{constructor(props){Object.assign(this,props);}}
+ ctx.deck.SimpleMeshLayer=Layer;ctx.SOFT={depthWriteEnabled:false};
+ return ctx;
+}
+test('with terrain the shadow receiver is the ground grid at its own heights, lifted clear of the roads',()=>{
+ // Bounds wide enough that the padded box covers the whole grid.
+ const ctx=terrainScene([[35.5,33.8992],[35.5011,33.9]]);
+ const m=ctx.shadowTerrainMesh(),lift=vm.runInContext('SHADOW_MESH_LIFT_M',ctx);
+ assert.equal(m.step,1);assert.equal(m.vertices,12*9);
+ assert.deepEqual([...m.origin],[35.5,33.9,0]);
+ const pos=m.mesh.attributes.POSITION.value,idx=m.mesh.indices.value;
+ assert.equal(idx.length,11*8*6);assert.ok(Math.max(...idx)<m.vertices);
+ // Node (column 5, row 3): offsets from the north-west node, height (2*5+3) m plus the lift.
+ const k=(3*12+5)*3;
+ assert.ok(Math.abs(pos[k]-5e-4)<1e-9);assert.ok(Math.abs(pos[k+1]+3e-4)<1e-9);assert.ok(Math.abs(pos[k+2]-(13+lift))<1e-5);
+ // Every node sits on its own grid height (groundZ is exact on the nodes).
+ for(let v=0;v<m.vertices;v++){const c=Math.round(pos[v*3]/1e-4),r=Math.round(-pos[v*3+1]/1e-4);assert.ok(Math.abs(pos[v*3+2]-lift-(2*c+r))<1e-4,String(v));}
+ // Built once per grid.
+ assert.equal(ctx.shadowTerrainMesh(),m);
+});
+test('the terrain receiver thins to its vertex budget and keeps the grid edge',()=>{
+ const ctx=terrainScene([[35.5,33.8992],[35.5011,33.9]]);
+ const m=ctx.shadowTerrainMesh(30);
+ assert.equal(m.step,2);assert.equal(m.vertices,7*5);
+ const pos=m.mesh.attributes.POSITION.value,last=(m.vertices-1)*3;
+ assert.ok(Math.abs(pos[last]-11e-4)<1e-9);assert.ok(Math.abs(pos[last+1]+8e-4)<1e-9);
+});
+test('terrain shadow layers: a sunk depth-only copy, then the transparent receiver',()=>{
+ const ctx=terrainScene([[35.5,33.8992],[35.5011,33.9]]);
+ const [depth,receiver]=ctx.shadowTerrainLayers();
+ assert.equal(depth.id,'shadow-terrain-depth');assert.equal(receiver.id,'shadow-terrain');
+ for(const l of [depth,receiver]){assert.equal(l._instanced,false);assert.deepEqual([...l.getColor],[0,0,0,0]);assert.equal(l.material,false);assert.equal(l.pickable,false);}
+ assert.ok(depth.getTranslation[2]<-1);assert.equal(depth.parameters,undefined);
+ assert.equal(receiver.parameters.depthWriteEnabled,false);
 });

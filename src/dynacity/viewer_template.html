@@ -851,11 +851,53 @@ function applySky() {
 // buildings nearly black). Shadows fade with the sun at night. The sun always
 // carries _shadow: removing deck's shadow module after layers were built with it
 // blanks the scene, so "off" just stops casters and the receiving ground.
-// The receiving plane is flat at sea level, so with terrain loaded the shadows would
-// land in the wrong place on the hills: shadows stay off until the receiver follows the ground.
-function shadowsOn() { return ui.shadows && !ground.grid && nightLevel() < 0.98; }
+// Without terrain the receiver is a flat plane just above sea level; with terrain it is
+// a mesh of the same ground grid groundZ samples, so shadows land on the hills.
+function shadowsOn() { return ui.shadows && nightLevel() < 0.98; }
 const SHADOW_CASTERS = /^(?!.*-roofs$)(buildings|beirut-001-|osm-gap-buildings|context|bridge-|mapped-tree-canopies)/;
-const SHADOW_RECEIVERS = /^(shadow-ground|ground)$/;
+const SHADOW_RECEIVERS = /^(shadow-ground|shadow-terrain|ground)$/;
+// The terrain receiver: every `step`-th node of the ground grid over the viewer bounds (padded like the
+// flat plane), at most SHADOW_MESH_VERTICES nodes. Vertices are lon/lat offsets from the mesh's north-west
+// node, so float32 keeps them exact, at the grid's own heights. Between nodes the triangles stray a little
+// from groundZ's bilinear surface (over Beirut at stride 2: 0.4 m at the 99th percentile), so the mesh
+// floats SHADOW_MESH_LIFT_M up to stay above the roads and other ground-level layers drawn before it.
+const SHADOW_MESH_VERTICES = 130000, SHADOW_MESH_LIFT_M = 0.5, SHADOW_MESH_DEPTH_DROP_M = 3;
+let shadowTerrain = null;
+function shadowTerrainMesh(maxVertices = SHADOW_MESH_VERTICES) {
+  const t = DATA.terrain, g = ground.grid;
+  if (shadowTerrain?.grid === g && shadowTerrain.maxVertices === maxVertices) return shadowTerrain;
+  const [[w, s], [e, n]] = DATA.bounds, pad = Math.max(e - w, n - s) * 0.1 + 0.0005;
+  const clamp = (v, max) => Math.min(Math.max(v, 0), max);
+  const c0 = clamp(Math.floor((w - pad - t.west) / t.cell), t.cols - 1), c1 = clamp(Math.ceil((e + pad - t.west) / t.cell), t.cols - 1);
+  const r0 = clamp(Math.floor((t.north - n - pad) / t.cell), t.rows - 1), r1 = clamp(Math.ceil((t.north - s + pad) / t.cell), t.rows - 1);
+  const step = Math.max(1, Math.ceil(Math.sqrt(((c1 - c0 + 1) * (r1 - r0 + 1)) / maxVertices)));
+  const nodes = (a, b) => { const out = []; for (let i = a; i < b; i += step) out.push(i); out.push(b); return out; };
+  const cols = nodes(c0, c1), rows = nodes(r0, r1), nc = cols.length, nr = rows.length;
+  const positions = new Float32Array(nc * nr * 3);
+  rows.forEach((r, j) => cols.forEach((c, i) => {
+    positions.set([(c - c0) * t.cell, (r0 - r) * t.cell, g[r * t.cols + c] * t.unit_m + SHADOW_MESH_LIFT_M], (j * nc + i) * 3);
+  }));
+  const indices = new Uint32Array(Math.max(nc - 1, 0) * Math.max(nr - 1, 0) * 6);
+  for (let j = 0, k = 0; j < nr - 1; j++) for (let i = 0; i < nc - 1; i++, k += 6) {
+    const a = j * nc + i, b = a + 1, c = a + nc, d = c + 1;
+    indices.set([a, b, d, a, d, c], k);
+  }
+  return (shadowTerrain = { grid: g, maxVertices, step, vertices: nc * nr, origin: [t.west + c0 * t.cell, t.north - r0 * t.cell, 0],
+    mesh: { attributes: { POSITION: { value: positions, size: 3 } }, indices: { value: indices, size: 1 } } });
+}
+// Two draws of that mesh, both fully transparent. The first, sunk a few metres, only writes depth, so a
+// slope hidden behind a nearer hill cannot show its shade through the hill; it sits below everything on
+// the ground drawn after it (cars, street details). The second is the receiver, like the flat plane:
+// deck's shadow module turns exactly its shadowed fragments into translucent shade.
+function shadowTerrainLayers() {
+  const m = shadowTerrainMesh();
+  if (!m.vertices) return [];
+  const common = { data: [m], mesh: m.mesh, _instanced: false, getPosition: (d) => d.origin, getColor: [0, 0, 0, 0], material: false, pickable: false };
+  return [
+    new deck.SimpleMeshLayer({ ...common, id: 'shadow-terrain-depth', getTranslation: [0, 0, -SHADOW_MESH_DEPTH_DROP_M] }),
+    new deck.SimpleMeshLayer({ ...common, id: 'shadow-terrain', parameters: SOFT }),
+  ];
+}
 function lighting(night = 0) {
   const daylight=daylightSettings(ui.traffic?ui.hour:12);
   const ambient = new deck.AmbientLight({ color: mix([246,248,250], [150,170,215], night), intensity: .9-.25*night });
@@ -1191,7 +1233,9 @@ function layers() {
   // Receives the shadows. Its fill is fully transparent, so deck's shadow module
   // turns exactly the shadowed fragments into translucent shade; the basemap and
   // satellite imagery show through everywhere else. Drawn last, 0.1 m up, no depth writes.
-  if (map && shadowsOn()) {
+  // With terrain loaded it is the ground grid itself (shadowTerrainMesh), not the flat plane.
+  if (map && shadowsOn() && ground.grid) out.push(...shadowTerrainLayers());
+  else if (map && shadowsOn()) {
     const [[w, s], [e, n]] = DATA.bounds, pad = Math.max(e - w, n - s) * 0.1 + 0.0005;
     out.push(new deck.SolidPolygonLayer({
       id: 'shadow-ground', data: [[[w - pad, s - pad, 0.1], [e + pad, s - pad, 0.1], [e + pad, n + pad, 0.1], [w - pad, n + pad, 0.1]]],
