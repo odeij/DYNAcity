@@ -7,7 +7,7 @@ function scene(){
  const calls=[];
  class Light { constructor(props){Object.assign(this,props);} }
  const ctx={ui:{traffic:true,hour:8},mix:(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*t),nightLevel:()=>0,isDark:()=>false,
-  deck:{AmbientLight:Light,DirectionalLight:Light,LightingEffect:Light},deckgl:{setProps:p=>calls.push(p)},map:null};
+  deck:{AmbientLight:Light,DirectionalLight:Light,LightingEffect:Light},deckgl:{setProps:p=>calls.push(p)},map:null,ground:{grid:null}};
  vm.runInNewContext(html.slice(html.indexOf('function daylightSettings('),html.indexOf('const MATERIAL =')),ctx);
  return {ctx,calls};
 }
@@ -35,6 +35,10 @@ test('sun shadows cast from buildings only onto the ground, and fade out at nigh
  assert.equal(ctx.lighting(0).shadowColor[3],0.5);assert.equal(ctx.lighting(1).shadowColor[3],0);
  ctx.nightLevel=()=>1;assert.ok(!ctx.shadowsOn());
  ctx.nightLevel=()=>0;ctx.ui.shadows=false;assert.ok(!ctx.shadowsOn());
+ // The receiving plane is flat at sea level: with terrain loaded, shadows stay off.
+ ctx.ui.shadows=true;ctx.ground.grid={};assert.ok(!ctx.shadowsOn());ctx.ground.grid=null;
+ // Roof caps sit on the building tops and must not cast a second shadow.
+ for(const id of ['buildings-roofs','beirut-001-roofs'])assert.ok(!vm.runInContext('SHADOW_CASTERS',ctx).test(id),id);
  for(const id of ['buildings','beirut-001-buildings','osm-gap-buildings','bridge-deck-slabs','mapped-tree-canopies'])assert.ok(vm.runInContext('SHADOW_CASTERS',ctx).test(id),id);
  assert.ok(!vm.runInContext('SHADOW_CASTERS',ctx).test('shadow-ground'));assert.ok(vm.runInContext('SHADOW_RECEIVERS',ctx).test('shadow-ground'));assert.ok(!vm.runInContext('SHADOW_RECEIVERS',ctx).test('buildings'));
 });
