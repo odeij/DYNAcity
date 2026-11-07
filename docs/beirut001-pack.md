@@ -41,6 +41,60 @@ about +1.344° and a shift of about (731999.3, 3752431.4) m into EPSG:32636,
 the same as the earlier mesh pilot to within 2 cm. This is inferred, not
 surveyed.
 
+### Measured alignment
+
+The placement above was fitted to BBED, so BBED cannot judge it.
+`dynacity refine-beirut001-alignment` measures it against Overture building
+footprints (68,719 polygons, almost all OpenStreetMap), which share nothing with
+the model or BBED, and applies a correction to an existing pack without the
+Rhino source:
+
+```powershell
+dynacity refine-beirut001-alignment --pack beirut001-pack.npz --reference overture-buildings.geojson `
+  --bbed bbed-2024.geojson --terrain terrain-glo30.npz `
+  --structures-pack beirut001-structures-pack.npz --structures-output beirut001-structures-pack-refined.npz `
+  --display-json beirut-model-display.json --display-output beirut-model-display-refined.json `
+  --output beirut001-pack-refined.npz --report alignment-report.json
+```
+
+It never overwrites an input (it refuses an output path equal to an input). The
+run takes about 9 minutes and needs `scipy` (`overlay` extra). Method:
+
+1. Placed outlines are paired one-to-one with reference footprints (intersecting,
+   IoU at least 0.25, centroids within 15 m, area ratio 0.4 to 2.5, best IoU
+   first). The residual is the centroid distance in metres.
+2. A robust (Huber) fit alternates with re-pairing under the current estimate;
+   pairing only against the unmoved placement would favour buildings that
+   already overlap and shrink the estimate toward zero.
+3. Shift, rigid, similarity, affine and quadratic corrections are compared by
+   spatial block cross-validation: buildings are split into 5 folds by 500 m
+   tile, pairing and fitting are redone without the held-out tiles, and the
+   held-out buildings are scored. A rotation or scale is kept only if its
+   tile-block bootstrap interval excludes 0 or 1 *and* it lowers the held-out
+   median by at least 0.05 m; affine or quadratic only if they clearly beat that.
+4. The winner is applied to outlines, bridges, bridge triangles and the ground
+   grid (re-gridded north-up, NaN-aware, so the coast stays put); heights and
+   levels are untouched. BBED links are re-matched with the same rule.
+
+The pack then carries `meta["alignment"]` (correction, held-out error, link
+counts before and after); the viewer words the alignment from that block and
+keeps "inferred alignment" for packs without it. Residuals here are agreement
+with OSM footprints, which are traced from imagery and have their own error.
+
+Result on the real pack (run of 7 November 2026): the model sat about 2.2 m
+south and 0.4 m west of the OSM footprints, no significant rotation or scale
+(0.005° and 1.00013, a rotation interval that includes 0, and neither lowering the
+held-out error), and a plain shift was adopted. Held-out centroid error against
+the reference went from a median of 3.81 m (90th percentile 7.29 m) to 3.31 m
+(7.04 m). The remaining ~3.3 m is mostly outline and tracing difference, not
+placement: affine, quadratic and a local-field correction gained under 0.05 m on
+held-out tiles even though tile means do vary (median 0.9 m, noise floor 0.36 m).
+BBED itself sits about 1.3 m north of OSM, so moving toward OSM moves away
+from BBED: the model's median distance to its BBED footprints went from 3.0 to
+3.3 m and provisional links from 687 to 590 (372 kept, 315 lost, 218 gained).
+The vertical frame is unaffected: pack ground minus GLO-30 has a median of
++0.40 m (207,653 cells).
+
 ## BBED links
 
 A model outline is linked to a BBED footprint when they overlap by at least
