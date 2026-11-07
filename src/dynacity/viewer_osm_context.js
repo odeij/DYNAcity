@@ -138,7 +138,7 @@ function osmGapBuildingLayers() {
     out.push(new deck.SolidPolygonLayer({id:'osm-gap-buildings',data:buildings,getPolygon:f=>(f.g??=groundedPolygon(f.geometry.coordinates)),
       extruded:true,getElevation:f=>f.properties.height_m??6,getFillColor:f=>cameraSafeColour([192,196,190],'osm',f.properties.id,occlusion),
       // Recolour only while something blocks the camera; per-pan recolouring of the whole set stalls panning.
-      material:MATERIAL,extensions:[HAZE_EXT],pickable:true,updateTriggers:{getFillColor:occlusion.osm.size?sceneCameraKey():''}}));
+      material:MATERIAL,pickable:true,...nightWindowProps(f=>nightInfo('unknown',`o${f.properties.id}`),[HAZE_EXT]),updateTriggers:{getFillColor:occlusion.osm.size?sceneCameraKey():''}}));
   }
   return out;
 }

@@ -911,6 +911,8 @@ function applyNight() {
   applySky();
   const canvas = map?.getCanvas();
   if (canvas) canvas.style.filter = night ? `brightness(${(1 - (isDark() ? 0.3 : 0.5) * night).toFixed(2)}) saturate(${(1 - 0.3 * night).toFixed(2)})` : '';
+  // Keep the open About panel's night note in step with the lit windows.
+  if (typeof renderInfo === 'function') renderInfo();
 }
 const BEIRUT_PALETTE = [[218, 206, 183], [225, 214, 192], [232, 222, 202], [210, 200, 180]];
 const DARK_BEIRUT_PALETTE = [[120, 115, 105], [130, 125, 115], [140, 135, 125], [110, 105, 95]];
@@ -972,7 +974,10 @@ function beirutBuildingLayers(){
 
  return [new deck.SolidPolygonLayer({
   id:'beirut-001-buildings',data:beirutOverlay.polygons,getPolygon:(p)=>(p.g??=groundedPolygon(p.rings)),extruded:true,
-  getElevation:(p)=>d.buildings[p.beirutModel].height_m,getFillColor:colour,material:MATERIAL,extensions:[HAZE_EXT],
+  getElevation:(p)=>d.buildings[p.beirutModel].height_m,getFillColor:colour,material:MATERIAL,
+  // Linked buildings take their recorded BBED state (dark states stay unlit); unlinked ones are unknown.
+  ...nightWindowProps((p)=>{const o=d.buildings[p.beirutModel],b=o.objectid==null?null:beirutOverlay.snapshotById.get(String(o.objectid));
+    return nightInfo(b?b.state:'unknown',`m${p.beirutModel}`);},[HAZE_EXT]),
   pickable:!ui.roadTool,autoHighlight:true,highlightColor:[80,161,220,130],
   updateTriggers:{getFillColor:[ui.lens,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey()]},
  }),
@@ -1167,7 +1172,9 @@ function layers() {
         getFillColor: (f) => {
           const base = baseBeirutColor(f.properties?.id ?? 'context');
           return [...base, 235];
-        }, material: MATERIAL, extensions: [HAZE_EXT],
+        }, material: MATERIAL,
+        // Basemap footprints carry no stable id here, so the first vertex seeds the window pattern.
+        ...nightWindowProps((f) => nightInfo('unknown', f.geometry.coordinates[0][0].join(',')), [HAZE_EXT]),
 
       }),
     }));
@@ -1184,7 +1191,8 @@ function layers() {
       data,
       getPolygon: (d) => (d.g ??= groundedRing(d.ring)), extruded: true, getElevation: (d) => elevation(d.b), getFillColor: (d) => cameraSafeColour(fill(d.b),'bbed',d.b.id,occlusion),
       // While a road tool is on, clicks go through buildings to the roads.
-      pickable: !ui.roadTool, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL, extensions: [HAZE_EXT],
+      pickable: !ui.roadTool, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL,
+      ...nightWindowProps((d) => nightInfo(d.b.state, d.b.id), [HAZE_EXT]),
       // No colour transition: an interrupted fade can leave a lens showing the
       // previous lens's colours, and a data view must never show stale values.
       updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey()], getElevation: [ui.lens] },
@@ -3157,7 +3165,8 @@ function renderInfo() {
     ${f ? `<dt>Training periods</dt><dd>${esc(f.training_intervals?.join(', ') || 'Unavailable in saved result')}</dd>` : ''}</dl>
     <div class="note">Snapshot date is the reference date, not a measurement date for every field. Map height estimates are for display only. Coverage heuristic measures unknown states and missing height/floors; it is not a calibrated confidence score.</div>
     ${f?.warnings?.length ? `<ul class="warn-list">${f.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
-    <div class="note">Forecasts are observational transition probabilities, not causal predictions. Scenario levers carry assumed effect sizes and are labelled assumption-based. ${esc(DATA.attribution)}</div>`;
+    <div class="note">Forecasts are observational transition probabilities, not causal predictions. Scenario levers carry assumed effect sizes and are labelled assumption-based. ${esc(DATA.attribution)}</div>
+    ${appliedNight > 0 ? '<div class="note">Night view: the lit windows are decorative. No occupancy data exists, so which windows glow is a fixed pattern derived from the building id, not a measurement. Only buildings recorded as vacant or evicted, demolished, empty lot or parking, or stalled or cancelled are kept unlit.</div>' : ''}`;
 }
 function roadCard(s) {
   return ui.trafficImpact && !ui.traffic ? `<div class="lever"><div class="t">Roads</div>${roadSummary(ui.trafficImpact)}
