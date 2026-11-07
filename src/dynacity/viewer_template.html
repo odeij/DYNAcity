@@ -785,6 +785,12 @@ function baseBeirutColor(id) {
   return c.map((v, i) => Math.max(0, Math.min(255, v + (h % 31) - 15)));
 }
 const MATERIAL = { ambient: 0.55, diffuse: 0.75, shininess: 12, specularColor: [100, 100, 100] };
+// Roof caps: a non-extruded polygon is drawn at its vertices' z, so a lighter
+// cap sits just above each extrusion's top (SolidPolygonLayer has no bottom
+// elevation, so a thin extruded slab is not possible).
+const ROOF_LIFT_M = 0.15;
+const atHeight = (poly, z) => typeof poly[0][0] === 'number'
+  ? poly.map(([x, y]) => [x, y, z]) : poly.map((ring) => ring.map(([x, y]) => [x, y, z]));
 
 const BRIDGE_MATERIAL = {ambient:.58,diffuse:.78,shininess:2,specularColor:[12,12,10]};
 
@@ -831,12 +837,10 @@ function beirutBuildingLayers(){
   updateTriggers:{getFillColor:[ui.lens,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey()]},
  }),
   new deck.SolidPolygonLayer({
-   id:'beirut-001-roofs',data:beirutOverlay.polygons,getPolygon:(p)=>p.rings,extruded:true,
-   getElevation:(p)=>d.buildings[p.beirutModel].height_m,
-   getBottomElevation:(p)=>d.buildings[p.beirutModel].height_m - 0.8,
+   id:'beirut-001-roofs',data:beirutOverlay.polygons,getPolygon:(p)=>atHeight(p.rings,d.buildings[p.beirutModel].height_m+ROOF_LIFT_M),extruded:false,
    getFillColor:roofColour,
    pickable:false,
-   updateTriggers:{getFillColor:[ui.lens,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey()],getElevation:[ui.lens]},
+   updateTriggers:{getFillColor:[ui.lens,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey()]},
   })];
 }
 function beirutBridgeLayers(){
@@ -1021,18 +1025,19 @@ function layers() {
       id: 'buildings',
       data,
       getPolygon: (d) => d.ring, extruded: true, getElevation: (d) => elevation(d.b), getFillColor: (d) => cameraSafeColour(fill(d.b),'bbed',d.b.id,occlusion),
+      // While a road tool is on, clicks go through buildings to the roads.
       pickable: !ui.roadTool, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL,
+      // No colour transition: an interrupted fade can leave a lens showing the
+      // previous lens's colours, and a data view must never show stale values.
       updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey()], getElevation: [ui.lens] },
     }));
     out.push(new deck.SolidPolygonLayer({
       id: 'buildings-roofs',
       data,
-      getPolygon: (d) => d.ring, extruded: true,
-      getElevation: (d) => elevation(d.b),
-      getBottomElevation: (d) => elevation(d.b) - 0.8,
+      getPolygon: (d) => atHeight(d.ring, elevation(d.b) + ROOF_LIFT_M), extruded: false,
       getFillColor: (d) => cameraSafeColour(mix(fill(d.b), [255, 255, 255], 0.25), 'bbed', d.b.id, occlusion),
       pickable: false,
-      updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey()], getElevation: [ui.lens] },
+      updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey()], getPolygon: [ui.lens] },
     }));
   }
   out.push(...beirutBuildingLayers());
