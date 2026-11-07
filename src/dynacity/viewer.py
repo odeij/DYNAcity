@@ -359,7 +359,7 @@ def render_viewer(payload: dict[str, Any], *, title: str = "DynaCITY · Beirut")
     # Inline detail modules so exported viewers remain a single portable HTML file.
     details = "\n".join(
         files("dynacity").joinpath(name).read_text(encoding="utf-8")
-        for name in ("viewer_street_edges.js", "viewer_intersections.js", "viewer_building_details.js", "viewer_osm_context.js", "viewer_camera.js", "viewer_pedestrians.js")
+        for name in ("viewer_street_edges.js", "viewer_intersections.js", "viewer_building_details.js", "viewer_osm_context.js", "viewer_camera.js", "viewer_pedestrians.js", "viewer_night.js")
     )
     return (template.replace(_PLACEHOLDER, data).replace("__DYNACITY_CARS__", car_models)
             .replace("/*__DYNACITY_DETAILS__*/", details).replace("__DYNACITY_TITLE__", title)

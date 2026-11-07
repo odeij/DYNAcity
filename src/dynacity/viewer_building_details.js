@@ -73,8 +73,9 @@ function buildingDetailLayers() {
   }
   const night=nightLevel(),common={mesh:mesh('building-detail-box',blockMesh),getPosition:d=>d.position,
     getScale:d=>d.scale,getOrientation:d=>d.orientation,pickable:false,material:{ambient:.6,diffuse:.6,shininess:8,specularColor:[25,30,35]}};
-  return [new deck.SimpleMeshLayer({...common,id:'illustrative-facade-windows',data:buildingDetailCache.visibleWindows,
-    getColor:shade(isDark()?[64,77,85]:[89,108,115],night,.65),updateTriggers:{getColor:[night,isDark()]}}),
-    new deck.SimpleMeshLayer({...common,id:'illustrative-roof-coping',data:buildingDetailCache.visibleCoping,
+  // Once the night windows are on (viewer_night.js), the dark illustrative glass boxes would only cover them.
+  const windows=night>=.5?[]:[new deck.SimpleMeshLayer({...common,id:'illustrative-facade-windows',data:buildingDetailCache.visibleWindows,
+    getColor:shade(isDark()?[64,77,85]:[89,108,115],night,.65),updateTriggers:{getColor:[night,isDark()]}})];
+  return [...windows,new deck.SimpleMeshLayer({...common,id:'illustrative-roof-coping',data:buildingDetailCache.visibleCoping,
     getColor:shade(isDark()?[114,119,123]:[192,190,179],night,.5),updateTriggers:{getColor:[night,isDark()]}})];
 }
