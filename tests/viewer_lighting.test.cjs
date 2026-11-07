@@ -29,3 +29,12 @@ test('night disables sun and static map uses neutral midday illumination',()=>{
  ctx.ui.traffic=false;ctx.ui.hour=3;
  assert.ok(Math.abs(ctx.lighting().sun.direction[0])<1e-9);
 });
+test('sun shadows cast from buildings only onto the ground, and fade out at night',()=>{
+ const {ctx}=scene();ctx.ui.shadows=true;ctx.nightLevel=()=>0;
+ assert.ok(ctx.shadowsOn());assert.ok(ctx.lighting(0).sun._shadow);
+ assert.equal(ctx.lighting(0).shadowColor[3],0.5);assert.equal(ctx.lighting(1).shadowColor[3],0);
+ ctx.nightLevel=()=>1;assert.ok(!ctx.shadowsOn());
+ ctx.nightLevel=()=>0;ctx.ui.shadows=false;assert.ok(!ctx.shadowsOn());
+ for(const id of ['buildings','beirut-001-buildings','osm-gap-buildings','bridge-deck-slabs','mapped-tree-canopies'])assert.ok(vm.runInContext('SHADOW_CASTERS',ctx).test(id),id);
+ assert.ok(!vm.runInContext('SHADOW_CASTERS',ctx).test('shadow-ground'));assert.ok(vm.runInContext('SHADOW_RECEIVERS',ctx).test('shadow-ground'));assert.ok(!vm.runInContext('SHADOW_RECEIVERS',ctx).test('buildings'));
+});
