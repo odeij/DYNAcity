@@ -59,7 +59,7 @@ function osmVisibleEntries(centre,zoom,bounds) {
       const a=path[i-1],b=path[i],sx=111320*Math.cos(a[1]*Math.PI/180),dx=(b[0]-a[0])*sx,dy=(b[1]-a[1])*111320,length=Math.hypot(dx,dy);
       if(length<.05)continue;
       const kind=f.properties.kind,height=f.properties.height_m??(kind==='hedge'?1.3:kind==='guard_rail'?.7:1.6);
-      segments.push({feature:f,position:[(a[0]+b[0])/2,(a[1]+b[1])/2,.06],scale:[length,kind==='hedge'?.55:.18,height],orientation:[0,Math.atan2(dy,dx)*180/Math.PI,0]});
+      segments.push({feature:f,position:onGround([(a[0]+b[0])/2,(a[1]+b[1])/2],.06),scale:[length,kind==='hedge'?.55:.18,height],orientation:[0,Math.atan2(dy,dx)*180/Math.PI,0]});
     }
   }
   for(const f of grouped.paths??[])if(f.properties.kind==='steps'&&f.geometry.type==='LineString') {
@@ -73,7 +73,7 @@ function osmVisibleEntries(centre,zoom,bounds) {
       if(length<.05)continue;
       for(;next<along+length;next+=spacing) {
         const u=(next-along)/length,p=[a[0]+u*(b[0]-a[0]),a[1]+u*(b[1]-a[1])];
-        treads.push({feature:f,path:[[p[0]-dy/length*width/2/sx,p[1]+dx/length*width/2/111320,.11],[p[0]+dy/length*width/2/sx,p[1]-dx/length*width/2/111320,.11]]});
+        treads.push({feature:f,path:[[p[0]-dy/length*width/2/sx,p[1]+dx/length*width/2/111320],[p[0]+dy/length*width/2/sx,p[1]-dx/length*width/2/111320]].map(q=>onGround(q,.11))});
       }
       along+=length;
     }
@@ -135,8 +135,8 @@ function osmGapBuildingLayers() {
   const out=[],buildings=osmBuildingSet();
   if(buildings.length) {
     const occlusion=cameraOcclusion();
-    out.push(new deck.SolidPolygonLayer({id:'osm-gap-buildings',data:buildings,getPolygon:f=>f.geometry.coordinates,
-      extruded:true,getElevation:f=>f.properties.height_m??6,getFillColor:f=>cameraSafeColour(heightConfidence(f.properties,[192,196,190,255]),'osm',f.properties.id,occlusion),
+    out.push(new deck.SolidPolygonLayer({id:'osm-gap-buildings',data:buildings,getPolygon:f=>(f.g??=groundedPolygon(f.geometry.coordinates)),
+      extruded:true,getElevation:f=>f.properties.height_m??6,getFillColor:f=>cameraSafeColour([192,196,190],'osm',f.properties.id,occlusion),
       // Recolour only while something blocks the camera; per-pan recolouring of the whole set stalls panning.
       material:MATERIAL,pickable:true,updateTriggers:{getFillColor:occlusion.osm.size?sceneCameraKey():''}}));
   }
@@ -152,20 +152,20 @@ function osmContextLayers() {
   const d=osmVisibleEntries(centre,zoom,map?.getBounds?.().toArray()),night=nightLevel(),out=[];
   const paths=(d.grouped.paths??[]).filter(f=>f.geometry.type==='LineString'&&f.properties.tags?.footway!=='crossing'&&f.properties.tags?.tunnel!=='yes'&&(!f.properties.tags?.bridge||f.properties.tags.bridge==='no'));
   const paved=f=>['asphalt','concrete','paved','paving_stones'].includes(f.properties.surface);
-  if(paths.length)out.push(new deck.PathLayer({id:'osm-pedestrian-paths',data:paths,getPath:f=>f.geometry.coordinates.map(p=>[...p,.085]),
+  if(paths.length)out.push(new deck.PathLayer({id:'osm-pedestrian-paths',data:paths,getPath:f=>groundPath(f.geometry.coordinates,.085),
     getWidth:f=>Math.min(12,f.properties.width_m??(f.properties.kind==='pedestrian'?4:2)),widthUnits:'meters',widthMinPixels:.7,
     getColor:f=>shade(f.properties.kind==='cycleway'?[144,162,151,230]:paved(f)?[202,194,176,245]:[190,178,150,235],night,.5),
     capRounded:true,jointRounded:true,pickable:true,updateTriggers:{getColor:night}}));
   const plazas=(d.grouped.paths??[]).filter(f=>f.geometry.type==='Polygon');
-  if(plazas.length)out.push(new deck.SolidPolygonLayer({id:'osm-pedestrian-plazas',data:plazas,getPolygon:f=>f.geometry.coordinates.map(r=>r.map(p=>[...p,.07])),
+  if(plazas.length)out.push(new deck.SolidPolygonLayer({id:'osm-pedestrian-plazas',data:plazas,getPolygon:f=>f.geometry.coordinates.map(r=>r.map(p=>onGround(p,.07))),
     getFillColor:shade([202,194,176,225],night,.5),material:false,pickable:true,updateTriggers:{getFillColor:night}}));
   if(zoom>=17&&d.treads.length)out.push(new deck.PathLayer({id:'osm-stair-treads',data:d.treads,getPath:d=>d.path,getColor:shade([119,115,105,220],night,.5),
     getWidth:.08,widthUnits:'meters',widthMinPixels:.5,pickable:false,updateTriggers:{getColor:night}}));
   const rails=(d.grouped.transport??[]).filter(f=>f.geometry.type==='LineString'&&!['abandoned','razed','subway'].includes(f.properties.tags?.railway));
-  if(rails.length)out.push(new deck.PathLayer({id:'osm-rail-alignments',data:rails,getPath:f=>f.geometry.coordinates.map(p=>[...p,.06]),getWidth:1.2,widthUnits:'meters',
+  if(rails.length)out.push(new deck.PathLayer({id:'osm-rail-alignments',data:rails,getPath:f=>groundPath(f.geometry.coordinates,.06),getWidth:1.2,widthUnits:'meters',
     getColor:shade([118,111,98,210],night,.5),pickable:true,updateTriggers:{getColor:night}}));
   const water=(d.grouped.water??[]).filter(f=>f.geometry.type==='LineString'&&f.properties.tags?.tunnel!=='yes');
-  if(water.length)out.push(new deck.PathLayer({id:'osm-waterways',data:water,getPath:f=>f.geometry.coordinates.map(p=>[...p,.075]),
+  if(water.length)out.push(new deck.PathLayer({id:'osm-waterways',data:water,getPath:f=>groundPath(f.geometry.coordinates,.075),
     getWidth:f=>f.properties.width_m??(f.properties.tags?.waterway==='river'?8:2),widthUnits:'meters',getColor:shade([109,156,165,210],night,.5),pickable:true,updateTriggers:{getColor:night}}));
   out.push(...gap);
   if(zoom>=17.5&&d.segments.length)for(const kind of new Set(d.segments.map(s=>s.feature.properties.kind))) {
@@ -178,7 +178,7 @@ function osmContextLayers() {
   if(zoom>=18)for(const kind of new Set(d.furniture.map(f=>f.properties.kind))) {
     const items=d.furniture.filter(f=>f.properties.kind===kind);
     out.push(new deck.SimpleMeshLayer({id:`osm-furniture-${kind}`,data:items,mesh:mesh(`osm-furniture-${kind}`,()=>osmFurnitureMesh(kind)),
-      getPosition:f=>[...f.contextAnchor,.06],getOrientation:f=>[0,Number(f.properties.tags?.direction)||0,0],
+      getPosition:f=>onGround(f.contextAnchor,.06),getOrientation:f=>[0,Number(f.properties.tags?.direction)||0,0],
       getScale:f=>kind==='street_lamp'&&f.properties.height_m?[1,1,f.properties.height_m/5.62]:[1,1,1],
       getColor:[255,255,255],material:MATERIAL,pickable:true}));
   }
@@ -186,18 +186,18 @@ function osmContextLayers() {
   const infrastructure=d.grouped.infrastructure??[];
   const infrastructureLines=infrastructure.filter(f=>f.geometry.type==='LineString');
   if(zoom>=17&&infrastructureLines.length)out.push(new deck.PathLayer({id:'osm-infrastructure-lines',data:infrastructureLines,
-    getPath:f=>f.geometry.coordinates.map(p=>[...p,.12]),getWidth:1,widthUnits:'pixels',widthMinPixels:1,
+    getPath:f=>groundPath(f.geometry.coordinates,.12),getWidth:1,widthUnits:'pixels',widthMinPixels:1,
     getColor:[155,112,69,220],pickable:true}));
   // Show mapped area boundaries, including holes, as references rather than
   // implying a measured 3D structure or filling the entire mapped area.
   const infrastructureAreas=infrastructure.filter(f=>f.geometry.type==='Polygon')
     .flatMap(f=>f.geometry.coordinates.map(path=>({feature:f,path})));
   if(zoom>=17&&infrastructureAreas.length)out.push(new deck.PathLayer({id:'osm-infrastructure-areas',data:infrastructureAreas,
-    getPath:d=>d.path.map(p=>[...p,.12]),getWidth:1,widthUnits:'pixels',widthMinPixels:1,
+    getPath:d=>groundPath(d.path,.12),getWidth:1,widthUnits:'pixels',widthMinPixels:1,
     getColor:[155,112,69,220],pickable:true}));
   const infrastructurePoints=infrastructure.filter(f=>f.geometry.type==='Point');
   if(zoom>=18&&infrastructurePoints.length)out.push(new deck.ScatterplotLayer({id:'osm-infrastructure-points',data:infrastructurePoints,
-    getPosition:f=>[...f.geometry.coordinates,.2],getRadius:2,radiusUnits:'pixels',radiusMinPixels:2,radiusMaxPixels:3,
+    getPosition:f=>onGround(f.geometry.coordinates,.2),getRadius:2,radiusUnits:'pixels',radiusMinPixels:2,radiusMaxPixels:3,
     getFillColor:[155,112,69,230],billboard:true,pickable:true}));
   return out;
 }
@@ -215,9 +215,9 @@ function osmPlaceLayers() {
     const project=p=>map?.project?map.project(p):{x:(p[0]-centre[0])*111320*Math.cos(centre[1]*Math.PI/180)/mpp,y:-(p[1]-centre[1])*111320/mpp};
     d.visibleLabels=osmLabelSelection(d.labels,project);d.labelKey=labelKey;
   }
-  if(d.visibleLabels.length)out.push(new deck.ScatterplotLayer({id:'osm-mapped-places',data:d.visibleLabels,getPosition:f=>[...f.contextAnchor,.15],
+  if(d.visibleLabels.length)out.push(new deck.ScatterplotLayer({id:'osm-mapped-places',data:d.visibleLabels,getPosition:f=>onGround(f.contextAnchor,.15),
     getRadius:1.2,radiusMinPixels:2,radiusMaxPixels:3,getFillColor:[51,102,111,225],billboard:true,stroked:false,pickable:true,parameters:ON_TOP}));
-  if(d.visibleLabels.length)out.push(new deck.TextLayer({id:'osm-place-names',data:d.visibleLabels,getPosition:f=>[...f.contextAnchor,1.2],
+  if(d.visibleLabels.length)out.push(new deck.TextLayer({id:'osm-place-names',data:d.visibleLabels,getPosition:f=>onGround(f.contextAnchor,1.2),
     getText:f=>f.properties.name,getSize:12,sizeUnits:'pixels',sizeMinPixels:11,sizeMaxPixels:12,fontFamily:'Arial, sans-serif',fontWeight:500,characterSet:'auto',getColor:shade([62,79,77,235],night,.3),
     getPixelOffset:[0,-13],billboard:true,background:true,getBackgroundColor:[247,245,235,205],backgroundPadding:[3,1],pickable:true,
     parameters:ON_TOP,

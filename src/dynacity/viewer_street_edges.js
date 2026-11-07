@@ -28,11 +28,13 @@ function streetEdgeGeometry(roads, centre, radius = 550) {
       // Segment bounding boxes keep long ways crossing the view without loading all nearby roads.
       if(Math.min(p[0],q[0])>radius||Math.max(p[0],q[0])<-radius||Math.min(p[1],q[1])>radius||Math.max(p[1],q[1])<-radius)continue;
       const nx=-(b[1]-a[1])/distance,ny=(b[0]-a[0])/distance;
-      const z=Math.max(0,r.path[i-1][2]??0,r.path[i][2]??0);
-      if(z>.3)continue;
+      // Path points are [lon, lat, z, h]: skip bridges by h, and put each slab end at the road's own z.
+      const za=r.path[i-1][2]??0,zb=r.path[i][2]??0;
+      if(Math.max(0,r.path[i-1][3]??za,r.path[i][3]??zb)>.3)continue;
+      const zp=za+(zb-za)*lo,zq=za+(zb-za)*hi;
       for(const side of [-1,1]) {
         if(r.sidewalk==='left'&&side<0||r.sidewalk==='right'&&side>0)continue;
-        const polygon=(inner,outer)=>[[p[0]+nx*inner*side,p[1]+ny*inner*side],[q[0]+nx*inner*side,q[1]+ny*inner*side],[q[0]+nx*outer*side,q[1]+ny*outer*side],[p[0]+nx*outer*side,p[1]+ny*outer*side]].map(v=>ll(v[0],v[1],z+.015));
+        const polygon=(inner,outer)=>[[p[0]+nx*inner*side,p[1]+ny*inner*side],[q[0]+nx*inner*side,q[1]+ny*inner*side],[q[0]+nx*outer*side,q[1]+ny*outer*side],[p[0]+nx*outer*side,p[1]+ny*outer*side]].map((v,k)=>ll(v[0],v[1],(k===1||k===2?zq:zp)+.015));
         const source={roadIndex,illustrative:true};
         curbs.push({...source,polygon:polygon(width/2+.04,width/2+.22)});
         walks.push({...source,polygon:polygon(width/2+.22,width/2+walkWidth)});

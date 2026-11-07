@@ -1,4 +1,5 @@
 // Pure playback adapter tests, using authoritative TraCI-shaped frames.
+require('./viewer_ground_helper.cjs');
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

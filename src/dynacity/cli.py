@@ -476,6 +476,21 @@ def _traffic_view(traffic: TrafficModel, pack_path: str | None) -> dict:
     return view
 
 
+def _viewer_terrain(ground: GroundModel, pack_path: str | None):
+    """The page's ground: the Beirut 001 ground where it covers, GLO-30 elsewhere, on one lon/lat grid."""
+    from .terrain import merge_ground
+    from .terrain_viewer import ViewerTerrain
+    if pack_path:
+        from .beirut001_pack import Beirut001Pack
+        pack_ground = Beirut001Pack.load(pack_path).ground
+        if pack_ground is not None:
+            ground = merge_ground(pack_ground, ground, extrapolate_m=400.0)
+            print("viewer terrain: Beirut 001 ground where it covers, GLO-30 elsewhere")
+    terrain = ViewerTerrain.from_ground(ground)
+    print(f"viewer terrain grid {terrain.cols}x{terrain.rows} ({len(terrain.to_bytes()) / 1e6:.2f} MB gzipped)")
+    return terrain
+
+
 def _beirut001_payload(pack_path: str | None, bbed_path: str | None,
                        bounds: tuple[float, float, float, float] | None = None) -> dict | None:
     if not pack_path:
@@ -556,6 +571,7 @@ def command_serve(args: argparse.Namespace) -> None:
             # Ground levels are for the viewer and traffic; the transition model never sees them.
             snapshot = attach_ground_elevation(snapshot, ground)
             print("viewer terrain loaded from " + args.terrain)
+    viewer_terrain = _viewer_terrain(ground, args.beirut001) if ground is not None else None
     if traffic is not None and snapshot is not None and corridor is None:
         covered = building_coverage(traffic, snapshot)
         if covered is not None and covered < 0.5:
@@ -580,6 +596,8 @@ def command_serve(args: argparse.Namespace) -> None:
             traffic=_traffic_view(traffic, args.beirut001) if traffic is not None else None,
             landscape=landscape,
         )
+        if viewer_terrain is not None:
+            payload["terrain"] = viewer_terrain.meta("/v1/viewer/terrain.bin", "/v1/viewer/terrain/{z}/{x}/{y}.png")
         if getattr(args, "pedestrians", None):
             from .viewer_pedestrians import pedestrian_payload
             payload["pedestrians"] = pedestrian_payload(_json(args.pedestrians), payload.get("traffic"))
@@ -605,6 +623,7 @@ def command_serve(args: argparse.Namespace) -> None:
         evidence=_load_bundle(args.evidence),
         viewer_forecast=baseline,
         viewer_ground=ground,
+        viewer_terrain=viewer_terrain,
         llm_budget=RequestBudget(
             total=args.llm_request_limit, per_minute=args.llm_requests_per_minute, what="language-model requests"
         ),

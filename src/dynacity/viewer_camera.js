@@ -62,6 +62,9 @@ function cameraOcclusion() {
   const source=beirutOverlay.active?beirutOverlay.polygons:null,key=sceneCameraKey();
   if(occlusionCache?.key===key&&occlusionCache.source===source)return occlusionCache;
   const eye=estimatedCameraEye(camera),target=camera.centre;
+  // The eye is a height above the ground under the view centre; a building's top is its height above its own
+  // ground. On relief, bring both to one level: the building's ground relative to the centre's.
+  const centreGround=groundZ(target[0],target[1]),rise=rings=>ground.grid?Math.min(...rings[0].map(p=>groundZ(p[0],p[1])))-centreGround:0;
   const rayBox=[Math.min(eye[0],target[0]),Math.min(eye[1],target[1]),Math.max(eye[0],target[0]),Math.max(eye[1],target[1])];
   const crosses=box=>box[0]<=rayBox[2]&&box[2]>=rayBox[0]&&box[1]<=rayBox[3]&&box[3]>=rayBox[1];
   const result={key,source,eye,model:new Set(),bbed:new Set(),osm:new Set()};
@@ -75,11 +78,11 @@ function cameraOcclusion() {
     }
     const candidates=new Set(cellKeys(rayBox).flatMap(k=>occlusionModelIndex.get(k)??[]));
     for(const p of candidates)
-      if(buildingBlocksCamera(p.rings,beirutOverlay.data.buildings[p.beirutModel].height_m,eye,target))result.model.add(p.beirutModel);
+      if(buildingBlocksCamera(p.rings,beirutOverlay.data.buildings[p.beirutModel].height_m+rise(p.rings),eye,target))result.model.add(p.beirutModel);
   } else {
-    for(const b of DATA.buildings??[])if(b.rings.some(r=>crosses(ringBox(r))&&buildingBlocksCamera([r],elevation(b),eye,target)))result.bbed.add(b.id);
+    for(const b of DATA.buildings??[])if(b.rings.some(r=>crosses(ringBox(r))&&buildingBlocksCamera([r],elevation(b)+rise([r]),eye,target)))result.bbed.add(b.id);
   }
-  for(const f of osmContextEntries())if(f.properties.kind==='osm_building'&&crosses(f.contextBox)&&buildingBlocksCamera(f.geometry.coordinates,f.properties.height_m??6,eye,target))result.osm.add(f.properties.id);
+  for(const f of osmContextEntries())if(f.properties.kind==='osm_building'&&crosses(f.contextBox)&&buildingBlocksCamera(f.geometry.coordinates,(f.properties.height_m??6)+rise(f.geometry.coordinates),eye,target))result.osm.add(f.properties.id);
   return occlusionCache=result;
 }
 function cameraSafeColour(rgb,group,id,state=cameraOcclusion()) {
