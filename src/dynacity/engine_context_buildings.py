@@ -32,11 +32,12 @@ from .engine_districts import city_boundary
 from .engine_scene import polygon_mesh
 from .engine_street_context import TerrainSurface
 from .terrain import GroundModel
+from .heights import RECORDED, mapped_height, resolve_height
 from .viewer import utm_to_lonlat
 
 VERSION='context-buildings/1'
-FLOOR_M=3.2
-AREA_BINS=[0,50,100,200,400,800,1600,math.inf]
+from .heights import AREA_BINS
+AREA_BINS=list(AREA_BINS)
 MIN_AREA_M2=8.
 OVERLAP_SHARE=.1
 TILE_M=1500.
@@ -53,20 +54,19 @@ def height_bins(pack):
     return medians
 
 
+def context_height(props,tags,area,medians):
+    """`heights.Height` by the shared order: a mapped height tag, then a floor count x the
+    fitted storey height, then the Beirut 001 area-bin median."""
+    recorded=next((h for h in (mapped_height(props.get('height')),mapped_height(tags.get('height'))) if h is not None),None)
+    floors=next((v for v in (props.get('num_floors'),tags.get('building:levels')) if v is not None),None)
+    return resolve_height(recorded=recorded,recorded_label='mapped height',floors=floors,area_m2=area,
+                          medians=medians,median_label='similar footprint area in Beirut 001')
+
+
 def building_height(props,tags,area,medians):
-    """(metres, provenance); mapped values first, then the Beirut 001 area-bin estimate."""
-    for value,source in ((props.get('height'),'mapped height'),(tags.get('height'),'mapped height')):
-        try:
-            h=float(str(value).split()[0])
-            if 2<=h<=300:return h,source
-        except (TypeError,ValueError,IndexError):pass
-    for value in (props.get('num_floors'),tags.get('building:levels')):
-        try:
-            floors=float(value)
-            if 1<=floors<=80:return floors*FLOOR_M,'mapped floor count x 3.2 m'
-        except (TypeError,ValueError):pass
-    index=next(i for i,(low,high) in enumerate(zip(AREA_BINS,AREA_BINS[1:])) if low<=area<high)
-    return medians[index],'estimated: Beirut 001 median for similar footprint area'
+    """(metres, provenance label)."""
+    result=context_height(props,tags,area,medians)
+    return result.height_m,result.source
 
 
 def read_footprints(overture=None,osm=None):
@@ -117,7 +117,8 @@ def footprint_scene(rows,origin,surface,medians,name):
         geometry=row['geometry'];xy=shapely.get_coordinates(geometry)
         z=[surface.sample(x,y) for x,y in xy];z=[v for v in z if v is not None]
         if not z:skipped['no terrain under footprint']+=1;continue
-        height,height_source=building_height(row['props'],row['tags'],geometry.area,medians)
+        resolved=context_height(row['props'],row['tags'],geometry.area,medians)
+        height,height_source,height_kind=resolved.height_m,resolved.source,resolved.kind
         # Sink the base below the lowest ground point so slopes show no gap; roof sits above the median.
         base=min(z)-1.;roof=float(np.median(z))+height
         try:vertices,faces=polygon_mesh(geometry,lambda x,y,z=roof:z,bottom=lambda x,y,z=base:z)
@@ -127,7 +128,7 @@ def footprint_scene(rows,origin,surface,medians,name):
         meshes.append({'id':'context:'+str(identifier),'kind':'building',
             'vertices':(np.asarray(vertices)-origin).round(4).tolist(),'triangles':faces,
             'metadata':{'source':row['source'],'source_record':str(row['record_id']),'overture_id':row['overture_id'],
-                'production_group':name,'height_m':round(height,2),'height_source':height_source,
+                'production_group':name,'height_m':round(height,2),'height_source':height_source,'height_kind':height_kind,
                 'ground_source':'extended visual ground (Beirut 001 + Copernicus GLO-30)',
                 'alignment':'source footprint as published; not checked against Beirut 001'}})
     lon,lat=utm_to_lonlat(origin[0],origin[1],36,True)
@@ -197,14 +198,16 @@ def web_buildings(rows,pack):
     for row in rows:
         area=row['geometry'].area
         if area<MIN_AREA_M2:continue
-        height,height_source=building_height(row['props'],row['tags'],area,medians)
+        resolved=context_height(row['props'],row['tags'],area,medians)
+        height,height_source,height_kind=resolved.height_m,resolved.source,resolved.kind
         osm=osm_identifier(row['record_id']) if row['source']=='OpenStreetMap' else None
         counts[row['source']]+=1
-        if osm:heights[osm]=[round(height,1),height_source];continue
+        if osm:heights[osm]=[round(height,1),height_source,height_kind];continue
         if row.get('lonlat') is None or row['lonlat'].get('type') not in ('Polygon','MultiPolygon'):continue
         features.append({'type':'Feature','geometry':row['lonlat'],'properties':{
             'id':'overture/'+str(row['overture_id']),'kind':'osm_building','context_group':'buildings',
             'name':'Building','tags':{},'source':row['source'],'height_m':round(height,1),'height_source':height_source,
+            'height_kind':height_kind,'estimated':height_kind!=RECORDED,
             'representation':'machine-learned footprint from satellite imagery'}})
     return {'schema':'dynacity-context-buildings-web/1','osm_heights':heights,'features':features,
         'counts':dict(counts),'height_bins_m':dict(zip([f'{a}-{b}' for a,b in zip(AREA_BINS,AREA_BINS[1:])],[round(m,1) for m in medians])),

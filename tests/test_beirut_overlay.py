@@ -143,6 +143,8 @@ def test_main_map_serves_pack_buildings_only_when_loaded(pack_inputs, tmp_path):
     model, bbed, city, _ = pack_inputs
     payload = viewer_payload(build_pack(model, bbed, cell_m=20), json.loads(bbed.read_text()))
     assert len(payload["bbed"]) == len(city) and payload["matched"] == len(city)
+    assert all(b["height_source"] and b["height_kind"] in ("recorded", "fallback") and b["estimated"] == (b["height_kind"] != "recorded")
+               for b in payload["buildings"])
     lon, lat = payload["buildings"][0]["parts"][0][0][0]
     assert 35.4 < lon < 35.6 and 33.8 < lat < 33.95  # Beirut
     client = TestClient(create_app(engine_fixture(), beirut001=payload))
@@ -153,3 +155,12 @@ def test_main_map_serves_pack_buildings_only_when_loaded(pack_inputs, tmp_path):
     client = TestClient(create_app(engine_fixture()))
     assert client.get('/v1/beirut001').json() == {'available': False}
     assert client.get('/v1/beirut001/buildings').status_code == 404
+
+
+def test_model_height_without_ground_is_flagged_as_estimate():
+    from types import SimpleNamespace
+    from dynacity.beirut001_pack import _model_height_source
+    pack = SimpleNamespace(ground_z=np.array([10.0, np.nan]))
+    assert _model_height_source(pack, 0)["estimated"] is False
+    without = _model_height_source(pack, 1)
+    assert without["estimated"] is True and "no model ground" in without["height_source"]

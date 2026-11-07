@@ -641,6 +641,30 @@ function fill(b) {
   const dim = focus && !focus.has(b.id);
   return [...rgb, dim ? 70 : 255];
 }
+// Heights that are not recorded are drawn lighter and slightly transparent:
+// from floors a little, size-bin estimates and fallbacks more. `item` is a BBED
+// building, a Beirut 001 model building or a context feature's properties.
+const HEIGHT_TINT = { floors: [0.12, 0.94], size_bin: [0.24, 0.85], fallback: [0.3, 0.8] };
+function heightConfidence(item, rgba) {
+  const tint = HEIGHT_TINT[item?.height_kind];
+  return tint ? [...mix(rgba.slice(0, 3), [238, 240, 236], tint[0]), Math.round((rgba[3] ?? 255) * tint[1])] : rgba;
+}
+function heightKindCounts(items) {
+  const c = { recorded: 0, floors: 0, estimated: 0 };
+  for (const it of items) c[it.height_kind === 'recorded' ? 'recorded' : it.height_kind === 'floors' ? 'floors' : 'estimated'] += 1;
+  return c;
+}
+function heightLegend() {
+  const model = beirutOverlay.active && beirutOverlay.data;
+  const main = heightKindCounts(model ? beirutOverlay.data.buildings : DATA.buildings);
+  let context = null;
+  try { context = DATA.landscape ? heightKindCounts(osmBuildingSet().map((f) => f.properties)) : null; } catch (e) { context = null; }
+  const row = (label, swatch, a, b) => `<div class="legend-row"><span class="sw" style="background:${swatch}"></span><span>${label}</span><span class="n">${a.toLocaleString()}${b == null ? '' : ` · ${b.toLocaleString()}`}</span></div>`;
+  const full = '#c9ced0', light = '#dde0dc', lighter = '#e8eae6';
+  return `<h3>Building heights</h3><div class="sub">${model ? 'Beirut 001 model' : 'BBED'} buildings${context ? ' · mapped context' : ''}</div>
+    ${row('Recorded', full, main.recorded, context?.recorded)}${row('From floors × ' + DATA.storey_height_m + ' m', light, main.floors, context?.floors)}${row('Estimated (size or fallback)', lighter, main.estimated, context?.estimated)}
+    <div class="note">Estimated heights are drawn lighter and slightly transparent. Hover a building for its height source.</div>`;
+}
 function elevation(b) {
   const flat = ui.lens === 'observed' && (b.state === 'empty_or_parking' || b.state === 'demolished');
   return flat ? 0.8 : Math.max(b.h, 1.5);
@@ -796,7 +820,7 @@ function renderBeirutRecord(){
  html+=`<p class="sub">${o?'January 2020 model · ':''}${o&&record?'Provisional footprint link; identity not verified.':record?'Original BBED record.':'No confident BBED match; model information only.'}</p>`;
  if(o&&record)html+=`<p class="sub">Overlap ${Math.round(o.iou*100)}% · centroid gap ${o.centroid_distance_m.toFixed(1)} m</p>`;
  if(beirutOverlay.source!=='model')html+='<h3>BBED record</h3>'+(record?rows(Object.entries(record)):'<p class="sub">No BBED record attached.</p>');
- if(beirutOverlay.source!=='bbed')html+='<h3>Beirut 001</h3>'+(o?rows([['Model UUID',o.id],['Source release','January 2020'],['Height above model ground (m)',o.height_m.toFixed(1)],['Roof level (model m)',o.top_z.toFixed(1)],['Ground level (model m)',o.ground_z==null?null:o.ground_z.toFixed(1)],['Roof',o.roof_levels>1?`${o.roof_levels} levels, drawn flat at the top`:'Flat']]):'<p class="sub">No confident link to a Beirut 001 object.</p>');
+ if(beirutOverlay.source!=='bbed')html+='<h3>Beirut 001</h3>'+(o?rows([['Model UUID',o.id],['Source release','January 2020'],['Height above model ground (m)',o.height_m.toFixed(1)],['Height source',(o.estimated?'Estimated · ':'Recorded · ')+o.height_source],['Roof level (model m)',o.top_z.toFixed(1)],['Ground level (model m)',o.ground_z==null?null:o.ground_z.toFixed(1)],['Roof',o.roof_levels>1?`${o.roof_levels} levels, drawn flat at the top`:'Flat']]):'<p class="sub">No confident link to a Beirut 001 object.</p>');
  html+='<p class="sub">Model heights are the model\'s own; BBED values are shown as supplied, including missing values. Model and survey dates differ.</p>';
  $('beirut-record-content').innerHTML=html;$('p-beirut-record').hidden=false;
  $('beirut-pin').textContent=beirutOverlay.pinned?'Unpin':'Pin';
@@ -804,7 +828,7 @@ function renderBeirutRecord(){
 function beirutBuildingLayers(){
  if(!beirutOverlay.active||!beirutOverlay.data)return [];
  const d=beirutOverlay.data,plain=isDark()?[111,126,139]:[219,222,216],occlusion=cameraOcclusion();
- const colour=(p)=>{const o=d.buildings[p.beirutModel];const b=o.objectid==null?null:beirutOverlay.snapshotById.get(String(o.objectid));return cameraSafeColour(b?fill(b):plain,'model',p.beirutModel,occlusion);};
+ const colour=(p)=>{const o=d.buildings[p.beirutModel];const b=o.objectid==null?null:beirutOverlay.snapshotById.get(String(o.objectid));return cameraSafeColour(heightConfidence(o,b?fill(b):[...plain,255]),'model',p.beirutModel,occlusion);};
  return [new deck.SolidPolygonLayer({
   id:'beirut-001-buildings',data:beirutOverlay.polygons,getPolygon:(p)=>p.rings,extruded:true,
   getElevation:(p)=>d.buildings[p.beirutModel].height_m,getFillColor:colour,material:MATERIAL,
@@ -993,7 +1017,7 @@ function layers() {
   if (!beirutOverlay.active) out.push(new deck.SolidPolygonLayer({
     id: 'buildings',
     data: buildingsData(),
-    getPolygon: (d) => d.ring, extruded: true, getElevation: (d) => elevation(d.b), getFillColor: (d) => cameraSafeColour(fill(d.b),'bbed',d.b.id,occlusion),
+    getPolygon: (d) => d.ring, extruded: true, getElevation: (d) => elevation(d.b), getFillColor: (d) => cameraSafeColour(heightConfidence(d.b, fill(d.b)),'bbed',d.b.id,occlusion),
     // While a road tool is on, clicks go through buildings to the roads.
     pickable: !ui.roadTool, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL,
     // No colour transition: an interrupted fade can leave a lens showing the
@@ -2678,7 +2702,7 @@ function showTip({ object, x, y }) {
     tip.style.top=`${Math.max(8,Math.min(y+16,innerHeight-tip.offsetHeight-10))}px`;return;
   }
   if(object.feature?.properties?.context_group)object=object.feature;
-  if (object.beirutModel != null || object.b) { tip.hidden = true; return; }
+  if (object.beirutModel != null || (beirutOverlay.data && object.b)) { heightTip(tip, object, x, y); return; }
   if(object.bridgeStructure) {
     tip.innerHTML=`<div class="h">Illustrative bridge ${esc(object.kind)}</div><div class="s">Mapped elevated road; structural dimensions and pier spacing are assumptions. Piers avoid mapped lower road corridors.</div>`;
     tip.hidden=false;tip.style.left=`${Math.max(8,Math.min(x+16,innerWidth-tip.offsetWidth-10))}px`;
@@ -2690,7 +2714,7 @@ function showTip({ object, x, y }) {
     const labels={surface:'Surface',width:'Width',height:'Height','building:levels':'Floors','building:material':'Façade material','building:colour':'Façade colour','roof:shape':'Roof shape','roof:material':'Roof material',wheelchair:'Wheelchair access',access:'Access',opening_hours:'Tagged opening hours',step_count:'Steps',incline:'Incline',lit:'Lighting',operator:'Operator',brand:'Brand'};
     tip.innerHTML=`<div class="h">${esc(p.name)}</div><div class="s">${esc(p.source??'OpenStreetMap')} · ${esc(p.kind.replaceAll('_',' '))} · ${esc(p.id)}</div>
       ${keys.filter(k=>tags[k]!=null).map(k=>`<div class="s">${esc(labels[k])}: ${esc(tags[k])}</div>`).join('')}
-      ${p.context_group==='buildings'?`<div class="s">Display height: ${p.height_m} m (${esc(p.height_source)})</div>`:''}
+      ${p.context_group==='buildings'?`<div class="s">Display height: ${p.height_m} m · ${p.estimated===false?'Recorded':'Estimated'} · ${esc(p.height_source)}</div>`:''}
       <div class="s">${esc(p.as_of??p.retrieved_on??'Source date unavailable')} · Mapped geometry; untagged dimensions and 3D forms illustrative. Current operation unverified.</div>`;
     tip.hidden=false;tip.style.left=`${Math.max(8,Math.min(x+16,innerWidth-tip.offsetWidth-10))}px`;
     tip.style.top=`${Math.max(8,Math.min(y+16,innerHeight-tip.offsetHeight-10))}px`;return;
@@ -2725,7 +2749,7 @@ function showTip({ object, x, y }) {
   const b = object.b, p = activeP(b);
   tip.innerHTML = `<div class="h">${esc(b.sector || 'Building')} · ${esc(b.use || 'use n/a')}</div>
     <div class="s">${esc(stateLabel(b.state))} · ${esc(b.status_source || 'Source period unavailable')}</div>
-    <div class="s">${b.h.toFixed(1)} m · ${esc(heightEvidence(b))}</div>
+    <div class="s">${b.h.toFixed(1)} m · ${b.est ? 'Estimated' : 'Recorded'} · ${esc(heightEvidence(b))}</div>
     ${p ? `<div class="s" style="margin:6px 0 0">${esc(evidenceLabel(ui.scenario?.forecast ?? DATA.forecast))} · next 2 years</div>${probRows(Object.fromEntries(Object.entries(p).sort((a, c) => c[1] - a[1]).slice(0, 3)), null, b.state)}` : ''}`;
   tip.hidden = false;
   const w = tip.offsetWidth, h = tip.offsetHeight;
@@ -2733,6 +2757,21 @@ function showTip({ object, x, y }) {
   tip.style.top = `${Math.min(y + 16, innerHeight - h - 10)}px`;
 }
 
+// Hover for Beirut 001 model buildings and, when the model is loaded, BBED buildings:
+// the drawn height, its source and whether it is estimated. Click opens the full record.
+function heightTip(tip, object, x, y) {
+  const model = object.beirutModel != null ? beirutOverlay.data.buildings[object.beirutModel] : null;
+  const b = object.b, record = model && model.objectid != null ? beirutOverlay.data.bbed[model.objectid] : null;
+  const height = model ? model.height_m : b.h, source = model ? model.height_source : heightEvidence(b), estimated = model ? model.estimated : b.est;
+  const bbed = record && Number(record.Building_Hight_m) > 0 ? Number(record.Building_Hight_m) : null;
+  tip.innerHTML = `<div class="h">${model ? 'Beirut 001 model building' : `${esc(b.sector || 'Building')} · ${esc(b.use || 'use n/a')}`}</div>
+    <div class="s">${height.toFixed(1)} m · ${estimated ? 'Estimated' : 'Recorded'} · ${esc(source)}</div>
+    ${bbed != null && model ? `<div class="s">BBED records ${bbed.toFixed(1)} m for the linked building (${model.height_m - bbed >= 0 ? '+' : '−'}${Math.abs(model.height_m - bbed).toFixed(1)} m model difference)</div>` : ''}
+    <div class="s">Click for the full record.</div>`;
+  tip.hidden = false;
+  tip.style.left = `${Math.max(8, Math.min(x + 16, innerWidth - tip.offsetWidth - 10))}px`;
+  tip.style.top = `${Math.max(8, Math.min(y + 16, innerHeight - tip.offsetHeight - 10))}px`;
+}
 function evidenceLabel(f) {
   return f?.evidence_level === 'assumption_based_scenario' ? 'Assumption-based prediction' : 'Model prediction · BAU';
 }
@@ -2774,7 +2813,7 @@ function renderLegend() {
       <div class="ramp" style="background:linear-gradient(90deg,${DIVERGE.low},${DIVERGE.mid},${DIVERGE.high})"></div><div class="ramp-labels"><span>−${(deltaScale * 100).toFixed(0)} pts</span><span>no change</span><span>+${(deltaScale * 100).toFixed(0)} pts</span></div>
       <div class="note">Orange = more likely to reach the lever's target; blue = less likely. Grey buildings are outside every lever.</div>`;
   }
-  el.innerHTML = body;
+  el.innerHTML = body + heightLegend();
 }
 
 function renderInspector() {
