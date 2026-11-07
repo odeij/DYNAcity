@@ -646,6 +646,54 @@ function elevation(b) {
   return flat ? 0.8 : Math.max(b.h, 1.5);
 }
 
+// ---- ground ----
+// One height grid (`DATA.terrain`, from `serve --terrain`) is the ground twice over: MapLibre drapes the
+// basemap over relief cut from it (Terrarium tiles), and `groundZ` samples the same grid for the z of every
+// deck layer. Without it `groundZ` is 0 and the city stays on the flat plane.
+const ground = { grid: null };
+async function loadGround() {
+  const t = DATA.terrain;
+  if (!t) return;
+  try {
+    const response = await fetch(t.url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const grid = new Int16Array(await response.arrayBuffer());
+    if (grid.length !== t.cols * t.rows) throw new Error('terrain grid has the wrong size');
+    ground.grid = grid;
+  } catch (err) { console.warn('Terrain unavailable; drawing the city on a flat plane', err); }
+}
+// Ground height in metres at lon/lat: bilinear on the grid, the nearest edge value beyond it.
+function groundZ(lon, lat) {
+  const g = ground.grid;
+  if (!g) return 0;
+  const t = DATA.terrain, col = Math.min(Math.max((lon - t.west) / t.cell, 0), t.cols - 1), row = Math.min(Math.max((t.north - lat) / t.cell, 0), t.rows - 1);
+  const c0 = Math.min(Math.floor(col), t.cols - 2), r0 = Math.min(Math.floor(row), t.rows - 2), fc = col - c0, fr = row - r0, i = r0 * t.cols + c0;
+  return (g[i] * (1 - fc) * (1 - fr) + g[i + 1] * fc * (1 - fr) + g[i + t.cols] * (1 - fc) * fr + g[i + t.cols + 1] * fc * fr) * t.unit_m;
+}
+// A lon/lat point (any z is dropped) on the ground, `lift` metres above it.
+const onGround = (p, lift = 0) => [p[0], p[1], groundZ(p[0], p[1]) + lift];
+// A lon/lat path with a point at least every `step` metres (its own vertices kept), each on the ground
+// `lift` metres up, so a long straight piece follows the relief instead of cutting through a rise.
+function groundPath(path, lift = 0, step = 8) {
+  if (!ground.grid) return path.map((p) => [p[0], p[1], lift]);
+  const out = [];
+  for (let i = 0; i < path.length; i++) {
+    if (i) {
+      const a = path[i - 1], b = path[i], n = Math.max(1, Math.ceil(metresBetween(a, b) / step));
+      for (let k = 1; k < n; k++) out.push(onGround([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n], lift));
+    }
+    out.push(onGround(path[i], lift));
+  }
+  return out;
+}
+// A footprint ring or polygon (list of rings) standing on the ground: every vertex at the lowest ground
+// under the outer ring, so no corner floats; the uphill side is buried instead.
+function groundedPolygon(rings, lift = 0) {
+  const z = ground.grid ? Math.min(...rings[0].map((p) => groundZ(p[0], p[1]))) + lift : lift;
+  return rings.map((ring) => ring.map((p) => [p[0], p[1], z]));
+}
+const groundedRing = (ring, lift = 0) => groundedPolygon([ring], lift)[0];
+
 let deckgl = null, map = null, home = null;
 // One stable array, so re-rendering (every frame while an effect plays) never
 // makes deck.gl re-tessellate the footprints.
@@ -806,7 +854,7 @@ function beirutBuildingLayers(){
  const d=beirutOverlay.data,plain=isDark()?[111,126,139]:[219,222,216],occlusion=cameraOcclusion();
  const colour=(p)=>{const o=d.buildings[p.beirutModel];const b=o.objectid==null?null:beirutOverlay.snapshotById.get(String(o.objectid));return cameraSafeColour(b?fill(b):plain,'model',p.beirutModel,occlusion);};
  return [new deck.SolidPolygonLayer({
-  id:'beirut-001-buildings',data:beirutOverlay.polygons,getPolygon:(p)=>p.rings,extruded:true,
+  id:'beirut-001-buildings',data:beirutOverlay.polygons,getPolygon:(p)=>(p.g??=groundedPolygon(p.rings)),extruded:true,
   getElevation:(p)=>d.buildings[p.beirutModel].height_m,getFillColor:colour,material:MATERIAL,
   pickable:!ui.roadTool,autoHighlight:true,highlightColor:[80,161,220,130],
   updateTriggers:{getFillColor:[ui.lens,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey()]},
@@ -867,6 +915,17 @@ function contextData(features, tile) {
     hit.data = cloud ? hit.all.filter(f => !cloudOverlaps(f.geometry.coordinates[0].map(tileToLngLat(tile.bbox)))) : hit.all;
   }
   return hit.data;
+}
+// The same footprints in lon/lat on the ground. MVT tiles are drawn in tile-local cartesian space, where
+// a ground height cannot be expressed; with terrain the tile's sublayer draws these in lon/lat instead.
+const contextGround = new WeakMap();
+function contextOnGround(items, tile) {
+  let hit = contextGround.get(items);
+  if (!hit) {
+    const toLngLat = tileToLngLat(tile.bbox);
+    contextGround.set(items, hit = items.map((f) => ({ ...f, geometry: { type: 'Polygon', coordinates: groundedPolygon(f.geometry.coordinates.map((r) => r.map(toLngLat))) } })));
+  }
+  return hit;
 }
 function cloudOverlaps(ring) {
   if (!cloudActive()) return false;
@@ -972,7 +1031,8 @@ function layers() {
       loadOptions: { mvt: { layers: ['building'] } },
       renderSubLayers: (props) => new deck.GeoJsonLayer({
         ...props,
-        data: props.data ? contextData(props.data, props.tile) : [],
+        ...(ground.grid && { coordinateSystem: deck.COORDINATE_SYSTEM.LNGLAT, modelMatrix: null, coordinateOrigin: [0, 0, 0] }),
+        data: props.data ? (ground.grid ? contextOnGround(contextData(props.data, props.tile), props.tile) : contextData(props.data, props.tile)) : [],
         extruded: true, stroked: false, filled: true, pickable: false,
         getElevation: (f) => Math.max(Number(f.properties?.render_height) || 6, 3),
         getFillColor: isDark() ? [92, 104, 116, 235] : [...CONTEXT_RGB, 235], material: MATERIAL,
@@ -987,7 +1047,7 @@ function layers() {
   if (!beirutOverlay.active) out.push(new deck.SolidPolygonLayer({
     id: 'buildings',
     data: buildingsData(),
-    getPolygon: (d) => d.ring, extruded: true, getElevation: (d) => elevation(d.b), getFillColor: (d) => cameraSafeColour(fill(d.b),'bbed',d.b.id,occlusion),
+    getPolygon: (d) => (d.g ??= groundedRing(d.ring)), extruded: true, getElevation: (d) => elevation(d.b), getFillColor: (d) => cameraSafeColour(fill(d.b),'bbed',d.b.id,occlusion),
     // While a road tool is on, clicks go through buildings to the roads.
     pickable: !ui.roadTool, autoHighlight: true, highlightColor: [255, 255, 255, 80], material: MATERIAL,
     // No colour transition: an interrupted fade can leave a lens showing the
@@ -1197,14 +1257,16 @@ function roadPathSlice(path, start, end) {
 // (`deck`), so otherwise a level stands for BRIDGE_LEVEL_M, reached
 // over BRIDGE_RAMP_M from any end where the bridge meets a lower road. Every
 // road layer then draws bridges raised, because they share these paths.
-const BRIDGE_LEVEL_M = 6, BRIDGE_RAMP_M = 40, BRIDGE_STEP_M = 8;
+const BRIDGE_LEVEL_M = 6, BRIDGE_RAMP_M = 40, BRIDGE_STEP_M = 8, ROAD_STEP_M = 8;
 function elevateRoads() {
   // `deck`: the height measured from Beirut 001, when the server has the pack.
   const deckOf = (r) => (r.lvl > 0 ? r.deck ?? r.lvl * BRIDGE_LEVEL_M : 0);
   const roads = DATA.traffic.roads, lowest = new Map();
   for (const r of roads) for (const n of [r.u, r.v]) lowest.set(n, Math.min(lowest.get(n) ?? Infinity, deckOf(r)));
   for (const r of roads) {
-    if (!(r.lvl > 0)) continue;
+    // Path points are [lon, lat, z, h]: z above the ground plane, h above the ground under it (a bridge's deck
+    // height). Streets on the ground follow the relief; without terrain they stay flat 2D paths.
+    if (!(r.lvl > 0)) { if (ground.grid) r.path = groundPath(r.path, 0, ROAD_STEP_M).map((p) => [p[0], p[1], p[2], 0]); continue; }
     const top = deckOf(r), startZ = lowest.get(r.u), endZ = lowest.get(r.v);
     // Points every few metres, so a straight two-point bridge can still ramp.
     const dense = [r.path[0]], along = [0];
@@ -1223,10 +1285,9 @@ function elevateRoads() {
       const j=along.findIndex(a=>a>d),f=(d-along[j-1])/(along[j]-along[j-1]);
       samples.push({d,p:[dense[j-1][0]+f*(dense[j][0]-dense[j-1][0]),dense[j-1][1]+f*(dense[j][1]-dense[j-1][1])]});
     }
-    r.path=samples.sort((a,b)=>a.d-b.d).map(({p,d})=>[p[0],p[1],Math.min(top,startZ+startGrade*d,endZ+endGrade*(total-d))]);
+    r.path=samples.sort((a,b)=>a.d-b.d).map(({p,d})=>{const h=Math.min(top,startZ+startGrade*d,endZ+endGrade*(total-d));return [p[0],p[1],groundZ(p[0],p[1])+h,h];});
   }
 }
-if (Array.isArray(DATA?.traffic?.roads)) elevateRoads();
 function roadMarkings(r) {
   const length=r.path.slice(1).reduce((s,p,i)=>s+metresBetween(r.path[i],p),0);
   // Short links between close junctions keep only their crossings.
@@ -1352,7 +1413,7 @@ function roadLayers() {
   // Tunnels run under other streets: no pavement or kerb, and faint asphalt.
   const surface = (surfaceItems ??= roads.filter((d) => !(d.r.lvl < 0)));
   // A soft shadow on the ground under each bridge shows how high it stands.
-  const decks = (deckShadows ??= roads.filter((d) => d.r.lvl > 0).map((d) => ({ r: d.r, path: d.r.path.map((p) => [p[0], p[1], 0.01]) })));
+  const decks = (deckShadows ??= roads.filter((d) => d.r.lvl > 0).map((d) => ({ r: d.r, path: d.r.path.map((p) => [p[0], p[1], groundZ(p[0], p[1]) + 0.01]) })));
   const faint = (d, rgba) => (d.r.lvl < 0 ? [rgba[0], rgba[1], rgba[2], 70] : rgba);
   const drape = {};
   const street=ui.trafficStyle==='street',night=nightLevel();
@@ -1370,7 +1431,7 @@ function roadLayers() {
   const extent = trafficExtent();
   if (extent) {
     const [w, s, e, n] = extent;
-    out.push(new deck.PathLayer({ id: 'traffic-extent', data: [{ path: [[w, s], [e, s], [e, n], [w, n], [w, s]] }],
+    out.push(new deck.PathLayer({ id: 'traffic-extent', data: [{ path: groundPath([[w, s], [e, s], [e, n], [w, n], [w, s]], 0.3, 25) }],
       getPath: (d) => d.path, getColor: [32, 74, 110, 210], getWidth: 3, widthUnits: 'pixels', pickable: false }));
   }
   if (decks.length) out.push(new deck.PathLayer({ id: 'bridge-shadows', data: decks, getPath: (d) => d.path,
@@ -1408,9 +1469,9 @@ function roadLayers() {
   if (ui.crashes.size) {
     const sites = [...ui.crashes].map((i) => ui.crashSites.get(i) ?? along(DATA.traffic.roads[i].path, 0.5));
     out.push(
-      new deck.ScatterplotLayer({ id: 'crash-halo', data: sites, getPosition: (d) => d, getRadius: 22, radiusUnits: 'meters', radiusMinPixels: 9,
+      new deck.ScatterplotLayer({ id: 'crash-halo', data: sites, getPosition: (d) => onGround(d, 0.1), getRadius: 22, radiusUnits: 'meters', radiusMinPixels: 9,
         getFillColor: [...CRASH_RGB, 60], stroked: true, getLineColor: [...CRASH_RGB, 230], lineWidthUnits: 'pixels', getLineWidth: 2, parameters: ON_TOP }),
-      new deck.ScatterplotLayer({ id: 'crash', data: sites, getPosition: (d) => d, getRadius: 6, radiusUnits: 'meters', radiusMinPixels: 4,
+      new deck.ScatterplotLayer({ id: 'crash', data: sites, getPosition: (d) => onGround(d, 0.12), getRadius: 6, radiusUnits: 'meters', radiusMinPixels: 4,
         getFillColor: [255, 255, 255, 255], stroked: true, getLineColor: [...CRASH_RGB, 255], lineWidthUnits: 'pixels', getLineWidth: 3, parameters: ON_TOP }),
     );
   }
@@ -1559,7 +1620,7 @@ function advanceCars(now) {
 function roadHeightAt(i, lon, lat) {
   const road = DATA.traffic?.roads?.[i];
   if (!road) return null;
-  if (!(road.lvl > 0) && i !== 0) return 0;
+  if (!(road.lvl > 0) && i !== 0) return groundZ(lon, lat);
   let best = Infinity, z = 0;
   const sx=111320*Math.cos(lat*Math.PI/180);
   for(let j=1;j<road.path.length;j++) {
@@ -1577,9 +1638,13 @@ function inTunnel(c) { return (DATA.traffic?.roads?.[c.i]?.lvl ?? 0) < 0; }
 function vehicleRoadPitch(c) {
   const road=DATA.traffic?.roads?.[c.i];
   if(!road)return null;
-  if(!(road.lvl>0)&&c.i!==0)return 0;
   const [lon,lat]=c.pose.position,sx=111320*Math.cos(lat*Math.PI/180);
   const heading=(c.pose.orientation?.[1]??0)*Math.PI/180;
+  if(!(road.lvl>0)&&c.i!==0) {
+    // On the ground: the relief's grade along the heading, over 8 m (under a grid cell, so no spikes).
+    const dlon=Math.cos(heading)*4/sx,dlat=Math.sin(heading)*4/111320;
+    return -Math.atan((groundZ(lon+dlon,lat+dlat)-groundZ(lon-dlon,lat-dlat))/8)*180/Math.PI;
+  }
   let best=Infinity,pitch=0;
   for(let j=1;j<road.path.length;j++) {
     const a=road.path[j-1],b=road.path[j],dx=(b[0]-a[0])*sx,dy=(b[1]-a[1])*111320;
@@ -1599,7 +1664,9 @@ function vehicleRoadPitch(c) {
 // Lift cars onto bridges; on a junction the car keeps its last height.
 function carPose(c) {
   const p = c.pose.position, z = roadHeightAt(c.i, p[0], p[1]);
-  if (z !== null) p[2] = .04 + z;
+  // On a junction (no road height) the car keeps its last height above the ground.
+  if (z !== null) { p[2] = .04 + z; c.lift = z - groundZ(p[0], p[1]); }
+  else p[2] = .04 + groundZ(p[0], p[1]) + (c.lift ?? 0);
   if(c.pose.orientation) {
     c.bodyPitch??=c.pose.orientation[0]??0;
     const roadPitch=vehicleRoadPitch(c);
@@ -1823,7 +1890,7 @@ function bridgeStructureGeometry(roads) {
    // A sheared prism has the exact road endpoints and vertical thickness.
    // Scaling a rotated box by horizontal length shortens steep ramp sections.
    const transform=(w,h)=>[dx,dy,zb-za,0,-dy/length*w,dx/length*w,0,0,0,0,h,0,0,0,0,1];
-   if(Math.min(za,zb)>deckDepth+.25) {
+   if(Math.min(pa[3]??za,pb[3]??zb)>deckDepth+.25) {
     slabs.push({bridgeStructure:true,kind:'concrete deck',position:ll(cxMid,cyMid,zMid-.23),scale:[length,width,.36],orientation,transform:transform(width,.36)});
     girders.push({bridgeStructure:true,kind:'concrete box girder',position:ll(cxMid,cyMid,zMid-.38-girderDepth/2),scale:[length,width*.86,girderDepth],orientation,transform:transform(width*.86,girderDepth)});
     for(const side of [-1,1]) {
@@ -1833,9 +1900,11 @@ function bridgeStructureGeometry(roads) {
    }
    while(nextPier<=along+length) {
     const f=(nextPier-along)/length,z=za+(zb-za)*f;nextPier+=32;
-    const capDepth=.65,shaft=z-deckDepth-capDepth;
+    const capDepth=.65,cx=a[0]+dx*f,cy=a[1]+dy*f;
+    // Piers stand on the ground under them.
+    const groundAt=(x,y)=>{const q=ll(x,y,0);return groundZ(q[0],q[1]);};
+    const shaft=z-groundAt(cx,cy)-deckDepth-capDepth;
     if(shaft<1.6)continue;
-    const cx=a[0]+dx*f,cy=a[1]+dy*f;
     // Beirut reference photos: substantial concrete piers with broad caps.
     // Prefer one central pier on narrow decks, paired piers on broad decks.
     const offsets=width<13&&!blocked([cx,cy],z)?[0]:[-Math.max(2,width*.28),Math.max(2,width*.28)];
@@ -1845,8 +1914,9 @@ function bridgeStructureGeometry(roads) {
      if(occupied.has(key)||blocked(p,z))continue;
      const diameter=Math.max(1.8,Math.min(2.5,width*.14));
      occupied.add(key);supported=true;
-     piers.push({bridgeStructure:true,kind:'round concrete pier',position:ll(p[0],p[1],shaft/2+.12),scale:[diameter,diameter,shaft-.24]});
-     bases.push({bridgeStructure:true,kind:'concrete pier base',position:ll(p[0],p[1],.12),scale:[diameter*1.35,diameter*1.35,.24],orientation:[0,yaw,0]});
+     const g=groundAt(p[0],p[1]),height=z-g-deckDepth-capDepth;
+     piers.push({bridgeStructure:true,kind:'round concrete pier',position:ll(p[0],p[1],g+height/2+.12),scale:[diameter,diameter,height-.24]});
+     bases.push({bridgeStructure:true,kind:'concrete pier base',position:ll(p[0],p[1],g+.12),scale:[diameter*1.35,diameter*1.35,.24],orientation:[0,yaw,0]});
     }
     if(supported)caps.push({bridgeStructure:true,kind:'concrete pier cap',position:ll(cx,cy,z-deckDepth-capDepth/2),scale:[1.9,width*.8,capDepth],orientation:[0,yaw,0]});
    }
@@ -1864,11 +1934,13 @@ function corridorExtent(pad) {
 function corridorLayers() {
   const c = DATA.corridor;
   if (!c) return [];
+  // On the ground, built once: a new data array every frame would make deck.gl re-lay out the lines.
+  c.onGround ??= { outline: [{ path: groundPath(c.outline, 0.03, 10) }], lines: c.lines.map((path) => ({ path: groundPath(path, 0.03, 10) })) };
   return [
-    new deck.PathLayer({ id: 'corridor-outline', data: [{ path: c.outline }], getPath: (d) => d.path,
+    new deck.PathLayer({ id: 'corridor-outline', data: c.onGround.outline, getPath: (d) => d.path,
       getColor: isDark() ? [126, 200, 140, 170] : [46, 125, 70, 170], getWidth: 2, widthUnits: 'pixels',
       parameters: SOFT, pickable: false, updateTriggers: { getColor: isDark() } }),
-    new deck.PathLayer({ id: 'corridor-line', data: c.lines.map((path) => ({ path })), getPath: (d) => d.path,
+    new deck.PathLayer({ id: 'corridor-line', data: c.onGround.lines, getPath: (d) => d.path,
       getColor: [62, 160, 88, 150], getWidth: 7, widthUnits: 'meters', widthMinPixels: 3,
       capRounded: true, jointRounded: true, parameters: SOFT, pickable: false }),
   ];
@@ -1939,14 +2011,14 @@ function landscapeLayers() {
     paving_stones:[196,185,166],gravel:[193,184,162],ground:[183,164,134],dirt:[183,164,134],sand:[220,204,172],grass:colours.grass};
   const fill=f=>materials[f.properties.surface]??colours[f.properties.kind]??[190,188,176];
   const out=[new deck.SolidPolygonLayer({id:'mapped-ground-surfaces',data:areas,
-    getPolygon:f=>f.geometry.coordinates.map(ring=>ring.map(p=>[p[0],p[1],.045])),
+    getPolygon:f=>f.geometry.coordinates.map(ring=>ring.map(p=>onGround(p,.045))),
     // Partial opacity preserves existing basemap paths inside mapped land-use areas.
     getFillColor:f=>[...shade(fill(f),night,.55),195],
     material:false,pickable:true,parameters:SOFT,updateTriggers:{getFillColor:night}})];
   const vp=!map&&deckgl?.getViewports()[0],zoom=map?map.getZoom():vp?.zoom??0;
   const centre=map?map.getCenter().toArray():vp&&[vp.longitude,vp.latitude];
   if(zoom>=17&&areas.length)out.push(new deck.PathLayer({id:'mapped-surface-boundaries',data:landscapeLayers.edges,
-    getPath:f=>f.ring.map(p=>[p[0],p[1],.055]),
+    getPath:f=>groundPath(f.ring,.055),
     getColor:f=>[...shade(fill(f).map(v=>Math.round(v*.78)),night,.55),105],
     getWidth:.18,widthUnits:'meters',widthMinPixels:.6,widthMaxPixels:1.2,
     capRounded:true,jointRounded:true,pickable:false,updateTriggers:{getColor:night}}));
@@ -1957,12 +2029,12 @@ function landscapeLayers() {
     const trees=landscapeLayers.trees.filter(f=>{const p=f.geometry.coordinates;
       return bounds?p[0]>=bounds[0][0]-pad&&p[0]<=bounds[1][0]+pad&&p[1]>=bounds[0][1]-pad&&p[1]<=bounds[1][1]+pad:metresBetween(p,centre)<650;});
     if(trees.length)out.push(new deck.SimpleMeshLayer({id:'mapped-tree-canopies',data:trees,
-      mesh:mesh('mapped-tree',mappedTreeMesh),getPosition:f=>[...f.geometry.coordinates,.05],
+      mesh:mesh('mapped-tree',mappedTreeMesh),getPosition:f=>onGround(f.geometry.coordinates,.05),
       getScale:f=>[f.properties.height_m/6,f.properties.height_m/6,f.properties.height_m/6],
       getOrientation:f=>[0,[...String(f.properties.id??f.geometry.coordinates)].reduce((h,c)=>(h*31+c.charCodeAt(0))>>>0,0)%360,0],
       getColor:[255,255,255],material:{ambient:.5,diffuse:.7,shininess:1,specularColor:[4,6,3]},pickable:true}));
   } else if(landscapeLayers.trees.length)out.push(new deck.ScatterplotLayer({id:'mapped-tree-overview',data:landscapeLayers.trees,
-    getPosition:f=>[...f.geometry.coordinates,.1],getRadius:2,radiusUnits:'meters',radiusMinPixels:1.5,radiusMaxPixels:3,
+    getPosition:f=>onGround(f.geometry.coordinates,.1),getRadius:2,radiusUnits:'meters',radiusMinPixels:1.5,radiusMaxPixels:3,
     getFillColor:shade([68,113,62,220],night,.4),pickable:true,updateTriggers:{getFillColor:night}}));
   return out;
 }
@@ -1971,14 +2043,14 @@ function mobilityLayers() {
   const out=[],features=ui.mobilityMap?(DATA.traffic.mobility?.features??[]):[];
   const areas=features.filter(f=>f.kind==='parking'&&f.path.length>1).map(feature=>({feature}));
   const stops=features.filter(f=>f.path.length===1).map(feature=>({feature}));
-  if(areas.length)out.push(new deck.SolidPolygonLayer({id:'mobility-parking',data:areas,getPolygon:d=>d.feature.path,
+  if(areas.length)out.push(new deck.SolidPolygonLayer({id:'mobility-parking',data:areas,getPolygon:d=>d.feature.path.map(p=>onGround(p,.03)),
     getFillColor:[86,112,151,60],pickable:true,material:false}));
   if(stops.length)out.push(new deck.ScatterplotLayer({id:'mobility-places',data:stops,
-    getPosition:d=>[...d.feature.path[0],.2],getRadius:2,radiusMinPixels:4,
+    getPosition:d=>onGround(d.feature.path[0],.2),getRadius:2,radiusMinPixels:4,
     getFillColor:d=>d.feature.kind==='bus_stop'?[33,151,146]:[98,124,164],
     stroked:true,getLineColor:[255,255,255],lineWidthMinPixels:1,pickable:true}));
   if(stops.length)out.push(new deck.TextLayer({id:'mobility-place-labels',data:stops,
-    getPosition:d=>[...d.feature.path[0],1],getText:d=>d.feature.label,getSize:12,
+    getPosition:d=>onGround(d.feature.path[0],1),getText:d=>d.feature.label,getSize:12,
     fontFamily:'Arial, sans-serif',getColor:[18,83,84],getPixelOffset:[0,-16],pickable:false}));
   // Discrete light state at the displayed authoritative sample; never interpolate RGB.
   const signals=ui.showSignals?(trafficFrames[0]?.signals??[]):[];
@@ -1991,7 +2063,7 @@ function mobilityLayers() {
     if(zoom>=16&&signals.length) {
       const groups=new Map();
       for(const s of signals) {if(!groups.has(s[0]))groups.set(s[0],[]);groups.get(s[0]).push(s);}
-      out.push(new deck.ScatterplotLayer({id:'mobility-signal-junctions',data:[...groups].map(([id,signals])=>({signalJunction:{id,signals},position:[signals[0][2],signals[0][3],1]})),
+      out.push(new deck.ScatterplotLayer({id:'mobility-signal-junctions',data:[...groups].map(([id,signals])=>({signalJunction:{id,signals},position:onGround([signals[0][2],signals[0][3]],1)})),
         getPosition:d=>d.position,getRadius:.6,radiusMinPixels:1.5,radiusMaxPixels:2.5,getFillColor:[70,109,116,210],billboard:true,pickable:true}));
     }
     return out;
@@ -1999,14 +2071,14 @@ function mobilityLayers() {
   const detailed=zoom>=18.5&&!!centre;
   const overview=signals.filter(s=>!detailed||s.length<10||metresBetween([s[7],s[8]],centre)>350);
   if(signals.length)out.push(new deck.ScatterplotLayer({id:'mobility-signals',data:overview.filter(s=>!signalTurnGlyph(s)).map(signal=>({signal})),
-    getPosition:d=>[d.signal[2],d.signal[3],3],getRadius:.65,radiusMinPixels:4,radiusMaxPixels:7,
+    getPosition:d=>onGround([d.signal[2],d.signal[3]],3),getRadius:.65,radiusMinPixels:4,radiusMaxPixels:7,
     getFillColor:d=>/[gG]/.test(d.signal[4])?[39,196,106]:/[yY]/.test(d.signal[4])?[255,185,48]:/[rR]/.test(d.signal[4])?[238,62,65]:[120,130,140],
     billboard:true,stroked:true,getLineColor:[32,37,43],lineWidthMinPixels:1.5,pickable:true}));
   const turns=overview.filter(signalTurnGlyph),slots=new Map();
   const arrows=turns.map(signal=>{const key=`${signal[0]}:${signal[2]}:${signal[3]}`,slot=slots.get(key)??0;
     slots.set(key,slot+1);return {signal,slot,key};});
   if(arrows.length)out.push(new deck.TextLayer({id:'mobility-signal-arrows',data:arrows,
-    getPosition:d=>[d.signal[2],d.signal[3],3],getText:d=>signalTurnGlyph(d.signal),
+    getPosition:d=>onGround([d.signal[2],d.signal[3]],3),getText:d=>signalTurnGlyph(d.signal),
     getPixelOffset:d=>[(d.slot-(slots.get(d.key)-1)/2)*20,0],getSize:16,fontFamily:'Arial, sans-serif',fontWeight:700,characterSet:['←','↑','→'],
     getColor:d=>signalLampColor(d.signal[4]),background:true,getBackgroundColor:[24,29,32,245],
     backgroundPadding:[3,1],billboard:true,pickable:true}));
@@ -2018,7 +2090,7 @@ function signalPoleLayers(signals,centre) {
   for(const signal of signals) {
     if(signal.length<10||metresBetween([signal[7],signal[8]],centre)>350)continue;
     if((DATA.traffic.roads?.[signal[9]]?.lvl??0)<0)continue;
-    const z=roadHeightAt(signal[9],signal[7],signal[8])??0;
+    const z=roadHeightAt(signal[9],signal[7],signal[8])??groundZ(signal[7],signal[8]);
     const key=`${signal[0]}:${signal[7]}:${signal[8]}`;
     if(!groups.has(key))groups.set(key,{signal,position:[signal[7],signal[8],z],heads:[]});
     groups.get(key).heads.push(signal);
@@ -2586,6 +2658,14 @@ function initScene() {
             paint: { 'fill-color': waterColour, 'fill-antialias': false } }, 'landcover');
         }
       } catch (err) { /* offline or style without these layers: leave it as is */ }
+      // Relief: the basemap and imagery drape over the same ground grid the layers' z comes from.
+      if (ground.grid) {
+        try {
+          if (!map.getSource('terrain-dem')) map.addSource('terrain-dem', { type: 'raster-dem', encoding: 'terrarium', tileSize: 256, maxzoom: 14,
+            tiles: [location.origin + DATA.terrain.tiles], attribution: '' });
+          map.setTerrain({ source: 'terrain-dem', exaggeration: 1 });
+        } catch (err) { console.warn('MapLibre terrain failed', err); }
+      }
       // The basemap's own flat building fills sit under our 3D buildings.
       for (const id of ['building', 'building-top']) if (map.getLayer(id)) map.setPaintProperty(id, 'fill-opacity', 0.35);
       applySatellite();
@@ -3289,12 +3369,16 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
     document.querySelectorAll('[data-lens="forecast"],[data-lens="change"]').forEach((t) => (t.hidden = true));
     for (const id of ['t-kpis', 't-info', 't-library', 'prompt']) $(id).hidden = true;
   }
-  wire(); syncPrompt(); initScene(); renderAll(); wirePointCloud(); wireBeirutOverlay();
-  const hashLens = new URLSearchParams(location.hash.slice(1)).get('lens');
-  const tab = hashLens && document.querySelector(`.tab[data-lens="${CSS.escape(hashLens)}"]:not([hidden])`);
-  setLens(tab ? hashLens : ui.lens);
-  if(DATA.api && DATA.traffic && new URLSearchParams(location.search).get('traffic')==='1')setTraffic(true);
-  if (corridorMode()) togglePanel('p-corridor', $('t-corridor'), true);
+  // The ground grid loads first: every layer's z reads it when it is built.
+  loadGround().then(() => {
+    if (Array.isArray(DATA?.traffic?.roads)) elevateRoads();
+    wire(); syncPrompt(); initScene(); renderAll(); wirePointCloud(); wireBeirutOverlay();
+    const hashLens = new URLSearchParams(location.hash.slice(1)).get('lens');
+    const tab = hashLens && document.querySelector(`.tab[data-lens="${CSS.escape(hashLens)}"]:not([hidden])`);
+    setLens(tab ? hashLens : ui.lens);
+    if(DATA.api && DATA.traffic && new URLSearchParams(location.search).get('traffic')==='1')setTraffic(true);
+    if (corridorMode()) togglePanel('p-corridor', $('t-corridor'), true);
+  });
 }
 </script>
 </body>

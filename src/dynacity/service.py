@@ -28,6 +28,7 @@ from .planning import PlanningRequest, PlanningResult, plan
 from .providers import DraftProvider, resolve_provider
 from .scenario_compiler import CompilationResult, compile_scenario
 from .terrain import GroundModel
+from .terrain_viewer import TileCache, ViewerTerrain
 from .traffic import TrafficModel, road_events, traffic_impact
 from .viewer import forecast_summary
 
@@ -79,6 +80,7 @@ def create_app(
     viewer_draws: int = 300,
     viewer_forecast: ForecastResult | None = None,
     viewer_ground: GroundModel | None = None,
+    viewer_terrain: ViewerTerrain | None = None,
     llm_budget: RequestBudget | None = None,
     viewer_traffic: TrafficModel | None = None,
     point_cloud: Any | None = None,
@@ -226,6 +228,22 @@ def create_app(
     # Viewer mode: the 3D page is served from the same origin as the API, and
     # scenarios run against the snapshot held here. The browser only ever sends
     # prose, so per-object features never round-trip through the page.
+    if viewer_terrain is not None:
+        tiles = TileCache(viewer_terrain)
+        grid = viewer_terrain.to_bytes()
+
+        # The page's ground sampler and MapLibre's relief read the same grid.
+        @app.get("/v1/viewer/terrain.bin", include_in_schema=False)
+        def terrain_grid() -> Response:
+            return Response(grid, media_type="application/octet-stream", headers={
+                "Content-Encoding": "gzip", "Cache-Control": "no-cache"})
+
+        @app.get("/v1/viewer/terrain/{z}/{x}/{y}.png", include_in_schema=False)
+        def terrain_tile(z: int, x: int, y: int) -> Response:
+            if not 0 <= z <= 20 or not (0 <= x < 2 ** z and 0 <= y < 2 ** z):
+                raise HTTPException(status_code=404, detail="no such tile")
+            return Response(tiles.get(z, x, y), media_type="image/png", headers={"Cache-Control": "no-cache"})
+
     if viewer_html is not None:
         @app.get("/", response_class=HTMLResponse, include_in_schema=False)
         def viewer_page() -> str:

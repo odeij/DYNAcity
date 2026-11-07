@@ -18,7 +18,7 @@ function pedestrianPosition(s,distance,side) {
   const lat=a[1]+(b[1]-a[1])*f,sx=111320*Math.cos(lat*Math.PI/180),dx=(b[0]-a[0])*sx,dy=(b[1]-a[1])*111320,n=Math.hypot(dx,dy)||1;
   const lon=a[0]+(b[0]-a[0])*f,offset=side*Math.max(.8,s.offset_m-walkingShift(s,side));
   // The browser's ground-road mesh is flat; source absolute heights must not float above it.
-  const z=roadHeightAt(s.road_index,lon,lat)??0;
+  const z=roadHeightAt(s.road_index,lon,lat)??groundZ(lon,lat);
   return {position:[lon-dy/n*offset/sx,lat+dx/n*offset/111320,z+.15],yaw:Math.atan2(dy,dx)*180/Math.PI};
 }
 function pedestrianRows(bounds) {
@@ -54,7 +54,7 @@ function pedestrianLayers(now) {
     for(const s of preparePedestrianPaths())if(!lab.blocked.has(s.id))s.phase+=dt*lab.speed;
   }
   const out=[],paths=preparePedestrianPaths();
-  if(lab.flows)out.push(new deck.PathLayer({id:'pedestrian-flow',data:paths,getPath:s=>s.path.map(p=>[p[0],p[1],(roadHeightAt(s.road_index,p[0],p[1])??0)+.22]),
+  if(lab.flows)out.push(new deck.PathLayer({id:'pedestrian-flow',data:paths,getPath:s=>s.path.map(p=>[p[0],p[1],(roadHeightAt(s.road_index,p[0],p[1])??groundZ(p[0],p[1]))+.22]),
     getWidth:s=>2+Math.sqrt(Math.max(0,s.ped_per_hour_pm-(DATA.pedestrians.baseline_removed_per_hour??0))*lab.demand)/3,
     widthUnits:'meters',widthMinPixels:2,getColor:s=>lab.blocked.has(s.id)?[192,72,65,220]:[22,155,141,185],
     pickable:false,updateTriggers:{getWidth:lab.demand,getColor:[...lab.blocked].join(',')}}));
@@ -67,7 +67,7 @@ function pedestrianLayers(now) {
   }
   // Transparent picking paths only while the pavement tool is active.
   if(ui.roadTool==='pavement')out.push(new deck.PathLayer({id:'pedestrian-edit',data:paths,
-    getPath:s=>s.path.map(p=>[p[0],p[1],.3]),getWidth:10,widthUnits:'pixels',
+    getPath:s=>s.path.map(p=>onGround(p,.3)),getWidth:10,widthUnits:'pixels',
     getColor:s=>lab.blocked.has(s.id)?[210,77,62,230]:[22,155,141,150],pickable:true,
     onClick:info=>{if(info.object){togglePavement(info.object.id);return true;}},
     updateTriggers:{getColor:[...lab.blocked].join(',')}}));
