@@ -481,6 +481,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
       <div class="tool-options glass">
     <button id="t-buildings" aria-label="Find a building" aria-pressed="false"><span>Find a building</span></button>
     <button id="t-library" aria-label="Saved scenarios" aria-pressed="false"><span>Saved scenarios</span></button>
+    <button id="t-shadows" aria-label="Sun shadows" aria-pressed="true"><span>Sun shadows</span></button>
     <button id="t-reset" title="Reset view" aria-label="Reset view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg><span>Reset view</span></button>
     <button id="t-2d" title="Top-down view" aria-label="Top-down view" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg><span>Top-down view</span></button>
     <button id="t-sat" title="Satellite view" aria-label="Satellite view" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/><circle cx="15.5" cy="9" r="1.5"/></svg><span>Satellite view</span></button>
@@ -590,6 +591,7 @@ const metres = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round
 
 const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, imagery: 0, mode: 'scenario', answer: null, answerIds: null, traffic: false, hour: 8, roadHighlight: null, buses: false, stationsOpen: false,
   trafficImpact: null, trafficStyle: 'street', mobilityMap: true, showSignals: true, mixed: false,
+  shadows: !/(^|&)shadows=off/.test(location.hash.slice(1)),
   roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map(), planning: new Map(), selectedRoad: null, planSearch: '' };
 
 function rampColor(t, stops = RAMP) {
@@ -751,12 +753,35 @@ function daylightSettings(hour) {
   return {direction:[-Math.cos(phase),.45,-(.12+.88*height)],
     colour:mix([255,250,238],[255,207,158],warm),intensity:.85+.3*height};
 }
+// Sun shadows (deck.gl shadow module, one shadow map from the sun). Buildings,
+// bridges and trees cast; only a transparent ground plane receives, so the
+// shadow module never darkens a building with its own map (that left the
+// buildings nearly black). Shadows fade with the sun at night. The sun always
+// carries _shadow: removing deck's shadow module after layers were built with it
+// blanks the scene, so "off" just stops casters and the receiving ground.
+function shadowsOn() { return ui.shadows && nightLevel() < 0.98; }
+const SHADOW_CASTERS = /^(buildings|beirut-001-|osm-gap-buildings|context|bridge-|mapped-tree-canopies)/;
+const SHADOW_RECEIVERS = /^(shadow-ground|ground)$/;
 function lighting(night = 0) {
   const daylight=daylightSettings(ui.traffic?ui.hour:12);
   const ambient = new deck.AmbientLight({ color: mix([246,248,250], [150,170,215], night), intensity: .9-.25*night });
-  const sun = new deck.DirectionalLight({ color: daylight.colour, intensity: daylight.intensity*(1-night), direction: daylight.direction });
+  const sun = new deck.DirectionalLight({ color: daylight.colour, intensity: daylight.intensity*(1-night), direction: daylight.direction, _shadow: true });
   const sky = new deck.DirectionalLight({ color: mix([196,220,245], [120,140,200], night), intensity: .35-.15*night, direction: [0,-1,-.6] });
-  return new deck.LightingEffect({ ambient, sun, sky });
+  const effect = new deck.LightingEffect({ ambient, sun, sky });
+  effect.shadowColor = [14, 20, 36, 0.5 * (1 - night)].map((v, i) => (i < 3 ? v / 255 : v));
+  // deck gives every directional light its own shadow map and averages them; only the sun
+  // should cast (the sky fill light would halve the shade and double the shadow passes).
+  if (effect._calculateMatrices) {
+    const matrices = effect._calculateMatrices.bind(effect), setup = effect.setup.bind(effect);
+    effect._calculateMatrices = () => matrices().slice(0, 1);
+    effect.setup = (context) => { setup(context); effect.shadowPasses.splice(1).forEach((pass) => pass.delete()); };
+    const shaderProps = effect.getShaderModuleProps.bind(effect);
+    effect.getShaderModuleProps = (layer, ...rest) => {
+      const props = shaderProps(layer, ...rest);
+      return SHADOW_RECEIVERS.test(layer.id) ? props : { ...props, shadow: { ...props.shadow, shadowMaps: [] } };
+    };
+  }
+  return effect;
 }
 // Cache effects between camera/animation frames, including changes of daytime hour.
 let appliedNight = 0, appliedNightKey = '0';
@@ -998,6 +1023,16 @@ function layers() {
   out.push(...buildingDetailLayers());
   out.push(...beirutBridgeLayers());
   out.push(...pointCloudLayers());
+  // Receives the shadows. Its fill is fully transparent, so deck's shadow module
+  // turns exactly the shadowed fragments into translucent shade; the basemap and
+  // satellite imagery show through everywhere else. Drawn last, 0.1 m up, no depth writes.
+  if (map && shadowsOn()) {
+    const [[w, s], [e, n]] = DATA.bounds, pad = Math.max(e - w, n - s) * 0.1 + 0.0005;
+    out.push(new deck.SolidPolygonLayer({
+      id: 'shadow-ground', data: [[[w - pad, s - pad, 0.1], [e + pad, s - pad, 0.1], [e + pad, n + pad, 0.1], [w - pad, n + pad, 0.1]]],
+      getPolygon: (d) => d, getFillColor: [0, 0, 0, 0], material: false, pickable: false, parameters: SOFT,
+    }));
+  }
   return out;
 }
 function attribution() {
@@ -1075,6 +1110,32 @@ function animate() {
     if (!calm.matches && ui.traffic) fxRaf = requestAnimationFrame(frame);
   };
   frame();
+}
+
+// Slow-device fallback for shadows: while the camera moves, time the gaps between
+// animation frames; if the median of 45 moving frames is over 50 ms (under 20 fps),
+// shadows switch themselves off. #shadows=force keeps them on for measurements.
+let shadowAuto = !/(^|&)shadows=(force|off)/.test(location.hash.slice(1));
+function watchShadowFrames() {
+  const gaps = []; let last = 0;
+  const tick = (now) => {
+    if (shadowAuto && shadowsOn() && map?.isMoving()) {
+      if (last && now - last < 250) gaps.push(now - last);
+      if (gaps.length >= 45) {
+        gaps.sort((a, b) => a - b);
+        if (gaps[22] > 50) {
+          ui.shadows = false;
+          const button = $('t-shadows');
+          button.setAttribute('aria-pressed', 'false'); button.title = 'Switched off: slow frames while moving';
+          console.warn(`Sun shadows switched off: median frame gap ${gaps[22].toFixed(0)} ms while moving`);
+          render();
+        }
+        gaps.length = 0;
+      }
+    } else gaps.length = 0;
+    last = now; requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 }
 
 // Seeded per-key randomness, so the same car or tree always looks the same.
@@ -2524,6 +2585,7 @@ const mesh = (name, make) => (meshes[name] ??= make());
 const deckProps = () => ({
   layers: layers(),
   effects: [lighting(appliedNight)],
+  layerFilter: ({ layer, renderPass }) => renderPass !== 'shadow' || (shadowsOn() && SHADOW_CASTERS.test(layer.id)),
   getCursor: ({ isHovering, isDragging }) => (isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'),
   onHover: showTip,
   // Roads are thin; a few pixels of slack makes them clickable.
@@ -3168,6 +3230,9 @@ function wire() {
   $('tool-menu').addEventListener('click', (e) => { if (e.target.closest('button')) $('tool-menu').open = false; });
   document.addEventListener('click', (e) => { if (!e.target.closest('#tool-menu')) $('tool-menu').open = false; });
   $('t-reset').onclick = () => { ui.topDown = false; $('t-2d').setAttribute('aria-pressed', 'false'); flyTo({}); };
+  $('t-shadows').setAttribute('aria-pressed', String(ui.shadows));
+  $('t-shadows').onclick = () => { shadowAuto = false; ui.shadows = !ui.shadows; $('t-shadows').setAttribute('aria-pressed', String(ui.shadows)); $('t-shadows').title = ''; render(); };
+  watchShadowFrames();
   $('t-2d').onclick = () => { ui.topDown = !ui.topDown; $('t-2d').setAttribute('aria-pressed', String(ui.topDown)); flyTo(ui.topDown ? { pitch: 0, bearing: 0 } : {}); };
   $('t-sat').onclick = () => setSatellite(!ui.satellite);
   // Picking a date switches the satellite view on with that imagery.
