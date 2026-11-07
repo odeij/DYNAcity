@@ -12,6 +12,7 @@ files rather than in-process state:
     build-snapshot  → present-state snapshot JSON
     fetch-terrain   → approximate ground-elevation grid (.npz) over the snapshot extent
     pack-beirut001  → Beirut 001 Rhino model → small private pack (.npz) of outlines, heights, ground
+    refine-beirut001-alignment → measure a pack's placement against OSM footprints, write a refined pack + report
     build-traffic   → OSM road graph + Tari'ak hourly speeds (.json) for traffic and road closures
     freeze-evidence → registry JSON → content-hashed EvidenceBundle
     compile-scenario→ planner prose → checked ScenarioSpec + audit trail
@@ -449,6 +450,19 @@ def command_pack_beirut001(args: argparse.Namespace) -> None:
           f"(median {pack.meta['registration']['bbed_to_model_percentiles_m'][2]:.1f} m)")
 
 
+def command_refine_beirut001_alignment(args: argparse.Namespace) -> None:
+    from .beirut001_alignment import refine_beirut001
+    report = refine_beirut001(
+        args.pack, args.reference, args.output, args.report, bbed_path=args.bbed, terrain_path=args.terrain,
+        structures_path=args.structures_pack, structures_output=args.structures_output,
+        display_path=args.display_json, display_output=args.display_output)
+    cv, links, chosen = report["cross_validation"], report["bbed_links"], report["selected_model"]
+    print(f"Beirut 001 alignment: {chosen} correction; held-out median error vs OSM footprints "
+          f"{cv['current']['median_m']} -> {cv[chosen]['median_m']} m (90th percentile "
+          f"{cv['current']['p90_m']} -> {cv[chosen]['p90_m']} m); BBED links {links['before']} -> {links['after']}")
+    print(f"refined pack -> {args.output}; report -> {args.report}")
+
+
 def _traffic_view(traffic: TrafficModel, pack_path: str | None) -> dict:
     """The viewer's roads, with bridge decks at their Beirut 001 height where the pack has them."""
     view = traffic_payload(traffic)
@@ -737,6 +751,21 @@ def build_parser() -> argparse.ArgumentParser:
     beirut001.add_argument("--output", required=True)
     beirut001.add_argument("--cell-m", type=float, default=10.0, help="ground grid cell size")
     beirut001.set_defaults(func=command_pack_beirut001)
+
+    refine = subparsers.add_parser("refine-beirut001-alignment",
+                                   help="measure and refine a Beirut 001 pack's placement (no Rhino source needed)")
+    refine.add_argument("--pack", required=True, help="original pack from pack-beirut001 (never overwritten)")
+    refine.add_argument("--reference", required=True,
+                        help="Overture/OSM building footprints GeoJSON (WGS84), independent of the model and BBED")
+    refine.add_argument("--output", required=True, help="refined pack (.npz)")
+    refine.add_argument("--report", required=True, help="alignment-report.json")
+    refine.add_argument("--bbed", help="BBED GeoJSON in EPSG:32636: links are re-matched and BBED residuals reported")
+    refine.add_argument("--terrain", help="GLO-30 ground model (.npz) for the vertical check")
+    refine.add_argument("--structures-pack", help="structures pack from the same build; gets the same correction")
+    refine.add_argument("--structures-output")
+    refine.add_argument("--display-json", help="beirut-model-display.json; regenerated from the refined structures pack")
+    refine.add_argument("--display-output")
+    refine.set_defaults(func=command_refine_beirut001_alignment)
 
     traffic = subparsers.add_parser("build-traffic")
     traffic.add_argument("--snapshot", required=True, help="snapshot with building centroids; sets the extent")

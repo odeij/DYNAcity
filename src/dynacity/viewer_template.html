@@ -823,6 +823,12 @@ function beirutBridgeLayers(){
  return [new deck.SimpleMeshLayer({id:'beirut-001-bridge-structures',data:[source],mesh:beirutOverlay.bridgeMesh,
   getPosition:d=>d.origin,getColor:[185,179,162],material:BRIDGE_MATERIAL,pickable:false})];
 }
+// Wording comes from the pack's own metadata: a measured error only when a refined pack says so.
+function beirutAlignmentText(a,long){
+ if(!a||a.heldout_median_m==null)return long?'inferred map alignment':'inferred alignment';
+ return `aligned to OSM footprints, held-out median error ${a.heldout_median_m.toFixed(1)} m${long?` (90th percentile ${a.heldout_p90_m.toFixed(1)} m; ${a.validation})`:''}`;
+}
+function beirutLinkNote(a){return a&&a.bbed_links_before!=null&&a.bbed_links_before!==a.bbed_links?` (${a.bbed_links_before} before refinement)`:''}
 async function wireBeirutOverlay(){
  if(!DATA.api)return;
  try{
@@ -835,7 +841,7 @@ async function wireBeirutOverlay(){
   beirutOverlay.modelByObjectid=new Map();
   data.buildings.forEach((o,i)=>{if(o.objectid!=null)beirutOverlay.modelByObjectid.set(String(o.objectid),i)});
   beirutOverlay.snapshotById=new Map(DATA.buildings.map(b=>[String(b.id).match(/OBJECTID:([^|]+)/)?.[1],b]));
-  beirutOverlay.active=true;$('beirut-mode').value='model';$('beirut-map-note').textContent=`${data.buildings.length.toLocaleString()} buildings · ${data.matched} provisional BBED links · inferred alignment`;
+  beirutOverlay.active=true;$('beirut-mode').value='model';$('beirut-map-note').textContent=`${data.buildings.length.toLocaleString()} buildings · ${data.matched} provisional BBED links${beirutLinkNote(data.alignment)} · ${beirutAlignmentText(data.alignment)}`;
   $('beirut-mode').onchange=e=>{beirutOverlay.active=e.target.value==='model';beirutOverlay.pinned=false;$('p-beirut-record').hidden=true;render();$('attrib').textContent=attribution()};
   $('beirut-source').onchange=e=>{beirutOverlay.source=e.target.value;renderBeirutRecord()};
   $('beirut-pin').onclick=()=>{beirutOverlay.pinned=!beirutOverlay.pinned;renderBeirutRecord()};
@@ -1001,7 +1007,7 @@ function layers() {
   return out;
 }
 function attribution() {
-  return [beirutOverlay.active && "Beirut 001: Salim al-Kadi and team · January 2020 · inferred map alignment.", DATA.attribution, DATA.basemap?.attribution, ui.satellite && DATA.basemap?.imagery?.[ui.imagery]?.attribution, ui.traffic && DATA.traffic?.source, ui.traffic && DATA.traffic?.stations?.length && DATA.traffic.volume_source, cloudActive() && `Point cloud: ${pointCloud.metadata.name} · source RGB · display Z offset; datum unverified.`].filter(Boolean).join(' ');
+  return [beirutOverlay.active && `Beirut 001: Salim al-Kadi and team · January 2020 · ${beirutAlignmentText(beirutOverlay.data?.alignment,true)}.`, DATA.attribution, DATA.basemap?.attribution, ui.satellite && DATA.basemap?.imagery?.[ui.imagery]?.attribution, ui.traffic && DATA.traffic?.source, ui.traffic && DATA.traffic?.stations?.length && DATA.traffic.volume_source, cloudActive() && `Point cloud: ${pointCloud.metadata.name} · source RGB · display Z offset; datum unverified.`].filter(Boolean).join(' ');
 }
 // Colour imagery goes over every road, water, and flat building fill of the
 // basemap but under its trailing label layers, so place names stay readable.

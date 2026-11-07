@@ -296,7 +296,7 @@ def viewer_payload(pack: Beirut001Pack, bbed_collection: dict | None = None) -> 
     return {
         "attribution": pack.meta["attribution"], "source": pack.meta["source"],
         "matched": pack.meta["counts"]["linked"], "matching": pack.meta["matching"],
-        "vertical": pack.meta["vertical"], "buildings": buildings, "bbed": records,
+        "vertical": pack.meta["vertical"], "alignment": pack.meta.get("alignment"), "buildings": buildings, "bbed": records,
         "bridge_mesh": bridge_mesh_payload(pack),
     }
 
@@ -347,8 +347,10 @@ def bridge_mesh_payload(pack: Beirut001Pack) -> dict | None:
     return {'origin': [lon, lat, 0], 'vertices': len(triangles)*3,
             'positions': encode(triangles), 'normals': encode(np.repeat(normals[:, None, :], 3, axis=1)),
             'triangles': len(triangles),
-            'provenance': 'January 2020 source transport meshes; inferred horizontal alignment. '
-                          'Heights relative to the model ground; underground portions clipped. '
+            'provenance': 'January 2020 source transport meshes; '
+                          + ('horizontal alignment refined against OSM footprints. ' if pack.meta.get('alignment')
+                             else 'inferred horizontal alignment. ')
+                          + 'Heights relative to the model ground; underground portions clipped. '
                           'No columns or girders have been invented.'}
 
 
