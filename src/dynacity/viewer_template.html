@@ -645,30 +645,6 @@ function fill(b) {
   const dim = focus && !focus.has(b.id);
   return [...rgb, dim ? 70 : 255];
 }
-// Heights that are not recorded are drawn lighter and slightly transparent:
-// from floors a little, size-bin estimates and fallbacks more. `item` is a BBED
-// building, a Beirut 001 model building or a context feature's properties.
-const HEIGHT_TINT = { floors: [0.12, 0.94], size_bin: [0.24, 0.85], fallback: [0.3, 0.8] };
-function heightConfidence(item, rgba) {
-  const tint = HEIGHT_TINT[item?.height_kind];
-  return tint ? [...mix(rgba.slice(0, 3), [238, 240, 236], tint[0]), Math.round((rgba[3] ?? 255) * tint[1])] : rgba;
-}
-function heightKindCounts(items) {
-  const c = { recorded: 0, floors: 0, estimated: 0 };
-  for (const it of items) c[it.height_kind === 'recorded' ? 'recorded' : it.height_kind === 'floors' ? 'floors' : 'estimated'] += 1;
-  return c;
-}
-function heightLegend() {
-  const model = beirutOverlay.active && beirutOverlay.data;
-  const main = heightKindCounts(model ? beirutOverlay.data.buildings : DATA.buildings);
-  let context = null;
-  try { context = DATA.landscape ? heightKindCounts(osmBuildingSet().map((f) => f.properties)) : null; } catch (e) { context = null; }
-  const row = (label, swatch, a, b) => `<div class="legend-row"><span class="sw" style="background:${swatch}"></span><span>${label}</span><span class="n">${a.toLocaleString()}${b == null ? '' : ` · ${b.toLocaleString()}`}</span></div>`;
-  const full = '#c9ced0', light = '#dde0dc', lighter = '#e8eae6';
-  return `<h3>Building heights</h3><div class="sub">${model ? 'Beirut 001 model' : 'BBED'} buildings${context ? ' · mapped context' : ''}</div>
-    ${row('Recorded', full, main.recorded, context?.recorded)}${row('From floors × ' + DATA.storey_height_m + ' m', light, main.floors, context?.floors)}${row('Estimated (size or fallback)', lighter, main.estimated, context?.estimated)}
-    <div class="note">Estimated heights are drawn lighter and slightly transparent. Hover a building for its height source.</div>`;
-}
 function elevation(b) {
   const flat = ui.lens === 'observed' && (b.state === 'empty_or_parking' || b.state === 'demolished');
   return flat ? 0.8 : Math.max(b.h, 1.5);
@@ -3083,7 +3059,7 @@ function renderLegend() {
       <div class="ramp" style="background:linear-gradient(90deg,${DIVERGE.low},${DIVERGE.mid},${DIVERGE.high})"></div><div class="ramp-labels"><span>−${(deltaScale * 100).toFixed(0)} pts</span><span>no change</span><span>+${(deltaScale * 100).toFixed(0)} pts</span></div>
       <div class="note">Orange = more likely to reach the lever's target; blue = less likely. Grey buildings are outside every lever.</div>`;
   }
-  el.innerHTML = body + heightLegend();
+  el.innerHTML = body;
 }
 
 function renderInspector() {

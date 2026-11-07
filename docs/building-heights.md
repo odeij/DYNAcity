@@ -7,7 +7,7 @@ One order, in `src/dynacity/heights.py`, for BBED, Beirut 001 and context buildi
 3. **Size bin** (`size_bin`): median recorded height of buildings with a similar footprint area. BBED uses the medians of its own recorded, built buildings (at least 5 per bin, else the overall median, and none under 5 buildings in total); vacant and demolished BBED sites are never given one. Context buildings use Beirut 001 medians.
 4. **Fallback** (`fallback`): 6 m, illustrative, only when nothing above exists. A Beirut 001 building with no model ground under it (20 of 17,569) is also `fallback`, because its height is the full solid.
 
-Only `recorded` has `estimated: false`. Every building keeps `height_source` (text shown on hover), `height_kind` and `estimated`. The viewer draws estimates lighter and slightly transparent (`heightConfidence`), and the legend counts recorded / from floors / estimated for the drawn building set and the mapped context.
+Only `recorded` has `estimated: false`. Every building keeps `height_source` (text shown on hover), `height_kind` and `estimated`. The viewer draws every building in the same colours whatever its height source; the source is shown on hover only.
 
 ## Measurements (BBED 2024, Beirut 001 pack)
 
