@@ -9,7 +9,9 @@ regular lon/lat grid of whole centimetres. Two things read that same grid, so no
 * MapLibre's raster-dem source reads Terrarium PNG tiles (`terrarium_tile`) cut from it with the same
   bilinear rule, so the relief the basemap is draped over is the relief the layers stand on.
 
-Sea (NaN in the ground model) is 0 m. Beyond the grid the nearest edge value holds, so there is no cliff at
+Sea (NaN in the ground model open to the grid's edge) is 0 m, except within `COAST_FILL_M` of a shore lower
+than `COAST_FILL_MAX_M`: those cells take the shore's height, so coastal roads and quays the elevation model
+reads as water do not drop to sea level. Voids enclosed by land take the nearest land height. Beyond the grid the nearest edge value holds, so there is no cliff at
 its border. Heights are metres above the EGM2008 geoid, as the sources publish them; the viewer treats them
 as height above its z = 0 plane. This is an approximate filtered surface model, not a survey.
 """
@@ -31,6 +33,26 @@ TILE_SIZE = 256
 # lon/lat spacing of the shared grid: 1e-4 deg is 9.2 m east-west and 11.1 m north-south at Beirut.
 CELL_DEG = 1e-4
 MAX_CM = 32767
+# Ground-model gaps this close to land take the nearest land height instead of sea level (0 m).
+COAST_FILL_M = 60.0
+COAST_FILL_MAX_M = 6.0
+
+
+def _fill_near_land(height: np.ndarray, reach_cells: float) -> np.ndarray:
+    """Gaps enclosed by land take the nearest land height; gaps open to the grid's edge (the sea) do so only
+    within `reach_cells` of a shore lower than COAST_FILL_MAX_M, and are 0 m beyond."""
+    from scipy import ndimage
+
+    gap = ~np.isfinite(height)
+    if not gap.any() or gap.all():
+        return np.nan_to_num(height, nan=0.0)
+    distance, (rows, cols) = ndimage.distance_transform_edt(gap, return_indices=True)
+    filled = height[rows, cols]
+    labels, _ = ndimage.label(gap)
+    border = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+    sea = np.isin(labels, border[border > 0])
+    # Only low shores: sea beside a cliff (e.g. Raouche) stays sea rather than becoming a plateau.
+    return np.where(sea & ((distance > reach_cells) | (filled > COAST_FILL_MAX_M)), 0.0, filled)
 
 
 @dataclass(frozen=True)
@@ -72,7 +94,7 @@ class ViewerTerrain:
         # Nearest edge value beyond the model, so the border is not a cliff.
         x = np.clip(x, ground.x0 + ground.cell_m / 2, east_x - ground.cell_m / 2)
         y = np.clip(y, south_y + ground.cell_m / 2, ground.y0 - ground.cell_m / 2)
-        height = np.nan_to_num(ground.sample(x, y), nan=0.0).reshape(n_rows, n_cols)
+        height = _fill_near_land(ground.sample(x, y).reshape(n_rows, n_cols), COAST_FILL_M / (cell_deg * 111_320.0))
         cm = np.clip(np.rint(height * 100.0), -MAX_CM, MAX_CM).astype(np.int16)
         return cls(west=float(west), north=float(north), cell_deg=cell_deg, cm=cm, attribution=ground.source)
 

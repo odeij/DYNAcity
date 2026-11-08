@@ -429,7 +429,9 @@ def command_export_viewer(args: argparse.Namespace) -> None:
 
 def command_fetch_terrain(args: argparse.Namespace) -> None:
     snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
-    ground = fetch_ground_model(snapshot, cell_m=args.cell_m)
+    # Roads reach past the buildings; cover them too so none run off the grid's edge.
+    extra = [xy for road in _json(args.traffic)["roads"] for xy in road["xy"]] if args.traffic else []
+    ground = fetch_ground_model(snapshot, cell_m=args.cell_m, margin_m=args.margin_m, extra_points=extra)
     destination = Path(args.output)
     destination.parent.mkdir(parents=True, exist_ok=True)
     ground.save(destination)
@@ -762,6 +764,8 @@ def build_parser() -> argparse.ArgumentParser:
     terrain.add_argument("--snapshot", required=True)
     terrain.add_argument("--output", required=True)
     terrain.add_argument("--cell-m", type=float, default=10.0)
+    terrain.add_argument("--traffic", help="traffic model from build-traffic; the grid then also covers its roads")
+    terrain.add_argument("--margin-m", type=float, default=1500.0, help="ground beyond the outermost building or road")
     terrain.set_defaults(func=command_fetch_terrain)
 
     beirut001 = subparsers.add_parser("pack-beirut001")

@@ -69,7 +69,8 @@ test('streets on the ground follow the relief and bridges keep their deck height
   c.DATA.traffic.roads = [{u: 1, v: 2, path: [at(2), at(30)]}, {u: 2, v: 3, lvl: 1, deck: 6, path: [at(30), at(36)]}, {u: 3, v: 4, path: [at(36), at(38)]}];
   run(c, 'elevateRoads()');
   const [street, bridge] = c.DATA.traffic.roads;
-  assert.ok(street.path.length > 30);
+  // A steady slope needs no added points: they would sit on the straight line between the ends.
+  assert.equal(street.path.length, 2);
   for (const p of street.path) {
     assert.equal(p.length, 4);
     assert.ok(Math.abs(p[2] - c.groundZ(p[0], p[1])) < 1e-9);
@@ -105,7 +106,7 @@ test('sidewalk and kerb strips follow the road level and are skipped on bridges 
   c.DATA.traffic.roads = roads;
   run(c, 'elevateRoads()');
   const {walks, curbs} = c.streetEdgeGeometry(roads, [lonAt(15), LAT]);
-  assert.ok(walks.length > 20 && curbs.length === walks.length);
+  assert.ok(walks.length >= 2 && curbs.length === walks.length);
   assert.ok(walks.every((w) => w.roadIndex === 0));
   for (const w of walks) {
     const [p, q, q2, p2] = w.polygon;
@@ -115,4 +116,57 @@ test('sidewalk and kerb strips follow the road level and are skipped on bridges 
     assert.ok(Math.abs(p[2] - .015 - c.groundZ(p[0], LAT)) < .4);
     assert.ok(q[2] > p[2]);
   }
+});
+
+test('streets keep added points only where the relief bends', () => {
+  const c = scene();
+  // A ridge: up 1 m per column to column 20, then down again.
+  const grid = new Int16Array(COLS * ROWS);
+  for (let r = 0; r < ROWS; r++) for (let col = 0; col < COLS; col++) grid[r * COLS + col] = (20 - Math.abs(col - 20)) * 100;
+  c.setGrid(grid);
+  c.DATA.traffic.roads = [{u: 1, v: 2, path: [[lonAt(2), LAT], [lonAt(38), LAT]]}];
+  run(c, 'elevateRoads()');
+  const path = c.DATA.traffic.roads[0].path;
+  assert.ok(path.length >= 3 && path.length < 10, `${path.length} points`);
+  for (const p of path) assert.ok(Math.abs(p[2] - c.groundZ(p[0], p[1])) < .15 + 1e-9);
+  assert.ok(Math.max(...path.map((p) => p[2])) > 19);
+});
+
+test('a street spans a dip steeper than MAX_ROAD_GRADE, and a junction on it stays up for the next road', () => {
+  const c = scene();
+  // Flat at 10 m with a 10 m deep, one-column-wide trench (a river under an untagged viaduct) at column 20.
+  const grid = new Int16Array(COLS * ROWS).fill(1000);
+  for (let r = 0; r < ROWS; r++) for (const col of [19, 20, 21]) grid[r * COLS + col] = col === 20 ? 0 : 500;
+  c.setGrid(grid);
+  // The viaduct is split at a junction (node 2) right over the trench.
+  c.DATA.traffic.roads = [{u: 1, v: 2, path: [[lonAt(5), LAT], [lonAt(20), LAT]]}, {u: 2, v: 3, path: [[lonAt(20), LAT], [lonAt(35), LAT]]}];
+  run(c, 'elevateRoads()');
+  const [a, b] = c.DATA.traffic.roads;
+  const grade = (p, q) => Math.abs(q[2] - p[2]) / metresBetween(p, q);
+  for (const road of [a, b]) {
+    for (let i = 1; i < road.path.length; i++) assert.ok(grade(road.path[i - 1], road.path[i]) <= run(c, 'MAX_ROAD_GRADE') + 1e-9);
+    for (const p of road.path) assert.ok(p[2] >= c.groundZ(p[0], p[1]) - 1e-9 && Math.abs(p[3] - (p[2] - c.groundZ(p[0], p[1]))) < 1e-9);
+    assert.equal(road.lifted, true);
+  }
+  // Both roads meet at one level over the trench, well above its floor.
+  assert.ok(Math.abs(a.path.at(-1)[2] - b.path[0][2]) < 1e-9);
+  assert.ok(a.path.at(-1)[3] > 3);
+  // Cars follow the lifted road, not the trench floor.
+  assert.ok(Math.abs(c.roadHeightAt(1, lonAt(20), LAT) - b.path[0][2]) < 1e-6);
+});
+
+test('on terrain a bridge ramps from the level at its ends, not from the ground under a valley', () => {
+  const c = scene();
+  // Banks at 20 m, a 16-column valley floor at 0 m between them.
+  const grid = new Int16Array(COLS * ROWS).fill(2000);
+  for (let r = 0; r < ROWS; r++) for (let col = 12; col <= 28; col++) grid[r * COLS + col] = 0;
+  c.setGrid(grid);
+  c.DATA.traffic.roads = [{u: 1, v: 2, path: [[lonAt(2), LAT], [lonAt(8), LAT]]}, {u: 2, v: 3, lvl: 1, deck: 22, path: [[lonAt(8), LAT], [lonAt(32), LAT]]},
+    {u: 3, v: 4, path: [[lonAt(32), LAT], [lonAt(38), LAT]]}];
+  run(c, 'elevateRoads()');
+  const bridge = c.DATA.traffic.roads[1].path;
+  assert.ok(Math.abs(bridge[0][2] - 20) < 1e-9 && Math.abs(bridge.at(-1)[2] - 20) < 1e-9);
+  for (let i = 1; i < bridge.length; i++) assert.ok(Math.abs(bridge[i][2] - bridge[i - 1][2]) / metresBetween(bridge[i - 1], bridge[i]) <= run(c, 'BRIDGE_TERRAIN_GRADE') + 1e-9);
+  // Over the valley floor it stands high above the ground, so piers are drawn.
+  assert.ok(Math.max(...bridge.map((p) => p[3])) > 18);
 });

@@ -36,7 +36,7 @@ CLI entry point `dynacity` (`src/dynacity/cli.py`, registered via `[project.scri
 - `dynacity build-panel --bbed --output [--lidar-features --lidar-year]` — builds the leakage-safe transition panel
 - `dynacity summarize-transitions --panel --output [--start-year --target-year]` — descriptive interval summary (default 2018→2024; excluded from the model benchmark)
 - `dynacity build-snapshot --bbed --snapshot-id --data-version --output`
-- `dynacity fetch-terrain --snapshot --output [--cell-m]` — approximate ground-elevation grid (`.npz`) from Copernicus GLO-30 over the snapshot extent (`terrain` extra: rasterio); attached to buildings when served with `--terrain`
+- `dynacity fetch-terrain --snapshot --output [--cell-m --traffic --margin-m]` — approximate ground-elevation grid (`.npz`) from Copernicus GLO-30 over the snapshot extent, widened to the road network with `--traffic` (`terrain` extra: rasterio); attached to buildings and drawn as the viewer's relief when served with `--terrain` (on in the default start command)
 - `dynacity pack-beirut001 --model --bbed --output [--cell-m]` — Beirut 001 Rhino model (~730 MB) → ~2.6 MB private `.npz` of building outlines, heights above model ground, BBED links, bridge levels and a ground grid (`beirut001_pack.py`, `overlay` extra); served with `serve --beirut001` (loopback only)
 - `dynacity build-traffic --snapshot --velocities [--roads --bus-routes] --output` — OSM road graph (Overpass, or a saved Overpass JSON) + Tari'ak hourly median speeds per road (`traffic.py`); served with `--traffic`, hand-placed closures and crashes report cut-off and delayed trips
 - `dynacity train --panel --output` — runs `temporal_benchmark`, writes the selected `ModelBundle` + a sibling `.metrics.json`

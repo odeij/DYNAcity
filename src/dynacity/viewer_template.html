@@ -302,7 +302,8 @@ button:focus-visible, summary:focus-visible, input:focus-visible { outline: 3px 
   .status { max-width: calc(100vw - 150px); white-space: normal; }
 }
 @media (max-height: 560px) {
-  .dock, .attrib { display: none; }
+  .dock { display: none; }
+  /* The credits stay (map providers require them); the dock above them is hidden. */
   .side { bottom: 90px; }
   .leftcol { bottom: 90px; }
 }
@@ -1041,7 +1042,7 @@ function beirutBridgeLayers(){
 // Wording comes from the pack's own metadata: a measured error only when a refined pack says so.
 function beirutAlignmentText(a,long){
  if(!a||a.heldout_median_m==null)return long?'inferred map alignment':'inferred alignment';
- return `aligned to OSM footprints, held-out median error ${a.heldout_median_m.toFixed(1)} m${long?` (90th percentile ${a.heldout_p90_m.toFixed(1)} m; ${a.validation})`:''}`;
+ return `aligned to OSM footprints, held-out median error ${a.heldout_median_m.toFixed(1)} m${long?` (90th percentile ${a.heldout_p90_m.toFixed(1)} m; ${a.validation})`:''}`;
 }
 function beirutLinkNote(a){return a&&a.bbed_links_before!=null&&a.bbed_links_before!==a.bbed_links?` (${a.bbed_links_before} before refinement)`:''}
 async function wireBeirutOverlay(){
@@ -1545,16 +1546,75 @@ function roadPathSlice(path, start, end) {
 // (`deck`), so otherwise a level stands for BRIDGE_LEVEL_M, reached
 // over BRIDGE_RAMP_M from any end where the bridge meets a lower road. Every
 // road layer then draws bridges raised, because they share these paths.
-const BRIDGE_LEVEL_M = 6, BRIDGE_RAMP_M = 40, BRIDGE_STEP_M = 8, ROAD_STEP_M = 8;
+const BRIDGE_LEVEL_M = 6, BRIDGE_RAMP_M = 40, BRIDGE_STEP_M = 8, ROAD_STEP_M = 8, BRIDGE_TERRAIN_GRADE = 0.15;
+// Streets on the ground: a point every ROAD_STEP_M on the relief, then two clean-ups.
+// 1. No stretch steeper than MAX_ROAD_GRADE: where the ground falls away faster (a viaduct OSM does not tag as
+//    a bridge, or a step in the approximate ground), the road holds its level and spans the dip instead of
+//    plunging into it. Junctions take the highest level their roads arrive at, so roads still meet there, and a
+//    junction on such a viaduct stays up with it.
+// 2. Added points the road would not miss (within ROAD_Z_TOLERANCE_M of a straight line) are dropped again.
+// Points are [lon, lat, z, h], h being the height above the ground under the point.
+const MAX_ROAD_GRADE = 0.3, ROAD_Z_TOLERANCE_M = 0.15;
+function densifyOnGround(path) {
+  const pts = [], d = [], own = [];
+  for (let i = 0; i < path.length; i++) {
+    if (i) {
+      const a = path[i - 1], b = path[i], length = metresBetween(a, b), n = Math.max(1, Math.ceil(length / ROAD_STEP_M));
+      for (let k = 1; k < n; k++) { pts.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]); d.push(d.at(-1) + length / n); own.push(false); }
+      d.push(d.at(-1) + length / n);
+    } else d.push(0);
+    pts.push([path[i][0], path[i][1]]); own.push(true);
+  }
+  return { pts, d, own, g: pts.map((p) => groundZ(p[0], p[1])) };
+}
+// The profile: at least the ground, at least each end's level less MAX_ROAD_GRADE per metre, and nothing
+// falling faster than that between points. With `cap`, it also never climbs above what the ends allow.
+function gradeLimited({ d, g }, startZ, endZ, cap) {
+  const n = g.length, total = d[n - 1], z = g.slice();
+  z[0] = Math.max(z[0], startZ); z[n - 1] = Math.max(z[n - 1], endZ);
+  for (let i = 1; i < n; i++) z[i] = Math.max(z[i], z[i - 1] - MAX_ROAD_GRADE * (d[i] - d[i - 1]));
+  for (let i = n - 2; i >= 0; i--) z[i] = Math.max(z[i], z[i + 1] - MAX_ROAD_GRADE * (d[i + 1] - d[i]));
+  if (cap) for (let i = 0; i < n; i++) z[i] = Math.max(g[i], Math.min(z[i], startZ + MAX_ROAD_GRADE * d[i], endZ + MAX_ROAD_GRADE * (total - d[i])));
+  return z;
+}
+function thinProfile({ pts, d, own, g }, z) {
+  const n = pts.length, keep = [0];
+  for (let i = 1; i < n - 1; i++) {
+    if (own[i]) { keep.push(i); continue; }
+    // Drop an added point if every added point back to the last kept one sits on the straight line to the next.
+    const a = keep.at(-1), b = i + 1, f = (j) => z[a] + (z[b] - z[a]) * (d[j] - d[a]) / ((d[b] - d[a]) || 1);
+    let fits = true;
+    for (let j = a + 1; j <= i && fits; j++) fits = Math.abs(z[j] - f(j)) <= ROAD_Z_TOLERANCE_M;
+    if (!fits) keep.push(i);
+  }
+  if (n > 1) keep.push(n - 1);
+  return keep.map((i) => [pts[i][0], pts[i][1], z[i], z[i] - g[i]]);
+}
+function groundRoads(roads) {
+  const profiles = roads.map((r) => densifyOnGround(r.path)), level = new Map();
+  const raise = (node, z) => level.set(node, Math.max(level.get(node) ?? -Infinity, z));
+  roads.forEach((r, i) => { raise(r.u, profiles[i].g[0]); raise(r.v, profiles[i].g.at(-1)); });
+  // A few rounds carry a raised junction along a viaduct split into several OSM ways.
+  for (let round = 0; round < 4; round++) roads.forEach((r, i) => {
+    const z = gradeLimited(profiles[i], level.get(r.u), level.get(r.v), false);
+    raise(r.u, z[0]); raise(r.v, z.at(-1));
+  });
+  roads.forEach((r, i) => {
+    r.path = thinProfile(profiles[i], gradeLimited(profiles[i], level.get(r.u), level.get(r.v), true));
+    r.lifted = r.path.some((p) => p[3] > 0.01);
+  });
+  return level;
+}
 function elevateRoads() {
   // `deck`: the height measured from Beirut 001, when the server has the pack.
   const deckOf = (r) => (r.lvl > 0 ? r.deck ?? r.lvl * BRIDGE_LEVEL_M : 0);
   const roads = DATA.traffic.roads, lowest = new Map();
   for (const r of roads) for (const n of [r.u, r.v]) lowest.set(n, Math.min(lowest.get(n) ?? Infinity, deckOf(r)));
+  const level = ground.grid ? groundRoads(roads.filter((r) => !(r.lvl > 0))) : null;
   for (const r of roads) {
     // Path points are [lon, lat, z, h]: z above the ground plane, h above the ground under it (a bridge's deck
     // height). Streets on the ground follow the relief; without terrain they stay flat 2D paths.
-    if (!(r.lvl > 0)) { if (ground.grid) r.path = groundPath(r.path, 0, ROAD_STEP_M).map((p) => [p[0], p[1], p[2], 0]); continue; }
+    if (!(r.lvl > 0)) continue;
     const top = deckOf(r), startZ = lowest.get(r.u), endZ = lowest.get(r.v);
     // Points every few metres, so a straight two-point bridge can still ramp.
     const dense = [r.path[0]], along = [0];
@@ -1573,7 +1633,20 @@ function elevateRoads() {
       const j=along.findIndex(a=>a>d),f=(d-along[j-1])/(along[j]-along[j-1]);
       samples.push({d,p:[dense[j-1][0]+f*(dense[j][0]-dense[j-1][0]),dense[j-1][1]+f*(dense[j][1]-dense[j-1][1])]});
     }
-    r.path=samples.sort((a,b)=>a.d-b.d).map(({p,d})=>{const h=Math.min(top,startZ+startGrade*d,endZ+endGrade*(total-d));return [p[0],p[1],groundZ(p[0],p[1])+h,h];});
+    const sorted=samples.sort((a,b)=>a.d-b.d);
+    if (level) {
+      // On terrain a deck height is above the ground under it (a valley floor, under a viaduct), so ramps run
+      // from each end's own level at up to BRIDGE_TERRAIN_GRADE instead: a bridge meeting a high bank does not
+      // climb a valley's depth there.
+      const endLevel=(n,p)=>level.get(n)??groundZ(p[0],p[1])+lowest.get(n),zu=endLevel(r.u,r.path[0]),zv=endLevel(r.v,r.path.at(-1));
+      const grade=Math.max(BRIDGE_TERRAIN_GRADE,Math.abs(zv-zu)/Math.max(total,.001));
+      const g=sorted.map(({p})=>groundZ(p[0],p[1])),z=sorted.map(({d},i)=>Math.min(g[i]+top,zu+grade*d,zv+grade*(total-d)));
+      // The deck's own height cap varies with the ground under it; smooth it so the deck never dips faster than `grade`.
+      for(let i=1;i<z.length;i++)z[i]=Math.min(z[i],z[i-1]+grade*(sorted[i].d-sorted[i-1].d));
+      for(let i=z.length-2;i>=0;i--)z[i]=Math.min(z[i],z[i+1]+grade*(sorted[i+1].d-sorted[i].d));
+      r.path=sorted.map(({p},i)=>{const zi=Math.max(g[i],z[i]);return [p[0],p[1],zi,zi-g[i]];});
+    } else
+    r.path=sorted.map(({p,d})=>{const h=Math.min(top,startZ+startGrade*d,endZ+endGrade*(total-d));return [p[0],p[1],groundZ(p[0],p[1])+h,h];});
   }
 }
 function roadMarkings(r) {
@@ -1908,7 +1981,7 @@ function advanceCars(now) {
 function roadHeightAt(i, lon, lat) {
   const road = DATA.traffic?.roads?.[i];
   if (!road) return null;
-  if (!(road.lvl > 0) && i !== 0) return groundZ(lon, lat);
+  if (!(road.lvl > 0) && i !== 0 && !road.lifted) return groundZ(lon, lat);
   let best = Infinity, z = 0;
   const sx=111320*Math.cos(lat*Math.PI/180);
   for(let j=1;j<road.path.length;j++) {
@@ -1928,11 +2001,12 @@ function vehicleRoadPitch(c) {
   if(!road)return null;
   const [lon,lat]=c.pose.position,sx=111320*Math.cos(lat*Math.PI/180);
   const heading=(c.pose.orientation?.[1]??0)*Math.PI/180;
-  if(!(road.lvl>0)&&c.i!==0) {
+  if(!(road.lvl>0)&&c.i!==0&&!road.lifted) {
     // On the ground: the relief's grade along the heading, over 8 m (under a grid cell, so no spikes).
     const dlon=Math.cos(heading)*4/sx,dlat=Math.sin(heading)*4/111320;
     return -Math.atan((groundZ(lon+dlon,lat+dlat)-groundZ(lon-dlon,lat-dlat))/8)*180/Math.PI;
   }
+  // Bridges, and streets groundRoads lifted over a dip: the grade of the drawn road.
   let best=Infinity,pitch=0;
   for(let j=1;j<road.path.length;j++) {
     const a=road.path[j-1],b=road.path[j],dx=(b[0]-a[0])*sx,dy=(b[1]-a[1])*111320;

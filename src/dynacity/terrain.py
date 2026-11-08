@@ -251,8 +251,18 @@ def ground_from_surface(surface: np.ndarray, cell_m: float) -> np.ndarray:
     return np.where(sea, np.nan, np.maximum(ground, SEA_LEVEL_M + 0.1))
 
 
-def fetch_ground_model(snapshot: UrbanStateSnapshot, *, cell_m: float = 10.0, margin_m: float = 1500.0) -> GroundModel:
-    """Copernicus GLO-30 over the snapshot's buildings (plus a margin) → `GroundModel`."""
+def fetch_ground_model(
+    snapshot: UrbanStateSnapshot,
+    *,
+    cell_m: float = 10.0,
+    margin_m: float = 1500.0,
+    extra_points: Sequence[Sequence[float]] = (),
+) -> GroundModel:
+    """Copernicus GLO-30 over the snapshot's buildings (plus a margin) → `GroundModel`.
+
+    `extra_points` (x, y in the snapshot CRS, e.g. road vertices) widen the extent so
+    everything drawn on the ground has real ground under it, not the grid's edge.
+    """
 
     import rasterio
     from rasterio.windows import Window, from_bounds
@@ -260,6 +270,9 @@ def fetch_ground_model(snapshot: UrbanStateSnapshot, *, cell_m: float = 10.0, ma
     zone, north = _utm_zone(snapshot.crs)
     xs = [o.centroid_x_m for o in snapshot.objects if o.centroid_x_m is not None]
     ys = [o.centroid_y_m for o in snapshot.objects if o.centroid_y_m is not None]
+    if xs:
+        xs += [float(p[0]) for p in extra_points]
+        ys += [float(p[1]) for p in extra_points]
     if not xs:
         raise ValueError("snapshot has no building centroids to size the terrain grid")
     x0, x1 = math.floor(min(xs) - margin_m), math.ceil(max(xs) + margin_m)

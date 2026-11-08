@@ -63,6 +63,24 @@ def test_sea_is_zero_and_the_edge_value_holds_beyond_the_grid():
     assert terrain.sample(terrain.west - 1.0, terrain.north + 1.0) == terrain.sample(terrain.west, terrain.north)
 
 
+def test_voids_and_low_shores_are_filled_but_open_sea_and_sea_cliffs_stay_at_zero():
+    # The shore (x = 733200) is lowered to 0.25 m, so sea within COAST_FILL_M of it takes about that.
+    ground = hill()
+    ground.ground[:, 20:] -= 10.0
+    # A cliff: a 30 m high strip along the north, with a gap (an inland void) in it.
+    ground.ground[:30, 20:] = 30.0
+    ground.ground[10:13, 150:153] = np.nan
+    # A void inland, away from the sea.
+    ground.ground[100:103, 100:103] = np.nan
+    terrain = ViewerTerrain.from_ground(ground)
+    shore = terrain.sample(*lonlat(733205.0, 3751000.0))
+    assert terrain.sample(*lonlat(733170.0, 3751000.0)) == pytest.approx(shore, abs=0.3)  # 35 m out: filled
+    assert terrain.sample(*lonlat(733050.0, 3751000.0)) == 0.0  # 150 m out: sea
+    assert terrain.sample(*lonlat(733170.0, 3751850.0)) == 0.0  # beside the 30 m cliff: sea, not a plateau
+    assert terrain.sample(*lonlat(734015.0, 3750985.0)) == pytest.approx(0.05 * 1015 - 10.0, abs=1.0)  # void filled
+    assert terrain.sample(*lonlat(734515.0, 3751885.0)) == pytest.approx(30.0, abs=0.5)  # void in the cliff top too
+
+
 def test_the_page_decodes_the_same_numbers_from_the_gzipped_bytes():
     terrain = ViewerTerrain.from_ground(hill())
     meta = terrain.meta("/g.bin", "/t/{z}/{x}/{y}.png")
