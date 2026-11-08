@@ -497,6 +497,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
     <button id="t-buildings" aria-label="Find a building" aria-pressed="false"><span>Find a building</span></button>
     <button id="t-library" aria-label="Saved scenarios" aria-pressed="false"><span>Saved scenarios</span></button>
     <button id="t-shadows" aria-label="Sun shadows" aria-pressed="true"><span>Sun shadows</span></button>
+    <button id="t-status" aria-label="Status colours" aria-pressed="false" title="Colour buildings by their recorded BBED state"><span>Status colours</span></button>
     <button id="t-reset" title="Reset view" aria-label="Reset view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg><span>Reset view</span></button>
     <button id="t-2d" title="Top-down view" aria-label="Top-down view" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg><span>Top-down view</span></button>
     <button id="t-sat" title="Satellite view" aria-label="Satellite view" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/><circle cx="15.5" cy="9" r="1.5"/></svg><span>Satellite view</span></button>
@@ -612,6 +613,8 @@ const metres = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round
 const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, imagery: 0, mode: 'scenario', answer: null, answerIds: null, traffic: false, hour: 8, roadHighlight: null, buses: false, stationsOpen: false,
   trafficImpact: null, trafficStyle: 'street', mobilityMap: true, showSignals: true, mixed: false,
   shadows: !/(^|&)shadows=off/.test(location.hash.slice(1)),
+  // Observed view: tint BBED-linked buildings by their recorded state. Off by default (plain stone); `#status=on`.
+  statusColours: /(^|&)status=on/.test(location.hash.slice(1)),
   roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map(), planning: new Map(), selectedRoad: null, planSearch: '' };
 
 function rampColor(t, stops = RAMP) {
@@ -655,8 +658,7 @@ const leaveProb = (p, s) => 1 - (p?.[s] ?? 0);
 function fill(b) {
   let rgb = baseBeirutColor(b.id);
   if (ui.lens === 'observed') {
-    const statusRgb = hex(STATES[b.state].color);
-    rgb = mix(rgb, statusRgb, 0.6); // Increased from 0.35
+    if (ui.statusColours) rgb = mix(rgb, hex(STATES[b.state].color), 0.6);
   } else if (ui.lens === 'forecast') { const p = activeP(b); rgb = p ? hex(STATES[argmax(p)].color) : hex(NO_DATA); }
   else if (ui.lens === 'change') { const p = activeP(b); rgb = p ? rampColor(leaveProb(p, b.state)) : hex(NO_DATA); }
   else { const d = deltaFor(b); rgb = d === null ? hex(NO_DATA) : divergeColor(d); }
@@ -1019,13 +1021,13 @@ function beirutBuildingLayers(){
   ...nightWindowProps((p)=>{const o=d.buildings[p.beirutModel],b=o.objectid==null?null:beirutOverlay.snapshotById.get(String(o.objectid));
     return nightInfo(b?b.state:'unknown',`m${p.beirutModel}`);},[HAZE_EXT]),
   pickable:!ui.roadTool,autoHighlight:true,highlightColor:[80,161,220,130],
-  updateTriggers:{getFillColor:[ui.lens,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey()]},
+  updateTriggers:{getFillColor:[ui.lens,ui.statusColours,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey()]},
  }),
   new deck.SolidPolygonLayer({
    id:'beirut-001-roofs',data:beirutOverlay.polygons,getPolygon:(p)=>(p.rg??=groundedPolygon(p.rings,d.buildings[p.beirutModel].height_m+ROOF_LIFT_M)),extruded:false,
    getFillColor:roofColour,
    pickable:false,extensions:[HAZE_EXT],
-   updateTriggers:{getFillColor:[ui.lens,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey(),appliedNight]},
+   updateTriggers:{getFillColor:[ui.lens,ui.statusColours,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey(),appliedNight]},
   })];
 }
 function beirutBridgeLayers(){
@@ -1235,7 +1237,7 @@ function layers() {
       ...nightWindowProps((d) => nightInfo(d.b.state, d.b.id), [HAZE_EXT]),
       // No colour transition: an interrupted fade can leave a lens showing the
       // previous lens's colours, and a data view must never show stale values.
-      updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey()], getElevation: [ui.lens] },
+      updateTriggers: { getFillColor: [ui.lens, ui.statusColours, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey()], getElevation: [ui.lens] },
     }));
     out.push(new deck.SolidPolygonLayer({
       id: 'buildings-roofs',
@@ -1243,7 +1245,7 @@ function layers() {
       getPolygon: (d) => groundedRing(d.ring, elevation(d.b) + ROOF_LIFT_M), extruded: false,
       getFillColor: (d) => cameraSafeColour(shade(mix(fill(d.b), [255, 255, 255], 0.25), appliedNight, ROOF_NIGHT_DIM), 'bbed', d.b.id, occlusion),
       pickable: false, extensions: [HAZE_EXT],
-      updateTriggers: { getFillColor: [ui.lens, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey(), appliedNight], getPolygon: [ui.lens] },
+      updateTriggers: { getFillColor: [ui.lens, ui.statusColours, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey(), appliedNight], getPolygon: [ui.lens] },
     }));
   }
   out.push(...beirutBuildingLayers());
@@ -3213,6 +3215,7 @@ function renderLegend() {
     const title = ui.lens === 'observed' ? `Recorded building states` : `Most likely state in 2 years${ui.scenario ? ' · scenario' : ''}`;
     body = `<h2>${title}</h2><div class="sub">Building count per canonical BBED state</div>` +
       ORDER.map((s) => `<div class="legend-row ${c[s] ? '' : 'muted'}"><span class="sw" style="background:${STATES[s].color}"></span><span>${esc(STATES[s].label)}</span><span class="n">${c[s].toLocaleString()}</span></div>`).join('');
+    if (ui.lens === 'observed' && !ui.statusColours) body += `<div class="note">Buildings are drawn in plain stone; turn on <b>Status colours</b> under ••• to colour them by these states.</div>`;
     if (ui.lens === 'observed') body += `<div class="note">Snapshot reference: ${esc(DATA.snapshot.as_of)}. Source waves may differ by building; hover for the recorded period. Heights marked estimated are for display.</div>`;
     if (ui.lens === 'forecast') body += `<div class="note">Model prediction: colour is the single most likely state; hover for probabilities. Scenario changes use assumed effects.</div>`;
   } else if (ui.lens === 'change') {
@@ -3626,6 +3629,8 @@ function wire() {
   document.addEventListener('click', (e) => { if (!e.target.closest('#tool-menu')) $('tool-menu').open = false; });
   $('t-reset').onclick = () => { ui.topDown = false; $('t-2d').setAttribute('aria-pressed', 'false'); flyTo({}); };
   $('t-shadows').setAttribute('aria-pressed', String(ui.shadows));
+  $('t-status').setAttribute('aria-pressed', String(ui.statusColours));
+  $('t-status').onclick = () => { ui.statusColours = !ui.statusColours; $('t-status').setAttribute('aria-pressed', String(ui.statusColours)); renderLegend(); render(); };
   $('t-shadows').onclick = () => { shadowAuto = false; ui.shadows = !ui.shadows; $('t-shadows').setAttribute('aria-pressed', String(ui.shadows)); $('t-shadows').title = ''; render(); };
   watchShadowFrames();
   $('t-2d').onclick = () => { ui.topDown = !ui.topDown; $('t-2d').setAttribute('aria-pressed', String(ui.topDown)); flyTo(ui.topDown ? { pitch: 0, bearing: 0 } : {}); };

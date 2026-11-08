@@ -80,3 +80,21 @@ test('file import rejects malformed or oversized files without changing the prom
   await f.fields['scenario-file'].onchange({target});
   assert.equal(f.fields.q.value,valid().input.text);
 });
+
+test('Observed buildings are plain stone unless Status colours is on, which tints them by their recorded state', () => {
+  const ui = {lens: 'observed', statusColours: false, selected: null, highlight: null, answerIds: null};
+  const context = vm.createContext({ui, isDark: () => false});
+  const block = (start, end) => html.slice(html.indexOf(start), html.indexOf(end, html.indexOf(start)));
+  vm.runInContext(block('const STATES = {', 'const ORDER ='), context);
+  vm.runInContext(block('const hex = (h)', 'const mix = (a, b, t)') + block('const mix = (a, b, t)', '\n'), context);
+  vm.runInContext(block('const BEIRUT_PALETTE', 'const MATERIAL'), context);
+  vm.runInContext(block('function fill(b)', 'function elevation('), context);
+  const fillOf = () => Array.from(vm.runInContext('fill({id: "b1", state: "renovated"})', context)).slice(0, 3);
+  const stone = Array.from(vm.runInContext('baseBeirutColor("b1")', context));
+  assert.deepEqual(fillOf(), stone);
+  ui.statusColours = true;
+  assert.notDeepEqual(fillOf(), stone);
+  // Green-ish: the renovated colour pulls the green channel above red.
+  const [r, g] = fillOf();
+  assert.ok(g > r);
+});

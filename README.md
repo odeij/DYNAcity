@@ -26,6 +26,10 @@ The top two rows are the offline pipeline that trains the model. The boxed regio
 ## Screenshots
 
 These come from running the whole pipeline on the public BBED layer (3,349 buildings, snapshot as of 2024-04-30). The benchmark selected the Markov model, and this is the business-as-usual forecast rendered with `dynacity export-viewer`.
+Buildings are drawn in plain stone by default; the observed-state shot has
+**Status colours** turned on (under •••), which tints each BBED building by its
+recorded state (green renovated, amber construction, orange stalled, purple
+vacant, red demolished).
 
 | Observed state (2024) | Most likely state in 2 years |
 | --- | --- |
