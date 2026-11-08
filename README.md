@@ -58,6 +58,22 @@ zoom. Most of their heights are estimates, not measurements; see
 
 Satellite imagery © Esri, Maxar, Earthstar Geographics.
 
+**Time of day, terrain and sources.** With Traffic open, the hour slider also
+sets the light: lit windows at night, a warm horizon at dusk and sun shadows
+by day. With `--terrain`, the city stands on its ground heights (Copernicus
+GLO-30, with the Beirut 001 ground where it covers), so it climbs from the port
+to Achrafieh. The ground is approximate, and the windows and sun path are
+illustrative, not measured. Every dataset and its credit is listed under
+**Sources & credits**.
+
+| Night (22:00): lit windows | Dusk (18:00) |
+| --- | --- |
+| ![Beirut at night with lit window rows on the buildings](docs/screenshots/viewer-11-night.jpg) | ![Beirut at dusk with a warm sky over the sea](docs/screenshots/viewer-12-dusk.jpg) |
+| **Terrain: from the port up to Achrafieh** | **Sun shadows (16:00)** |
+| ![The city rising from the port toward Achrafieh on the terrain](docs/screenshots/viewer-13-terrain.jpg) | ![Buildings casting afternoon shadows onto the streets](docs/screenshots/viewer-14-shadows.jpg) |
+| **Sources & credits** | |
+| ![The Sources & credits panel listing each dataset, its use and its licence](docs/screenshots/viewer-15-sources.jpg) | |
+
 ### Video demos
 
 Click an animated preview to open its MP4. These are recordings of the running
