@@ -646,6 +646,93 @@ def test_prewarmed_network_is_reused_by_first_session(network, monkeypatch):
     assert len(calls) == 1
 
 
+def test_added_lanes_run_against_the_original_roads_from_the_start(network):
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    from dynacity.traffic_sumo import widen
+    with pytest.raises(ValueError):
+        widen(network, {99: 1})
+    with pytest.raises(ValueError):
+        widen(network, {0: 0})
+    sim = Simulation(network, continuous=True, seed=7, lanes={0: 1, 6: 2})
+    try:
+        assert sim.net.getEdge('0:1').getLaneNumber() == 2
+        assert sim.net.getEdge('6:1').getLaneNumber() == 3
+        assert sim.net.getEdge('1:1').getLaneNumber() == 1
+        assert sim.forked and len(sim.connections) == 2
+        assert sim.connections[1].edge.getLaneNumber('0:1') == 1
+        result = sim.advance(road_events(network), 30)
+        m = result['frames'][-1]['metrics']
+        assert result['network']['added_lanes'] == 3
+        assert m['baseline']['arrived'] > 0 and m['arrived'] > 0
+        for frame in result['frames']:
+            assert_accounting(frame)
+    finally:
+        sim.close()
+
+
+def test_api_restarts_sessions_when_lanes_change(network):
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from dynacity.contracts import UrbanStateSnapshot
+    from dynacity.traffic_sumo import install_routes
+    from datetime import date
+    app = FastAPI()
+    install_routes(app, network, UrbanStateSnapshot(snapshot_id='s', as_of=date(2024, 1, 1), data_version='t', objects=[]))
+    client = TestClient(app)
+    created = client.post('/v1/viewer/traffic/simulation', json={'lanes': {'0': 1}})
+    assert created.status_code == 200, created.text
+    key = created.json()['session']
+    assert client.post(f'/v1/viewer/traffic/simulation/{key}', json={'lanes': {'0': 1}}).status_code == 200
+    assert client.post(f'/v1/viewer/traffic/simulation/{key}', json={}).status_code == 409
+    assert client.post('/v1/viewer/traffic/simulation', json={'lanes': {'0': 9}}).status_code == 422
+    client.delete(f'/v1/viewer/traffic/simulation/{key}')
+
+
+def _turns(net, skip=()):
+    return {(e.getID(), l.getIndex(), c.getTo().getID(), c.getToLane().getIndex())
+            for e in net.getEdges() for l in e.getLanes() for c in l.getOutgoing()
+            if l.getID() not in skip and c.getToLane().getID() not in skip}
+
+
+def test_spare_lanes_keep_todays_turns_and_get_their_own(network, tmp_path):
+    try: _, _, converter = runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    import sumolib
+    from dynacity.traffic_sumo import export_network
+    model = replace(network, lanes=np.array([1, 2, 1, 1, 1, 1, 1.]))
+    (tmp_path / 'a').mkdir(); (tmp_path / 'b').mkdir()
+    today = sumolib.net.readNet(str(export_network(model, tmp_path / 'a', converter)))
+    spare = sumolib.net.readNet(str(export_network(model, tmp_path / 'b', converter, spare=[1, 0], base_net=today)))
+    assert spare.getEdge('1:1').getLaneNumber() == 3 and spare.getEdge('0:1').getLaneNumber() == 2
+    assert _turns(spare, skip={'1:1_2', '0:1_1'}) == _turns(today)
+    # The spare lane on road 1 leaves as its neighbour does and is reached from road 0's spare lane.
+    out = {(c.getTo().getID(), c.getToLane().getIndex()) for c in spare.getLane('1:1_2').getOutgoing()}
+    assert out == {(c.getTo().getID(), c.getToLane().getIndex()) for c in spare.getLane('1:1_1').getOutgoing()}
+    assert any(c.getToLane().getID() == '1:1_2' for c in spare.getLane('0:1_1').getOutgoing())
+
+
+def test_closed_spare_lanes_carry_no_cars_and_reopen_closed(network):
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    sim = Simulation(network, continuous=True, seed=7, spare=[0, 1])
+    try:
+        assert sim.spare_lanes == {'0:1_1', '1:1_1'} and sim.network_quality['spare_lanes'] == 2
+        c = sim.connections[0]
+        used = set()
+        for _ in range(6):
+            sim.advance(road_events(network, closed=[1]), 5, include_initial=False)
+            used |= {c.vehicle.getLaneID(v) for v in c.vehicle.getIDList()}
+            sim.advance(road_events(network), 5, include_initial=False)
+            used |= {c.vehicle.getLaneID(v) for v in c.vehicle.getIDList()}
+        assert not used & sim.spare_lanes
+        assert c.lane.getDisallowed('1:1_1') and sim.connections[1].lane.getDisallowed('1:1_1')
+    finally:
+        sim.close()
+
+
 @pytest.mark.parametrize('closed_road, open_first_s', [(1, 12), (5, 0)])
 def test_gridlock_breaker_never_moves_cars_a_closure_holds_or_blocks(network, monkeypatch, closed_road, open_first_s):
     """Road 1 closes under cars driving it (held); road 5 is every trip's last road (blocked, no detour)."""

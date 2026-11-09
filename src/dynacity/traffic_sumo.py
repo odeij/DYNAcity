@@ -22,12 +22,12 @@ import uuid
 import zlib
 from collections import OrderedDict
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
 from .contracts import HazardEvent
-from .traffic import TrafficModel, RoadDisruption, background_flow, lane_counts, LANE_WIDTH_M
+from .traffic import TrafficModel, RoadDisruption, background_flow, lane_counts, lanes_of, LANE_WIDTH_M
 from .viewer import _utm_zone, utm_to_lonlat
 
 ASSUMPTIONS = (
@@ -145,8 +145,31 @@ _NETWORK_CACHE_LOCK = threading.Lock()
 _NETWORK_CACHE_LIMIT = 32 * 1024 * 1024
 
 
-def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mixed=False) -> Path:
+def spare_connections(model: TrafficModel, base_net, spare) -> list[tuple[str, int, str, int]]:
+    """Every turn at the junctions a spare lane touches, as `base_net` has it, plus the spare lanes' own.
+
+    Written out explicitly, so netconvert keeps today's lane-to-lane turns and
+    only adds the spare lanes' copies: a spare lane leaves as the lane beside
+    it does, and is reached wherever the lane beside it is.
+    """
+    beside = {f'{i}:{d}': base_net.getEdge(f'{i}:{d}').getLaneNumber()
+              for i in spare for d in (1, -1) if base_net.hasEdge(f'{i}:{d}')}
+    nodes = {node for eid in beside for node in (base_net.getEdge(eid).getFromNode(), base_net.getEdge(eid).getToNode())}
+    turns = {(edge.getID(), lane.getIndex(), c.getTo().getID(), c.getToLane().getIndex())
+             for node in nodes for edge in node.getIncoming() for lane in edge.getLanes() for c in lane.getOutgoing()}
+    turns |= {(f, beside[f], t, b) for f, a, t, b in turns if beside.get(f) == a + 1}
+    turns |= {(f, a, t, beside[t]) for f, a, t, b in turns if beside.get(t) == b + 1}
+    return sorted(turns)
+
+
+def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mixed=False,
+                   spare=None, base_net=None) -> Path:
     """Preserve directed road identities and OSM connectivity, including parallel arcs.
+
+    `spare` roads get one more lane in each direction, the leftmost, with the
+    turns at their junctions copied from `base_net` (the same model without
+    spare lanes; `spare_connections`). The simulation keeps those lanes
+    closed until opened, so the network otherwise turns as today's.
 
     Speed limits are each road's free-flow speed (its fastest hourly median).
     The hourly medians already contain that hour's congestion, so using them
@@ -175,6 +198,9 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mix
                 n.set('type', 'traffic_light')
     allowed = sorted({'passenger'} | ({t.vclass for t in mobility.types} if mixed and mobility else set()))
     lanes = lane_counts(model)
+    spare = set(spare or ())
+    if spare and base_net is None:
+        raise ValueError('spare lanes need the network without them, to keep its turns')
     for i, points in enumerate(model.geometry):
         for direction in (1, -1):
             if model.oneway[i] == -direction:
@@ -183,7 +209,7 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mix
             ET.SubElement(edges, 'edge', id=f'{i}:{direction}',
                           **{'from': str(int(model.u[i] if direction == 1 else model.v[i])),
                              'to': str(int(model.v[i] if direction == 1 else model.u[i]))},
-                          numLanes=str(int(lanes[i])), width=str(LANE_WIDTH_M),
+                          numLanes=str(int(lanes[i]) + (i in spare)), width=str(LANE_WIDTH_M),
                           speed=str(max(1, float(model.free_kmh[i]) / 3.6)),
                           shape=' '.join(f'{x},{y}' for x, y in shape), allow=' '.join(allowed),
                           # An undivided two-way way describes the shared centre
@@ -196,6 +222,10 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mix
         into = 1 if int(model.v[source]) == node and model.oneway[source] >= 0 else -1
         out = 1 if int(model.u[target]) == node and model.oneway[target] >= 0 else -1
         ET.SubElement(connections, 'delete', **{'from': f'{source}:{into}', 'to': f'{target}:{out}'})
+    if spare:
+        for source, from_lane, target, to_lane in spare_connections(model, base_net, spare):
+            ET.SubElement(connections, 'connection', **{'from': source, 'to': target,
+                                                         'fromLane': str(from_lane), 'toLane': str(to_lane)})
     for name, root in (('nodes', nodes), ('edges', edges), ('connections', connections)):
         ET.ElementTree(root).write(directory / f'{name}.xml')
     net = directory / 'network.net.xml'
@@ -231,6 +261,27 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mix
                 _NETWORK_CACHE.popitem(last=False)
     return net
 
+
+
+# Lanes a viewer may add to one road in each direction it runs.
+MAX_ADDED_LANES = 4
+
+
+def widen(model: TrafficModel, lanes: dict[int, int]) -> TrafficModel:
+    """The model with `lanes` (road index -> lanes added in each direction) added.
+
+    Only the simulated network changes; demand stays that of the unchanged
+    model, so a run on the widened roads compares like for like with one on
+    the original ones.
+    """
+    out = lanes_of(model).copy()
+    for road, added in lanes.items():
+        if not 0 <= road < len(model):
+            raise ValueError(f'no road {road} in this traffic model ({len(model)} roads)')
+        if not 1 <= added <= MAX_ADDED_LANES:
+            raise ValueError(f'add between 1 and {MAX_ADDED_LANES} lanes to a road')
+        out[road] = lane_counts(model)[road] + added
+    return replace(model, lanes=out, _graph_cache={})
 
 
 def prewarm_network(model: TrafficModel, *, mixed=False) -> bool:
@@ -576,8 +627,19 @@ class BoundaryInflow:
 
 
 class Simulation:
-    def __init__(self, model: TrafficModel, hour=8, *, trips=None, seed=42, continuous=False, mixed=False):
+    def __init__(self, model: TrafficModel, hour=8, *, trips=None, seed=42, continuous=False, mixed=False,
+                 lanes=None, spare=None, interior_scale=None):
         self.model, self.hour = model, hour
+        # Lanes added by hand (road -> lanes each way). With any, this run drives
+        # the widened roads and the comparison run the original ones, both from
+        # the start with the same trips.
+        self.lanes = {int(road): int(added) for road, added in (lanes or {}).items()}
+        # Roads built with a spare lane each way, closed until opened (`open_spare`).
+        self.spare = sorted({int(road) for road in (spare or ())})
+        if self.spare and self.lanes:
+            raise ValueError('use spare lanes or added lanes, not both')
+        if any(not 0 <= road < len(model) for road in self.spare):
+            raise ValueError(f'spare lanes name a road outside this traffic model ({len(model)} roads)')
         self.mixed = mixed
         self.mobility = model.mobility
         self.seed = seed
@@ -616,15 +678,31 @@ class Simulation:
         self.entry_route_cache = {}
         self.traci, binary, converter = runtime()
         try:
-            path = export_network(model, Path(self.directory.name), converter, mixed=mixed)
             import sumolib
+            # Trips are drawn on the original roads, so every car's starting lane
+            # exists in both runs (added and spare lanes only add lane indices).
+            original = None
+            if self.lanes or self.spare:
+                (Path(self.directory.name) / 'original').mkdir()
+                original_path = export_network(model, Path(self.directory.name) / 'original', converter,
+                                               mixed=mixed)
+                original = sumolib.net.readNet(str(original_path))
+            path = export_network(widen(model, self.lanes) if self.lanes else model, Path(self.directory.name),
+                                  converter, mixed=mixed, spare=self.spare, base_net=original)
             self.net = sumolib.net.readNet(str(path))
+            original = original or self.net
+            self.spare_lanes = {f'{edge.getID()}_{edge.getLaneNumber() - 1}' for road in self.spare
+                                for edge in (self.net.getEdge(f'{road}:{d}') for d in (1, -1)
+                                             if self.net.hasEdge(f'{road}:{d}'))}
+            self.open_spare = set()
             represented = {int(e.getID().split(':')[0]) for e in self.net.getEdges()}
             self.network_quality = {'edges': len(self.net.getEdges()),
                                     'road_identity_sha256': road_identity(model),
                                     'signals': len(self.net.getTrafficLights()),
                                     'signal_source': 'osm' if model.signals is not None else 'guessed',
                                     'turn_bans': len(model.turn_bans),
+                                    'added_lanes': sum(self.lanes.values()),
+                                    'spare_lanes': len(self.spare_lanes),
                                     'excluded_roads': sorted(set(range(len(model))) - represented)}
             programs = {str(s.node): s for s in self.mobility.signals} if self.mobility else {}
             for node, program in programs.items():
@@ -635,10 +713,11 @@ class Simulation:
             self.network_quality['surveyed_signals'] = len(programs)
             self.network_quality['vehicle_types'] = {}
             self.network_quality['vehicle_mix'] = self.mobility.fleet.model_dump() if mixed else None
-            router = EdgeRouter(self.net)
-            self.trips = demand(model, self.net, hour, seed, router) if trips is None else list(trips)
+            router = EdgeRouter(original)
+            self.trips = demand(model, original, hour, seed, router) if trips is None else list(trips)
             self.initial_trips = len(self.trips)
-            self.inflow = BoundaryInflow(model,self.net,hour,seed,router=router) if continuous else None
+            self.inflow = (BoundaryInflow(model, original, hour, seed, router=router, interior_scale=interior_scale)
+                           if continuous else None)
             self.trip_ids = {t.id for t in self.trips}
             self.routes = {t.id: t.route for t in self.trips}
             self.held = set()
@@ -695,9 +774,13 @@ class Simulation:
                                   '--collision.action', 'warn', '--no-step-log', 'true',
                                   '--duration-log.disable', 'true', '--no-warnings', 'true']
             self._signal_programs = programs
-            for kind in ('scenario',):
+            runs = [('scenario', self._sumo_command)]
+            if self.lanes:
+                runs.append(('baseline', [str(original_path) if part == str(path) else part
+                                          for part in self._sumo_command]))
+            for kind, command in runs:
                 label = f'dynacity-{uuid.uuid4().hex}'
-                self.traci.start(self._sumo_command, label=label, stdout=subprocess.DEVNULL)
+                self.traci.start(command, label=label, stdout=subprocess.DEVNULL)
                 c = self.traci.getConnection(label)
                 self.connections.append(c)
                 for node, program in programs.items():
@@ -714,6 +797,8 @@ class Simulation:
                             c.trafficlight.setPhaseDuration(node, phase.duration_s - elapsed)
                             break
                         elapsed -= phase.duration_s
+                for lane in self.spare_lanes:
+                    c.lane.setDisallowed(lane, ['all'])
                 c.simulationStep()
                 # Before a disruption, comparison metrics come from the scenario.
                 # The baseline is overwritten and subscribed in fork(), so a
@@ -721,6 +806,14 @@ class Simulation:
                 if kind == 'scenario':
                     c.junction.subscribeContext(self.context_node, constants.CMD_GET_VEHICLE_VARIABLE,
                                                 self.context_radius, variables)
+                else:
+                    c.junction.subscribeContext(self.context_node, constants.CMD_GET_VEHICLE_VARIABLE,
+                                                self.context_radius, self.baseline_variables)
+            if self.lanes:
+                # Already two runs: no fork at the first closure.
+                self.subscribed[1] = True
+                self.arrivals = [{}, {}]
+                self.forked, self.fresh_fork = True, False
             c = self.connections[0]
             type_ids = [t.id for t in self.mobility.types] if mixed else ['DEFAULT_VEHTYPE']
             declared = {t.id: t for t in self.mobility.types} if self.mobility else {}
@@ -818,7 +911,8 @@ class Simulation:
             if (eid in closed) != (eid in self.closed):
                 for lane in edge.getLanes():
                     original = self.permissions[lane.getID()]
-                    if eid in closed:
+                    # A closed spare lane stays closed when its road reopens.
+                    if eid in closed or lane.getID() in self.spare_lanes - self.open_spare:
                         c.lane.setDisallowed(lane.getID(), ['all'])
                     else:
                         c.lane.setAllowed(lane.getID(), original)
@@ -1081,6 +1175,9 @@ class Simulation:
                 baseline.trafficlight.setProgram(node, 'observed')
             baseline.simulationStep()
             baseline.simulation.loadState(str(state))
+            # The comparison keeps today's roads: every spare lane closed.
+            for lane in self.spare_lanes:
+                baseline.lane.setDisallowed(lane, ['all'])
             baseline.junction.subscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE,
                                                self.context_radius, self.baseline_variables)
         except Exception:
@@ -1301,6 +1398,8 @@ def install_routes(app, model, snapshot, ground=None):
         continuous: bool = False
         mixed: bool = False
         closed: list[int] = Field(default_factory=list, max_length=1000)
+        # Lanes added by hand: road index -> lanes added in each direction.
+        lanes: dict[int, int] = Field(default_factory=dict, max_length=200)
         crashes: list[int] = Field(default_factory=list, max_length=20)
         hazards: list[HazardEvent] = Field(default_factory=list, max_length=8)
 
@@ -1325,7 +1424,8 @@ def install_routes(app, model, snapshot, ground=None):
                         del sessions[key]
                 if len(sessions) >= 4:
                     raise HTTPException(429, 'Four traffic sessions are active; close a viewer or retry after two minutes')
-                sim = Simulation(model, request.hour, continuous=request.continuous, mixed=request.mixed)
+                sim = Simulation(model, request.hour, continuous=request.continuous, mixed=request.mixed,
+                                 lanes=request.lanes)
                 key = uuid.uuid4().hex
                 sessions[key] = sim
             try:
@@ -1356,6 +1456,8 @@ def install_routes(app, model, snapshot, ground=None):
                 raise HTTPException(409, 'Create a new session when changing traffic demand')
             if sim.mixed != request.mixed:
                 raise HTTPException(409, 'Create a new session when changing vehicle mix')
+            if sim.lanes != request.lanes:
+                raise HTTPException(409, 'Create a new session when changing lanes')
             return sim.advance(disruption(request), request.seconds, include_initial=False,
                                view=request.view, limit=request.max_vehicles)
         except ValueError as exc:
