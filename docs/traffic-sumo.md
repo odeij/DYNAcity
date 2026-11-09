@@ -73,8 +73,10 @@ Closures prohibit passenger entry in both directed edges of a road. Vehicles ups
 
 `BoundaryInflow` identifies inward-facing directed roads in a fringe of the network
 bounding box (3% of the smaller dimension, at least 25 m). Their existing estimated
-directional vehicles/hour set seeded Poisson departure rates. Up to four reachable
-routes per origin are sampled toward outward-facing fringe roads; disconnected
+directional vehicles/hour set seeded Poisson departure rates. Each origin draws 32
+exits, with repeats, toward outward-facing fringe roads (`ENTRY_ROUTE_DRAWS`), and its
+trips choose among the draws evenly. Until 8 November 2026 an origin stopped at six
+draws, so one unlikely side street took a sixth of a motorway entry. Disconnected
 origins fall back to a legal local walk. These are explicit synthetic demand rules,
 not measured entry counts, an OD matrix or a calibrated trip-distribution model.
 
@@ -136,7 +138,21 @@ same full 3D endpoint vector with vertical thickness, avoiding shortened tilted
 boxes and surfaces protruding through asphalt. These display transitions are not
 surveyed longitudinal grades.
 
-Replay preserves junction blocking and disables time-based impatience. Junction collision checking is enabled. The adapter no longer calls the gridlock relocation helper, and SUMO teleportation remains disabled. Cars queue rather than being moved through occupied junctions or relocated to downstream roads. Gridlock can therefore persist where the assumed network, controls or demand are inconsistent; it must be addressed in those inputs rather than hidden by moving vehicles. Collision warnings are diagnostic, not proof of collision-free traffic.
+An earlier version never relaxed junction blocking and never moved a car, so that gridlock would show up in the inputs rather than be hidden. On the Al Masar al Akhdar corridor (November 2026) that made every run collapse, whatever the demand. A trace of the front car of every queue stuck over two minutes showed:
+
+- **Knots formed at single junctions while the network as a whole still ran at observed speeds.** Starting from an empty network at half the interior trip rate, simulated speeds were 1.0–1.1× observed at minutes 9–12, yet knots were already forming: two queues blocking each other, or a car stuck inside a junction behind a stopped one.
+- **Nothing could resolve a knot, so new trips queued into it.** "Next road full of stopped cars" became the main reason a front car could not move, and junctions with a stuck car grew by about 15 a minute.
+- **Lower demand and the starting fleet only changed when the collapse came.** Halving the interior trip rate delayed it from about minute 5 to minute 12. The initial fleet, with 111 of 2,001 directed roads seeded over 80% full, made it start at minute 2.
+- **Wrong lanes, missing turns, red lights and the map edge were rare causes.** Every first knot was at least 270 m inside the network.
+- **Driver impatience (SUMO's `--time-to-impatience` 180 s) barely helped:** 2,330 cars stuck at minute 15 against about 2,640.
+
+Knots are now resolved as drivers would resolve them, and every move is counted:
+
+- **A car may enter a junction past one that has stood in it for 60 s** (`JUNCTION_BLOCKER_S`, SUMO's `--ignore-junction-blocker`). SUMO has no counter for this; collision checking at junctions stays on as a diagnostic.
+- **The front car of a queue that has stood for 300 s moves ahead along its route** (`UNSTICK_AFTER_S`, `Simulation.unstick`). It moves to the start of the nearest of its next five roads with room and is counted in `unstuck`, separately for the comparison run. This is SUMO's default teleport time, but SUMO's own teleport is not used: in tests it moved cars that a closure held, or that had no detour, straight past the closure, and took them out of SUMO's vehicle list while in transit. `unstick` skips those cars, stops its search at a closed road, and keeps every car on the network.
+- **`unstick` runs every 10 simulated seconds** (`UNSTICK_EVERY_S`), with the whole fleet read on those steps, so its moves do not depend on request size or on whether cars are drawn (light mode).
+
+Impatience stays off. Collision warnings are diagnostic, not proof of collision-free traffic.
 
 
 Clipping the network at the map edge leaves stub entry roads, some only a few metres long, where a car cannot be inserted. Boundary inflow trips start on the first road of their route at least 60 m long (`MIN_ENTRY_M`). The boundary queue still grows: the busy entry trunks are congested back to the map edge, which stands for queues outside the modelled area.
@@ -156,7 +172,7 @@ Each road's speed limit is its free-flow speed: the fastest of its Tari'ak 2014�
 Metrics use exactly the displayed fleet, without extrapolation to citywide vehicles/hour:
 
 - `total = active + pending + arrived`; `pending` is awaiting safe insertion.
-- `unstuck` is always 0: the gridlock breaker is no longer called (see Gridlock).
+- `unstuck` counts front-of-queue cars moved ahead after standing `UNSTICK_AFTER_S` (see Gridlock); `baseline.unstuck` counts the comparison run's.
 - `rerouted` counts distinct vehicles whose SUMO route changed, not commands issued.
 - `stopped_on_closed` counts vehicles held within a newly closed edge.
 - `no_detour` counts active vehicles whose remaining route still contains a prohibited road; pending trips remain in `pending`.
