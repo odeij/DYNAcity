@@ -1,5 +1,9 @@
 # Reinforcement learning for flood adaptation and transport: reading and fit
 
+> Scope narrowed on 8 November 2026: per the instructions, the work applies this paper's
+> method to traffic plans on the corridor; floods remain an optional what-if. See
+> [simulator-learning-layer.md](simulator-learning-layer.md).
+
 Requested 3 November 2026: read the Copenhagen paper on reinforcement learning for
 flooding, see how it relates to what the traffic and mobility work here already
 shows, and apply it to traffic for a contribution. Mobility is more than cars, but
