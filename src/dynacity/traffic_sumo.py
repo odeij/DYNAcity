@@ -715,10 +715,9 @@ class Simulation:
         changed = closed != self.closed or self.last_factors is None or not np.array_equal(self.last_factors, disruption.speed_factor)
         if changed:
             self.entry_route_cache.clear()
-        if not changed:
-            candidates = set(c.vehicle.getIDList()) - self.seen | self.retry
-        else:
-            candidates = set(c.vehicle.getIDList())
+        present = set(c.vehicle.getIDList())
+        # A car left to retry may have arrived since; SUMO no longer knows it.
+        candidates = present - self.seen | self.retry & present if not changed else present
         for edge in self.net.getEdges() if changed else ():
             eid = edge.getID()
             i = int(eid.split(':')[0])
