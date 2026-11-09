@@ -106,7 +106,7 @@ test('road overlay follows simulated carriageway width, with a legacy fallback',
  assert.equal(run("roadWidth({cls:'residential',width_m:0})"),5);
 });
 function fixture(overrides = {}) {
- const context=vm.createContext({ui:{traffic:true,hour:8,closedRoads:new Set(),crashes:new Set()},
+ const context=vm.createContext({ui:{traffic:true,hour:8,closedRoads:new Set(),crashes:new Set(),addedLanes:new Map()},
   DATA:{traffic:{roads:[]}},currentHazards:()=>[],prepareRoads:()=>{},CAR_SPEEDUP:1,
   TRAFFIC_INITIAL_RATE:1,
   clamp01:x=>Math.max(0,Math.min(1,x)),renderTraffic:()=>{},render:()=>{},esc:x=>x,
@@ -500,4 +500,20 @@ test('road model outline appears only when the buildings reach well beyond the r
  assert.deepEqual(Array.from(extent([[1,1],[2,2]],[[0,0],[10,10]])),[1,1,2,2]);
  // Roads covering the buildings: nothing to outline.
  assert.equal(extent([[0,0],[10,10]],[[1,1],[9,9]]),null);
+});
+test('light mode asks for no cars and shades roads by smoothed stopped cars',()=>{
+ const {run}=fixture({roadLanes:r=>Math.max(1,Math.round(r.lanes||0))+(r.added??0)});
+ run(`ui.lightTraffic=true;trafficView=()=>[0,0,1,1];DATA.traffic.roads=[{len:75,lanes:1,oneway:1},{len:75,lanes:2,oneway:0}]`);
+ const request=run('simulationRequest()');
+ assert.equal(request.max_vehicles,0);
+ assert.equal(request.view,null);
+ // 75 m of one lane holds 10 cars: 5 stopped is half full.
+ run(`for(let t=0;t<=120;t++)updateJam({time_s:t,vehicles:[],metrics:{stopped_roads:[[0,5],[1,5]]}})`);
+ assert.ok(Math.abs(run('jamLevel[0]')-0.5)<0.01);
+ assert.ok(run('jamLevel[1]')<run('jamLevel[0]')/3,'four lanes hold four times the cars');
+ run(`for(let t=121;t<=150;t++)updateJam({time_s:t,vehicles:[],metrics:{stopped_roads:[]}})`);
+ assert.ok(run('jamLevel[0]')<0.2,'a cleared queue fades within half a minute');
+ // A new session starts its time again: the shading starts over.
+ run(`updateJam({time_s:0,vehicles:[],metrics:{stopped_roads:[]}})`);
+ assert.equal(run('jamLevel[0]'),0);
 });

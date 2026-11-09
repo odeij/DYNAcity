@@ -606,7 +606,9 @@ const metres = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round
 
 const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, imagery: 0, mode: 'scenario', answer: null, answerIds: null, drops: [], traffic: false, hour: 8, roadHighlight: null, buses: false, stationsOpen: false,
   trafficImpact: null, trafficStyle: 'street', mobilityMap: true, showSignals: true, mixed: false,
-  roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map() };
+  roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map(), addedLanes: new Map(), laneRevision: 0,
+  // Light traffic: SUMO runs as usual but no cars are sent or drawn; roads shade red by stuck cars.
+  lightTraffic: new URLSearchParams(location.search).get('light') === '1' };
 
 function rampColor(t, stops = RAMP) {
   const x = Math.max(0, Math.min(1, t)) * (stops.length - 1);
@@ -1117,8 +1119,13 @@ function envelope(ms, rise, hold, fall) {
 function animate() {
   cancelAnimationFrame(fxRaf);
   let measuredAt = performance.now(), frames = 0, drawMs = 0;
+  let lightDrawn = 0;
   const frame = () => {
     const start = performance.now();
+    if (ui.lightTraffic && ui.traffic && !pending && start >= fxEnd && start - lightDrawn < 250) {
+      fxRaf = requestAnimationFrame(frame); return;
+    }
+    lightDrawn = start;
     drawFx();
     if (trafficDebug && ui.traffic) {
       frames++; drawMs += performance.now() - start;
@@ -1195,7 +1202,13 @@ const TRAFFIC_INITIAL_RATE = 1;
 // Class widths are a fallback for older saved payloads. Live payload widths
 // use the same rounded lane counts and lane width as the SUMO network.
 const ROAD_WIDTH = { motorway: 14, trunk: 12, primary: 10, secondary: 8, tertiary: 7 };
-const roadWidth = (r) => Number.isFinite(r.width_m) && r.width_m > 0 ? r.width_m : (ROAD_WIDTH[r.cls.replace('_link', '')] ?? 5);
+// Lanes added by hand (`r.added`, each way) widen the road by SUMO's lane width.
+const LANE_WIDTH_M = 3.2, MAX_ADDED_LANES = 4;
+const roadWidth = (r) => (Number.isFinite(r.width_m) && r.width_m > 0 ? r.width_m : (ROAD_WIDTH[r.cls.replace('_link', '')] ?? 5))
+  + (r.added ?? 0) * LANE_WIDTH_M * (r.oneway ? 1 : 2);
+// Lanes in each direction it runs, as simulated (the SUMO network rounds them, at least one).
+const roadLanes = (r) => Math.max(1, Math.round(r.lanes || 0)) + (r.added ?? 0);
+const laneText = (r, n) => `${n} lane${n === 1 ? '' : 's'}${r.oneway ? '' : ' each way'}`;
 const FLOW = [hex(STATES.empty_or_parking.color), hex(STATES.active_construction.color), hex(STATES.demolished.color)];
 const CLOSED_RGB = [120, 20, 24], DETOUR_RGB = hex('#8a63e8');
 // The current road impact: from the last disaster, scenario, or road event.
@@ -1393,6 +1406,13 @@ function setTrafficStyle(style) {
   if(!['street','colours'].includes(style))return;
   ui.trafficStyle=style;renderTraffic();render();
 }
+// Same session either way: the server stops or resumes sending cars.
+function setLightTraffic(on) {
+  if (ui.lightTraffic === on) return;
+  ui.lightTraffic = on; resetJam();
+  if (on) { cars = []; trafficPoseA = trafficPoseB = null; trafficPoseRows = []; }
+  renderTraffic(); render();
+}
 // Built once: a new array would make deck.gl re-lay out every road path.
 let roadItems = null, surfaceItems = null, deckShadows = null, busLines = null;
 // Street appearance by OSM class: fast roads darker and without pavements,
@@ -1439,18 +1459,18 @@ function roadLayers() {
   const decks = (deckShadows ??= roads.filter((d) => d.r.lvl > 0).map((d) => ({ r: d.r, path: d.r.path.map((p) => [p[0], p[1], 0.01]) })));
   const faint = (d, rgba) => (d.r.lvl < 0 ? [rgba[0], rgba[1], rgba[2], 70] : rgba);
   const drape = {};
-  const street=ui.trafficStyle==='street',night=nightLevel();
+  const street=ui.trafficStyle==='street'||ui.lightTraffic,night=nightLevel();
   const out = [];
   // Pavements, then kerbs, then asphalt: every road's asphalt covers every
   // other road's pavement, so junctions stay clear without junction shapes.
   if(street)out.push(new deck.PathLayer({id:'road-pavements',data:surface,getPath:d=>d.r.path,
     getWidth:d=>roadWidth(d.r)+2*pavementWidth(d.r),widthUnits:'meters',widthMinPixels:1.2,
     getColor:shade(isDark()?[78,81,83,255]:[203,200,192,255],night,.6),capRounded:true,jointRounded:true,pickable:false,
-    updateTriggers:{getColor:[isDark(),night]},...drape}),
+    updateTriggers:{getColor:[isDark(),night],getWidth:ui.laneRevision},...drape}),
     new deck.PathLayer({id:'road-edges',data:surface,getPath:d=>d.r.path,
     getWidth:d=>roadWidth(d.r)+.65,widthUnits:'meters',widthMinPixels:1.2,
     getColor:shade(isDark()?[104,106,106,255]:[150,149,142,255],night,.6),capRounded:true,jointRounded:true,pickable:false,
-    updateTriggers:{getColor:[isDark(),night]},...drape}));
+    updateTriggers:{getColor:[isDark(),night],getWidth:ui.laneRevision},...drape}));
   const extent = trafficExtent();
   if (extent) {
     const [w, s, e, n] = extent;
@@ -1459,13 +1479,18 @@ function roadLayers() {
   }
   if (decks.length) out.push(new deck.PathLayer({ id: 'bridge-shadows', data: decks, getPath: (d) => d.path,
     getWidth: (d) => roadWidth(d.r) + 2, widthUnits: 'meters', widthMinPixels: 1, getColor: [20, 24, 28, 55],
-    capRounded: true, jointRounded: true, parameters: SOFT, pickable: false }));
+    capRounded: true, jointRounded: true, parameters: SOFT, pickable: false, updateTriggers: { getWidth: ui.laneRevision } }));
   out.push(...bridgeStructureLayers());
+  // Roads with lanes added by hand get a green edge.
+  const widened = roads.filter((d) => d.r.added);
+  if (widened.length) out.push(new deck.PathLayer({ id: 'added-lanes', data: widened, getPath: (d) => d.r.path,
+    getWidth: (d) => roadWidth(d.r) + 3, widthUnits: 'meters', widthMinPixels: 4, getColor: [40, 175, 90, 235],
+    capRounded: true, jointRounded: true, parameters: SOFT, pickable: false, ...drape }));
   out.push(new deck.PathLayer({
     id: 'roads', data: roads, getPath: (d) => d.r.path, widthUnits: 'meters', widthMinPixels: 1.2, capRounded: true, jointRounded: true,
     getWidth: (d) => roadWidth(d.r),
     getColor: (d) => roadClosed(d.i, impact) ? [...CLOSED_RGB, 235] : faint(d, street ? shade([...mappedRoadColour(d.r),255],night,.35) : [...flowColor(flowRatio(d.i, impact)), 210]),
-    updateTriggers: { getColor: [street, ui.hour, night, impact, closed.join(',')] }, parameters: SOFT, pickable: true, ...drape,
+    updateTriggers: { getColor: [street, ui.hour, night, impact, closed.join(',')], getWidth: ui.laneRevision }, parameters: SOFT, pickable: true, ...drape,
   }));
   if (ui.buses && DATA.traffic.bus_routes?.length) {
     const lines = (busLines ??= DATA.traffic.bus_routes.flatMap((bus) => bus.paths.map((path) => ({ bus, path }))));
@@ -1528,7 +1553,8 @@ function trafficView() {
 function simulationRequest() {
   return {hour:ui.hour, seconds:2, continuous:true, mixed:!!ui.mixed,
     closed:[...ui.closedRoads], crashes:[...ui.crashes], hazards:currentHazards(),
-    view:trafficView(), max_vehicles:TRAFFIC_MAX_SENT};
+    ...(ui.addedLanes.size ? {lanes:Object.fromEntries(ui.addedLanes)} : {}),
+    view:ui.lightTraffic ? null : trafficView(), max_vehicles:ui.lightTraffic ? 0 : TRAFFIC_MAX_SENT};
 }
 function simulationRevision() {
   const r = simulationRequest(); delete r.seconds; delete r.view; delete r.max_vehicles; return JSON.stringify(r);
@@ -1624,9 +1650,47 @@ function advanceCars(now) {
     c.pose.orientation[0]=c.bodyPitch;
   }
   trafficMetrics = a.metrics;
+  if (a !== jamFrame) updateJam(a);
   if (trafficFrames.at(-1).time_s - trafficClock < 4 || trafficRevision !== simulationRevision()) fetchTrafficFrames();
   // Metrics follow the displayed frame rather than the server's buffer head.
   if (Math.floor(a.time_s) !== trafficMetricSecond) { trafficMetricSecond = Math.floor(a.time_s); renderTraffic(); }
+}
+// How stuck each road is: stopped cars over the cars its lanes can hold
+// (one per 7.5 m per lane), smoothed over about half a simulated minute so
+// a red light reads as a pause and a queue that stays reads as a jam.
+const JAM_SMOOTH_S = 30, CAR_SPACE_M = 7.5;
+let jamLevel = null, jamFrame = null, jamTime = null, jamRevision = 0;
+function updateJam(frame) {
+  const roads = DATA.traffic?.roads;
+  if (!roads || !frame.metrics?.stopped_roads) return;
+  if (!jamLevel || jamLevel.length !== roads.length || jamTime === null || frame.time_s < jamTime) {
+    jamLevel = new Float32Array(roads.length); jamTime = frame.time_s;
+  }
+  const keep = Math.exp(-Math.max(0, frame.time_s - jamTime) / JAM_SMOOTH_S);
+  for (let i = 0; i < jamLevel.length; i++) jamLevel[i] *= keep;
+  for (const [i, n] of frame.metrics.stopped_roads) {
+    const r = roads[i]; if (!r) continue;
+    const room = Math.max(1, (r.len ?? 50) * roadLanes(r) * (r.oneway ? 1 : 2) / CAR_SPACE_M);
+    jamLevel[i] += (1 - keep) * Math.min(1, n / room);
+  }
+  jamFrame = frame; jamTime = frame.time_s; jamRevision++;
+}
+function resetJam() { jamLevel = null; jamFrame = null; jamTime = null; jamRevision++; }
+// Clear below a brief stop; bright red from there, darkening to deep crimson
+// once stopped cars fill about a third of the lanes.
+const JAM_FULL = 0.35;
+const jamShade = (v) => {
+  const t = clamp01(v / JAM_FULL);
+  if (t < 0.03) return [0, 0, 0, 0];
+  return [Math.round(255 - 125 * t), Math.round(95 - 95 * t), Math.round(80 - 70 * t), Math.round(170 + 85 * Math.sqrt(t))];
+};
+function jamLayers() {
+  if (!ui.traffic || !ui.lightTraffic || !roadItems) return [];
+  // Drawn over the road surface (same height), so it never loses the depth test to it.
+  return [new deck.PathLayer({ id: 'road-jam', data: roadItems, getPath: (d) => d.r.path,
+    getWidth: (d) => roadWidth(d.r) + 1, widthUnits: 'meters', widthMinPixels: 4, capRounded: true, jointRounded: true,
+    getColor: (d) => jamShade(jamLevel?.[d.i] ?? 0), parameters: ON_TOP, pickable: false,
+    updateTriggers: { getColor: jamRevision, getWidth: ui.laneRevision } })];
 }
 // Height of road `i` under a point, or null when the point is not on it. A
 // car inside a junction arrives as road 0 (SUMO's internal ":…" edge ids
@@ -1688,7 +1752,7 @@ function simulationSummary() {
   const m = trafficMetrics;
   if (!m) return '<div class="note">Starting SUMO traffic simulation…</div>';
   return `<div class="note">${m.active.toLocaleString()} driving · ${m.pending.toLocaleString()} awaiting entry · ${m.arrived.toLocaleString()} arrived / ${m.total.toLocaleString()} trips.<br>
-    ${m.rerouted} rerouted · ${m.no_detour} without a detour · ${m.stopped_on_closed ?? 0} stopped within closures · ${m.overdue} still travelling after their baseline arrival.
+    ${m.rerouted} rerouted · ${m.no_detour} without a detour · ${m.stopped_on_closed ?? 0} stopped within closures · ${m.overdue} still travelling after their baseline arrival.${m.unstuck ? ` ${m.unstuck.toLocaleString()} moved ahead after 5 minutes stuck in a knot.` : ''}
     ${m.mean_completed_delay_s === null ? 'Completed-trip delay pending.' : `Mean completed-trip delay: ${m.mean_completed_delay_s.toFixed(1)} s (${m.paired_arrivals} matched trips).`}${m.speed_check ? `<br>Simulated speed ${m.speed_check.simulated_kmh} km/h against ${m.speed_check.observed_kmh} observed at ${hourLabel(ui.hour)} (median ${m.speed_check.ratio_p50}×, ${m.speed_check.roads.toLocaleString()} roads).` : ''}${trafficNetwork?.excluded_roads?.length ? `<br>${trafficNetwork.excluded_roads.length} unsupported road geometry excluded; see integration notes.` : ''}</div>`;
 }
 function mobilityComparison() {
@@ -1700,13 +1764,16 @@ function mobilityComparison() {
   for (const [i, n] of m?.stopped_roads ?? []) roads.set(i, {...(roads.get(i) ?? {diverted:0}), stopped:n});
   const affected = [...roads].sort((a,b) => b[1].diverted-a[1].diverted || b[1].stopped-a[1].stopped).slice(0,5);
   return `<div class="lever" aria-label="Mobility comparison"><div class="t">Normal traffic vs your changes</div>
-    <div class="m">Choose “Make car-free”, then click road segments on the map. Click again to reopen.</div>
+    <div class="m">Choose “Make car-free”, then click road segments on the map. Click again to reopen. Choose “Add lane” to widen a road.</div>
     <div class="m">${selected.length ? `Selected car-free segments: ${selected.join(', ')}.` : 'No car-free segments selected.'}</div>
+    ${ui.addedLanes.size ? `<div class="m">Added lanes · “Normal” drives the original roads, “Your changes” the widened ones, from the start with the same trips:</div>
+      ${[...ui.addedLanes].map(([i, n]) => { const r = DATA.traffic.roads[i]; return `<div class="road-row"><span class="ln" style="background:rgb(40,175,90)"></span><span><bdi>${esc(r?.name || `Road segment ${i}`)}</bdi> · ${roadLanes(r) - n} → ${laneText(r, roadLanes(r))}</span>
+        <button type="button" class="more" data-lane-road="${i}" data-lane-delta="-1" aria-label="Remove a lane">−</button>${n < MAX_ADDED_LANES ? `<button type="button" class="more" data-lane-road="${i}" data-lane-delta="1" aria-label="Add a lane">+</button>` : ''}</div>`; }).join('')}` : ''}
     ${ui.crashes.size || currentHazards().length ? '<div class="m">This comparison also includes active crashes or disaster effects. Clear those separately for a mobility-only trial.</div>' : ''}
     ${m?.baseline ? `<div class="m">At ${Math.floor(trafficClock ?? 0)} simulated seconds · same trips, destinations and incoming demand.</div>
       <table class="mobility-table"><thead><tr><th scope="col">Trips / cars</th><th scope="col">Normal</th><th scope="col">Your changes</th></tr></thead><tbody>
-      ${row('Completed', 'arrived')}${row('On the road', 'active')}${row('Awaiting entry', 'pending')}${row('Stopped now', 'stopped')}</tbody></table>
-      <div class="m">${m.mean_completed_delay_s === null ? 'Extra travel time: waiting for trips to finish in both runs.' : `Extra travel time: ${m.mean_completed_delay_s.toFixed(1)} seconds on average (${m.paired_arrivals} trips finished in both runs).`}
+      ${row('Completed', 'arrived')}${row('On the road', 'active')}${row('Awaiting entry', 'pending')}${row('Stopped now', 'stopped')}${m.unstuck || m.baseline.unstuck ? row('Moved past a knot', 'unstuck') : ''}</tbody></table>
+      <div class="m">${m.mean_completed_delay_s === null ? 'Extra travel time: waiting for trips to finish in both runs.' : m.mean_completed_delay_s < 0 ? `Time saved: ${(-m.mean_completed_delay_s).toFixed(1)} seconds per trip on average (${m.paired_arrivals} trips finished in both runs).` : `Extra travel time: ${m.mean_completed_delay_s.toFixed(1)} seconds on average (${m.paired_arrivals} trips finished in both runs).`}
       ${m.overdue} trips finished in normal traffic but are still travelling with your changes. ${m.no_detour} active trip${m.no_detour === 1 ? ' has' : 's have'} no available detour.</div>
       <div class="m">${affected.length ? 'Roads with diverted or stopped cars right now:' : 'No diverted or stopped cars on road segments right now.'}</div>
       ${affected.map(([i, n]) => `<button type="button" class="more" data-mobility-road="${i}"><bdi>${esc(DATA.traffic.roads[i]?.name || `Road segment ${i}`)}</bdi> · ${n.diverted} diverted · ${n.stopped} stopped</button>`).join('')}
@@ -1743,6 +1810,7 @@ function carLayers(now) {
   if (!ui.traffic) return [];
   const t = calm.matches ? 0 : now;
   advanceCars(calm.matches ? (carTime ?? now) : now);
+  if (ui.lightTraffic) return jamLayers();
   if (!cars.length) return [];
   const vp = !map && deckgl?.getViewports()[0];
   const zoom = map ? map.getZoom() : vp?.zoom ?? 0;
@@ -1941,7 +2009,7 @@ function corridorLayers() {
   if (!c) return [];
   return [
     new deck.PathLayer({ id: 'corridor-outline', data: [{ path: c.outline }], getPath: (d) => d.path,
-      getColor: isDark() ? [126, 200, 140, 170] : [46, 125, 70, 170], getWidth: 2, widthUnits: 'pixels',
+      getColor: isDark() ? [110, 230, 140, 230] : [30, 150, 70, 230], getWidth: 3, widthUnits: 'pixels',
       parameters: SOFT, pickable: false, updateTriggers: { getColor: isDark() } }),
     new deck.PathLayer({ id: 'corridor-line', data: c.lines.map((path) => ({ path })), getPath: (d) => d.path,
       getColor: [62, 160, 88, 150], getWidth: 7, widthUnits: 'meters', widthMinPixels: 3,
@@ -2177,7 +2245,8 @@ function requestTraffic() {
 function setRoadTool(tool) {
   ui.roadTool = ui.roadTool === tool ? null : tool;
   $('progress').textContent = ui.roadTool === 'close' ? 'Click a road segment to make it car-free · click again to reopen it'
-    : ui.roadTool === 'crash' ? 'Click a road to put a crash on it · click the crash to clear it' : '';
+    : ui.roadTool === 'crash' ? 'Click a road to put a crash on it · click the crash to clear it'
+    : ui.roadTool === 'lane' ? 'Click a road to add a lane · remove added lanes from the Traffic panel' : '';
   renderTraffic(); render();
 }
 function toggleRoadEvent(i, at) {
@@ -2188,7 +2257,20 @@ function toggleRoadEvent(i, at) {
   if (ui.crashes.has(i) && at) ui.crashSites.set(i, at.slice(0, 2)); else ui.crashSites.delete(i);
   prepareCars(); renderTraffic(); render(); requestTraffic();
 }
+function changeLanes(i, delta) {
+  const r = DATA.traffic.roads[i], n = Math.max(0, Math.min(MAX_ADDED_LANES, (ui.addedLanes.get(i) ?? 0) + delta));
+  if (!r || n === (r.added ?? 0)) return;
+  if (n) ui.addedLanes.set(i, n); else ui.addedLanes.delete(i);
+  r.added = n;
+  ui.laneRevision++; streetDetailsCache = null; bridgeStructureCache = null;
+  // New lanes make a new road network: both runs start again, on the same trips.
+  closeTrafficSession(); cars = []; resetJam(); prepareCars(); renderTraffic(); render();
+}
 function clearRoadEvents() {
+  const lanes = ui.addedLanes.size > 0;
+  for (const i of ui.addedLanes.keys()) DATA.traffic.roads[i].added = 0;
+  ui.addedLanes.clear();
+  if (lanes) { ui.laneRevision++; streetDetailsCache = null; bridgeStructureCache = null; closeTrafficSession(); cars = []; }
   ui.closedRoads.clear(); ui.crashes.clear(); ui.crashSites.clear(); ui.roadTool = null; $('progress').textContent = '';
   prepareCars(); renderTraffic(); render(); requestTraffic();
 }
@@ -2243,19 +2325,24 @@ function renderTraffic() {
   const t = roadImpact();
   const est = DATA.traffic.roads.filter((r) => r.est).length;
   const swatch = (rgb) => `rgb(${rgb.join(',')})`;
-  const events = ui.closedRoads.size + ui.crashes.size;
+  const events = ui.closedRoads.size + ui.crashes.size + ui.addedLanes.size;
   const tools = DATA.api ? `<div class="row" style="display:flex;align-items:center;gap:8px;margin:2px 0 10px">
       <div class="seg" role="group" aria-label="Road tools">
         <button type="button" data-road-tool="close" aria-pressed="${ui.roadTool === 'close'}">Make car-free</button>
-        <button type="button" data-road-tool="crash" aria-pressed="${ui.roadTool === 'crash'}">Crash</button></div>
+        <button type="button" data-road-tool="crash" aria-pressed="${ui.roadTool === 'crash'}">Crash</button>
+        <button type="button" data-road-tool="lane" aria-pressed="${ui.roadTool === 'lane'}">Add lane</button></div>
       ${events ? `<button type="button" class="more" data-road-clear style="border:1px solid var(--line);background:var(--control);border-radius:999px;padding:5px 10px;font-size:12px">Clear ${events}</button>` : ''}</div>` : '';
-  const appearance = `<div class="seg" role="group" aria-label="Road appearance" style="margin-bottom:10px">
+  const mode = `<div class="seg" role="group" aria-label="Simulation display" style="margin-bottom:10px">
+    <button type="button" data-light-traffic="0" aria-pressed="${!ui.lightTraffic}">Live cars</button>
+    <button type="button" data-light-traffic="1" aria-pressed="${ui.lightTraffic}">Jam shading (light)</button></div>`;
+  const appearance = ui.lightTraffic ? `<div class="road-row"><span class="ln" style="background:linear-gradient(90deg,rgb(255,95,80),rgb(130,0,10))"></span><span>Stuck cars: bright red for short stops, deep crimson where stopped cars fill about a third of the lanes (30 s average)</span></div>
+    <div class="note" style="margin-bottom:10px">No cars are drawn or sent; SUMO still simulates every car, and the comparison below is the same.</div>` : `<div class="seg" role="group" aria-label="Road appearance" style="margin-bottom:10px">
     <button type="button" data-traffic-style="street" aria-pressed="${ui.trafficStyle==='street'}">Street view</button>
     <button type="button" data-traffic-style="colours" aria-pressed="${ui.trafficStyle!=='street'}">Traffic colours</button></div>`;
   // Keep focused controls and expanded source details alive between replay samples.
   const signalControl=`<label class="road-row"><input type="checkbox" data-signal-states ${ui.showSignals?'checked':''}>Show simulated traffic lights</label>
     <div class="note">Zoom in for traffic-light poles with red, amber and green lamps. Pole placement is illustrative; timings are assumed unless a surveyed program is loaded.</div>`;
-  const controls=appearance+signalControl+tools,pilot=mobilityPilotPanel();
+  const controls=mode+appearance+(ui.lightTraffic?'':signalControl)+tools,pilot=mobilityPilotPanel();
   if($('traffic-controls').dataset.content!==controls) {
     $('traffic-controls').innerHTML=controls;$('traffic-controls').dataset.content=controls;
   }
@@ -2278,7 +2365,7 @@ function renderTraffic() {
     ${DATA.traffic.bus_routes?.length ? `<label class="road-row" style="cursor:pointer"><input type="checkbox" data-buses ${ui.buses ? 'checked' : ''} style="margin:0;accent-color:#0e8f7e"><span>Bus and van routes (${DATA.traffic.bus_routes.length}, OpenStreetMap)</span></label>
       ${ui.buses ? `<div class="road-row"><span class="ln" style="background:${swatch(BUS_RGB)}"></span><span>Route</span></div>${t?.bus_routes_hit?.length ? `<div class="road-row"><span class="ln" style="background:${swatch(busCutRgb())}"></span><span>Route cut by a closure</span></div>` : ''}` : ''}` : ''}
     ${stationRows()}
-    <div class="note">SUMO generates destination-based trips, car following, lane queues and junction controls. Closures reroute this same fleet; vehicles without detours remain accounted for and resume after reopening. Traffic colours shows each road's median speed at this hour compared with its fastest hour. ${est.toLocaleString()} of ${DATA.traffic.roads.length.toLocaleString()} roads had too few readings and borrow their road class's profile. These are simulated trajectories, not measured GPS trips or a live vehicle count. Destinations and signal timing are assumptions. Demand uses 2016–17 class counts; speeds predate 2020. ${trafficMetrics?.demand?.mode==='boundary_inflow' ? 'New cars continue entering through network-fringe roads at estimated historical rates.' : 'Waiting for continuous-entry demand information.'}${t ? ' Closure and hazard slowdown rules are illustrative assumptions.' : ''}</div>`;
+    <div class="note">SUMO generates destination-based trips, car following, lane queues and junction controls. Knots resolve as drivers would: a car may enter a junction past one that has stood in it a minute, and the front car of a queue stuck five minutes moves ahead along its route (counted above; never past a closure). Closures reroute this same fleet; vehicles without detours remain accounted for and resume after reopening. Traffic colours shows each road's median speed at this hour compared with its fastest hour. ${est.toLocaleString()} of ${DATA.traffic.roads.length.toLocaleString()} roads had too few readings and borrow their road class's profile. These are simulated trajectories, not measured GPS trips or a live vehicle count. Destinations and signal timing are assumptions. Demand uses 2016–17 class counts; speeds predate 2020. ${trafficMetrics?.demand?.mode==='boundary_inflow' ? 'New cars continue entering through network-fringe roads at estimated historical rates.' : 'Waiting for continuous-entry demand information.'}${t ? ' Closure and hazard slowdown rules are illustrative assumptions.' : ''}</div>`;
 }
 
 // ---- meshes (metres; x east, y north, z up), flat-shaded triangle lists ----
@@ -3168,7 +3255,7 @@ const deckProps = () => ({
   onHover: showTip,
   // Roads are thin; a few pixels of slack makes them clickable.
   pickingRadius: 6,
-  onClick: ({ object, coordinate }) => { if (object?.beirutModel != null || (beirutOverlay.data && object?.b)) { showBeirutRecord(object,true); return; } if (object?.bus || object?.survey || object?.feature || object?.signal || object?.signalJunction || object?.properties?.kind || object?.bridgeStructure) return; if (object?.r) { if (ui.roadTool) toggleRoadEvent(object.i, coordinate); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
+  onClick: ({ object, coordinate }) => { if (object?.beirutModel != null || (beirutOverlay.data && object?.b)) { showBeirutRecord(object,true); return; } if (object?.bus || object?.survey || object?.feature || object?.signal || object?.signalJunction || object?.properties?.kind || object?.bridgeStructure) return; if (object?.r) { if (ui.roadTool === 'lane') changeLanes(object.i, 1); else if (ui.roadTool) toggleRoadEvent(object.i, coordinate); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
 });
 
 function linkedMapCamera() {
@@ -3301,7 +3388,8 @@ function roadTip(tip, { r, i }, x, y) {
   const closed = roadClosed(i, impact);
   const jam = impact?.jamMap?.get(i);
   tip.innerHTML = `<div class="h"><bdi>${esc(r.name || 'Unnamed road')}</bdi></div>
-    <div class="s">${esc(r.cls.replace(/_/g, ' '))}${r.oneway ? ' · one-way' : ''}${r.lanes ? ` · ${r.lanes} lane${r.lanes === 1 ? '' : 's'} each way` : ''}</div>
+    <div class="s">${esc(r.cls.replace(/_/g, ' '))}${r.oneway ? ' · one-way' : ''} · ${laneText(r, roadLanes(r))}${r.added ? ` (${r.added} added)` : ''}</div>
+    ${ui.roadTool === 'lane' ? `<div class="s" style="margin:4px 0;color:rgb(40,150,80);font-weight:600">${(r.added ?? 0) < MAX_ADDED_LANES ? `Click to add a lane: ${roadLanes(r)} → ${laneText(r, roadLanes(r) + 1)}` : 'Lane limit reached for this road'}</div>` : ''}
     <div class="s" style="margin:6px 0 0">${closed ? 'Closed' : `${Math.round(r.speed[ui.hour] * slowOf(impact, i))} km/h at ${hourLabel(ui.hour)}${jam ? ` (normally ${r.speed[ui.hour]}; detour traffic)` : ''} · fastest ${r.free} km/h`}</div>
     ${q !== null ? `<div class="s">About ${q.toLocaleString()} vehicles an hour ${r.oneway ? 'in its direction' : 'each way'} (estimate from its class and lanes)</div>` : ''}
     <div class="s">Historical speeds · ${esc(DATA.traffic.period)}${impact ? ' · illustrative impact' : ''}</div><div class="s">${r.est ? 'Few readings: speeds borrowed from its road class' : `${r.n.toLocaleString()} probe readings`}</div>`;
@@ -4280,6 +4368,8 @@ function wire() {
     if (next !== ui.roadHighlight && (next?.length || ui.roadHighlight)) { ui.roadHighlight = next?.length ? next : null; render(); }
   });
   $('p-traffic').addEventListener('click', (e) => {
+    const light=e.target.closest('[data-light-traffic]');
+    if(light){setLightTraffic(light.dataset.lightTraffic==='1');return;}
     const appearance=e.target.closest('[data-traffic-style]');
     if(appearance){setTrafficStyle(appearance.dataset.trafficStyle);return;}
     const road = e.target.closest('[data-mobility-road]');
@@ -4287,6 +4377,8 @@ function wire() {
     if (e.target.closest('[data-mobility-restart]')) {
       closeTrafficSession(); cars = []; prepareCars(); renderTraffic(); render(); return;
     }
+    const lane = e.target.closest('[data-lane-road]');
+    if (lane) { changeLanes(Number(lane.dataset.laneRoad), Number(lane.dataset.laneDelta)); return; }
     const tool = e.target.closest('[data-road-tool]');
     if (tool) { setRoadTool(tool.dataset.roadTool); return; }
     if (e.target.closest('[data-road-clear]')) clearRoadEvents();
