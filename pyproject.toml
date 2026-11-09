@@ -50,6 +50,7 @@ graph = [
 sumo = [
   "eclipse-sumo==1.22.0",
   "scipy>=1.14,<2",
+  "sumolib==1.22.0",
   "traci==1.22.0",
 ]
 
