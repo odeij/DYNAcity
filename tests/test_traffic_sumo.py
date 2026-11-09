@@ -1,4 +1,5 @@
 """Real SUMO integration tests; skip explicitly when the optional runtime is absent."""
+from dataclasses import replace
 import numpy as np
 import pytest
 from dynacity.traffic import TrafficModel, road_events
@@ -683,3 +684,23 @@ def test_gridlock_breaker_moves_a_stuck_front_car_ahead(network, monkeypatch):
         assert c.vehicle.getRoadID('knot') != '0:1'
     finally:
         sim.close()
+
+
+def test_entries_and_exits_follow_the_cut_nodes(network, tmp_path):
+    try: _, _, converter = runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    import sumolib
+    from dynacity.traffic_sumo import BoundaryInflow, export_network
+    inflow_8 = [0.0] * 24; inflow_8[8] = 360.0
+    out_8 = [0.0] * 24; out_8[8] = 300.0
+    # Traffic comes in at node 6 and leaves at node 5; nothing at the other ends.
+    model = replace(network, boundary={6: (inflow_8, [0.0] * 24), 5: ([0.0] * 24, out_8)})
+    net = sumolib.net.readNet(str(export_network(model, tmp_path, converter)))
+    inflow = BoundaryInflow(model, net, 8, 42)
+    assert inflow.origins == 1 and inflow.expected_vph == pytest.approx(360)
+    assert [e.getID() for e in inflow.exits] == ['5:1'] and inflow.exit_weight == {'5:1': 300.0}
+    assert all(route[-1] == '5:1' for route in inflow.routes('6:1'))
+    # Interior trips only make up the fleet the entries do not bring.
+    assert inflow.interior_vph == 0 if inflow.entering_fleet >= inflow.represented_fleet else inflow.interior_vph > 0
+    # No traffic at this hour: no entries.
+    assert BoundaryInflow(model, net, 3, 42).origins == 0

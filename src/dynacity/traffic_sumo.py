@@ -101,6 +101,22 @@ MIN_ENTRY_M = 60.0
 # data are loaded.
 INTERIOR_MIN_TRIP_M = 1000.0
 INTERIOR_SAMPLE_TRIPS = 150
+# Share of that replacement rate actually started (`BoundaryInflow`). At the
+# full rate the fleet outgrows what the junctions clear and the run gridlocks;
+# see docs/traffic-sumo.md for the calibration against observed speeds.
+INTERIOR_DEMAND_SCALE = 1.0
+# A car entering from outside leaves by an exit drawn in proportion to the
+# exit's outflow times exp(-free-flow seconds to it / this). Without it, cars
+# crossed the whole area to any exit and the entries alone kept twice the
+# fleet the counts imply on the corridor (docs/traffic-sumo.md#entries-and-exits).
+EXIT_DETERRENCE_S = 60.0
+# Exits drawn per entry, with repeats; its trips choose among the draws
+# evenly, so each draw carries 1/ENTRY_ROUTE_DRAWS of the entry's flow. With
+# six draws, one unlikely side street took a sixth of a 4,500-car/h motorway
+# entry, and those queues spread onto the corridor's main roads.
+ENTRY_ROUTE_DRAWS = 32
+
+
 
 
 def trim_entry(route, length_of, min_length=MIN_ENTRY_M):
@@ -335,6 +351,11 @@ class EdgeRouter:
         self.cached_origins = cached_origins
         self.predecessors = {}
 
+    def seconds(self, origin):
+        """Free-flow seconds from `origin` to every road, by this router's index; inf where unreachable."""
+        from scipy.sparse.csgraph import dijkstra
+        return dijkstra(self.graph, indices=self.index[origin])
+
     def search(self, origin, limit=np.inf):
         """Predecessors of every road reachable from `origin` within `limit` seconds."""
         from scipy.sparse.csgraph import dijkstra
@@ -359,13 +380,21 @@ class EdgeRouter:
 
 
 class BoundaryInflow:
-    """Seeded Poisson entries on inward-facing network-fringe roads, plus
-    interior trips that keep the represented fleet from draining.
+    """Seeded Poisson entries where traffic comes in from outside the area,
+    plus interior trips that keep the represented fleet from draining.
+
+    On a road subset (`TrafficModel.boundary`, from `pilot_network`) traffic
+    enters and leaves at the cut nodes, at the flows the removed roads carry
+    there; otherwise at roads near the network's bounding box, at their own
+    flow. An entering car leaves by an exit drawn in proportion to its
+    outflow. Interior trips then make up only the represented fleet the
+    entries do not already bring.
 
     This is a transparent demand assumption, not an observed OD matrix. The
     schedule is shared by both runs and never responds to scenario arrivals.
     """
-    def __init__(self, model, net, hour, seed, *, interior=True, router=None):
+    def __init__(self, model, net, hour, seed, *, interior=True, router=None, interior_scale=None,
+                 exit_deterrence_s=None):
         self.net = net
         self.rng = random.Random(seed + 104729)
         self.interior_rng = random.Random(seed + 7919)
@@ -376,9 +405,55 @@ class BoundaryInflow:
         self.generated, self.expected_vph, self.interior_vph = 0, 0.0, 0.0
         # Trips started inside the area, told apart from boundary entries for the panel.
         self.interior_ids = set()
+        self.interior_scale = INTERIOR_DEMAND_SCALE if interior_scale is None else float(interior_scale)
+        if not self.interior_scale > 0:
+            raise ValueError('interior demand scale must be positive')
+        self.exit_deterrence_s = EXIT_DETERRENCE_S if exit_deterrence_s is None else float(exit_deterrence_s)
+        if not self.exit_deterrence_s > 0:
+            raise ValueError('exit deterrence must be positive')
+        # How much traffic leaves by each exit road (vehicles/h), for drawing destinations.
+        self.exit_weight = {}
+        flow = np.nan_to_num(background_flow(model)[:, hour])
+        if model.boundary is not None:
+            self._cut_entries(model, hour, flow)
+        else:
+            self._fringe_entries(flow)
+        self.origins = len(self.heap)
+        if interior:
+            self._schedule_interior(model, hour)
+
+    def _cut_entries(self, model, hour, flow):
+        """Entries and exits at the nodes where a subset was cut, at the removed roads' flows.
+
+        A cut node's inflow is shared among the kept roads leaving it, and its
+        outflow among those arriving, in proportion to their own flows.
+        """
+        leaving, arriving = {}, {}
+        for edge in sorted(self.net.getEdges(), key=lambda e: e.getID()):
+            leaving.setdefault(edge.getFromNode().getID(), []).append(edge)
+            arriving.setdefault(edge.getToNode().getID(), []).append(edge)
+
+        def shares(edges, total):
+            weights = [float(flow[int(e.getID().split(':')[0])]) for e in edges]
+            whole = sum(weights)
+            return [(e, total * (w / whole if whole > 0 else 1 / len(edges))) for e, w in zip(edges, weights)]
+
+        for node in sorted(model.boundary):
+            entering, exiting = model.boundary[node]
+            for edge, vph in shares(leaving.get(str(node), []), float(entering[hour])) if entering[hour] > 0 else ():
+                if vph > 0:
+                    self.expected_vph += vph
+                    heapq.heappush(self.heap, (self.rng.expovariate(vph / 3600), 'boundary', edge.getID(), vph / 3600))
+            for edge, vph in shares(arriving.get(str(node), []), float(exiting[hour])) if exiting[hour] > 0 else ():
+                if vph > 0:
+                    self.exits.append(edge)
+                    self.exit_weight[edge.getID()] = vph
+
+    def _fringe_entries(self, flow):
+        """Without a cut: roads near the network's bounding box, entering or leaving it."""
+        net = self.net
         (west, south), (east, north) = net.getBBoxXY()
         margin = max(25, min(east-west, north-south)*.03)
-        flow = background_flow(model)[:, hour]
         for edge in sorted(net.getEdges(), key=lambda e:e.getID()):
             x,y = edge.getFromNode().getCoord()
             xx,yy = edge.getToNode().getCoord()
@@ -386,15 +461,13 @@ class BoundaryInflow:
                       or (y <= south+margin and yy>y+1) or (y >= north-margin and yy<y-1))
             outward = ((xx <= west+margin and xx<x-1) or (xx >= east-margin and xx>x+1)
                        or (yy <= south+margin and yy<y-1) or (yy >= north-margin and yy>y+1))
+            rate = float(flow[int(edge.getID().split(':')[0])])/3600
             if outward:
                 self.exits.append(edge)
-            rate = float(flow[int(edge.getID().split(':')[0])])/3600
+                self.exit_weight[edge.getID()] = max(rate*3600, 1.0)
             if inward and math.isfinite(rate) and rate>0:
                 self.expected_vph += rate*3600
                 heapq.heappush(self.heap,(self.rng.expovariate(rate),'boundary',edge.getID(),rate))
-        self.origins = len(self.heap)
-        if interior:
-            self._schedule_interior(model, hour)
 
     def _schedule_interior(self, model, hour):
         speed = np.maximum(3, model.speed_kmh[:, hour])
@@ -410,14 +483,23 @@ class BoundaryInflow:
         fleet = float(on_road.sum())
         if not self.places or fleet <= 0:
             return
-        sample = self.interior_rng.choices(self.places, weights=self.weights, k=INTERIOR_SAMPLE_TRIPS)
-        seconds = []
-        for origin in sample:
-            route = self.interior_routes(origin.getID())[0]
+
+        def trip_seconds(route):
             i = [int(e.split(':')[0]) for e in route]
-            seconds.append(float((model.length_m[i] / (speed[i] / 3.6)).sum()))
-        # Replace the fleet once per mean trip time; never faster than once a minute.
-        total = fleet / max(60.0, float(np.mean(seconds)))
+            return float((model.length_m[i] / (speed[i] / 3.6)).sum())
+
+        # Cars the entries keep on the network: each entry's rate times its trips' duration.
+        self.represented_fleet = fleet
+        self.entering_fleet = sum(rate * float(np.mean([trip_seconds(r) for r in self.routes(edge_id)]))
+                                  for _, kind, edge_id, rate in sorted(self.heap) if kind == 'boundary')
+        missing = fleet - self.entering_fleet
+        if missing <= 0:
+            return
+        sample = self.interior_rng.choices(self.places, weights=self.weights, k=INTERIOR_SAMPLE_TRIPS)
+        seconds = [trip_seconds(self.interior_routes(origin.getID())[0]) for origin in sample]
+        # Replace the cars the entries do not bring once per mean trip time;
+        # never faster than once a minute.
+        total = self.interior_scale * missing / max(60.0, float(np.mean(seconds)))
         self.interior_vph = total * 3600
         for edge, weight in zip(self.places, self.weights):
             rate = total * weight / fleet
@@ -444,16 +526,26 @@ class BoundaryInflow:
         return self.interior_pool[edge_id]
 
     def routes(self, edge_id):
+        """A few routes from this entry, to exits drawn by outflow and nearness (`EXIT_DETERRENCE_S`).
+
+        Drawn with repeats, so choosing among them evenly keeps the proportion.
+        An exit on the entry's own road (straight back out) is never drawn.
+        """
         if edge_id not in self.pool:
             origin = self.net.getEdge(edge_id)
-            candidates = [e for e in self.exits if e.getID()!=edge_id]
-            paths=[]
-            for target in self.rng.sample(candidates,min(12,len(candidates))):
-                route=self.router(edge_id,target.getID())
-                if len(route)>1:
-                    paths.append(route)
-                    if len(paths)==4:
-                        break
+            road = edge_id.split(':')[0]
+            candidates = [e for e in self.exits if e.getID().split(':')[0] != road]
+            seconds = self.router.seconds(edge_id)
+            weights = [self.exit_weight.get(e.getID(), 1.0) * math.exp(-seconds[self.router.index[e.getID()]] / self.exit_deterrence_s)
+                       for e in candidates]
+            if not sum(weights) > 0:
+                candidates = []
+            paths,routed=[],{}
+            for target in (self.rng.choices(candidates, weights=weights, k=ENTRY_ROUTE_DRAWS) if candidates else ()):
+                if target.getID() not in routed:
+                    routed[target.getID()]=self.router(edge_id,target.getID())
+                if len(routed[target.getID()])>1:
+                    paths.append(routed[target.getID()])
             # A disconnected fringe still gets accountable local trips.
             if not paths:
                 route=[origin]
@@ -888,6 +980,9 @@ class Simulation:
             'entry_roads': inflow.origins if inflow else 0,
             'expected_entry_vph': round(inflow.expected_vph,1) if inflow else 0,
             'interior_vph': round(inflow.interior_vph,1) if inflow else 0,
+            # Cars the counts put on these roads, and how many of them the entries bring.
+            'represented_fleet': round(getattr(inflow, 'represented_fleet', 0)) if inflow else 0,
+            'entering_fleet': round(getattr(inflow, 'entering_fleet', 0)) if inflow else 0,
         }
         if states.keys() != active_ids:
             raise RuntimeError('SUMO replay is missing an active vehicle')
