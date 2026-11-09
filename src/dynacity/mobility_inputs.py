@@ -178,6 +178,23 @@ def pilot_network(model, bounds, note='Whole-road subset for the Mar Mikhael mob
     arrays = {name: getattr(model, name)[keep].copy() for name in
               ('u', 'v', 'length_m', 'oneway', 'speed_kmh', 'free_kmh', 'readings', 'estimated')}
     lists = {name: [getattr(model, name)[i] for i in keep] for name in ('geometry', 'highway', 'way_id')}
+    # Where the subset was cut: the traffic the removed roads bring into, and
+    # take out of, each kept node, hour by hour (per-direction flows).
+    import numpy as np
+    from .traffic import background_flow
+    flows = np.nan_to_num(background_flow(model))
+    nodes, kept = set(arrays['u'].tolist()) | set(arrays['v'].tolist()), set(keep)
+    boundary = {}
+    for i in range(len(model)):
+        u, v, oneway = int(model.u[i]), int(model.v[i]), int(model.oneway[i])
+        if i in kept or not (u in nodes or v in nodes):
+            continue
+        # Forward (u→v) runs when oneway >= 0, backward (v→u) when oneway <= 0.
+        for node, into, out in ((v, oneway >= 0, oneway <= 0), (u, oneway <= 0, oneway >= 0)):
+            if node in nodes:
+                entering, leaving = boundary.setdefault(node, (np.zeros(24), np.zeros(24)))
+                entering += flows[i] if into else 0
+                leaving += flows[i] if out else 0
     ways = set(lists['way_id'])
     buses = [dict(r, ways=[w for w in r['ways'] if w in ways]) for r in model.bus_routes if ways.intersection(r['ways'])]
     # Bans and crossings name roads by index, so they follow the roads' new numbering.
@@ -190,4 +207,5 @@ def pilot_network(model, bounds, note='Whole-road subset for the Mar Mikhael mob
                    [(local[r], at, kind) for r, at, kind in model.crossings if r in local],
                    name=[model.name[i] for i in keep] if model.name else [], bus_routes=buses,
                    volume_reference=class_peak_volumes(model),
+                   boundary={node: (np.round(a, 1).tolist(), np.round(b, 1).tolist()) for node, (a, b) in boundary.items()},
                    source=model.source+' '+note, _graph_cache={}), keep

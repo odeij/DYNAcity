@@ -195,6 +195,11 @@ class TrafficModel:
     level: np.ndarray | None = None
     mobility: Any = field(default=None, repr=False, compare=False)
     volume_reference: dict[str, dict[str, Any]] | None = None
+    # A road subset cut from a larger model (`mobility_inputs.pilot_network`):
+    # per cut node, the vehicles/h by hour ([24], [24]) that the removed roads
+    # bring into it and take out of it. The SUMO adapter's entries and exits;
+    # None for a model that is not a cut. Built at serve time, never saved.
+    boundary: dict[int, tuple[list[float], list[float]]] | None = None
     _graph_cache: dict = field(default_factory=dict, repr=False, compare=False)
 
     def __len__(self) -> int:

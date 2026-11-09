@@ -71,3 +71,16 @@ def test_road_subset_renumbers_bans_crossings_and_levels(network):
     assert subset.turn_bans == [(1, 0, 0)]  # the ban into road 2 left with road 2
     assert subset.crossings == [(0, 10.0, 'marked')]
     assert subset.source.endswith('Test subset.')
+
+
+def test_road_subset_records_the_traffic_its_cut_roads_carry(network):
+    from dynacity.traffic import background_flow
+    # Roads 0 (0→1) and 6 (6→0) are kept; roads 1 (1→2) and 2 (1→3) leave node 1 and are cut.
+    a, b = lonlat(732950, 3749990), lonlat(733050, 3750010)
+    subset, keep = pilot_network(network, [a[0], a[1], b[0], b[1]], note='Test subset.')
+    assert keep == [0, 6]
+    flows = background_flow(network)
+    assert set(subset.boundary) == {1}
+    entering, leaving = subset.boundary[1]
+    assert entering == [0.0] * 24
+    np.testing.assert_allclose(leaving, np.round(flows[1] + flows[2], 1))
