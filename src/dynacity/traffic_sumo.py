@@ -63,12 +63,22 @@ WATCH_POI = 'dynacity-view'
 SPEED_CHECK_WARMUP_S = 60
 SPEED_CHECK_MIN_SAMPLES = 20
 
-# Preserve junction right-of-way even during gridlock: never ignore blockers
-# or increase impatience with waiting time. Queues may persist on this assumed
-# network; hiding them by driving through occupied junctions is misleading.
-JUNCTION_BLOCKER_S = -1
+# Knots: with right-of-way never relaxed and nothing ever moved, a single knot
+# at a junction (two queues blocking each other, a car stuck inside behind a
+# stopped one) never cleared, and new trips queued into it until the corridor
+# gridlocked at any demand level (docs/traffic-sumo.md#gridlock). Two standard
+# remedies resolve knots instead, both visible: a car may enter a junction past
+# one that has stood in it JUNCTION_BLOCKER_S (SUMO's own rule), and the front
+# car of a queue stuck UNSTICK_AFTER_S moves ahead along its route (`unstick`,
+# counted as `unstuck`; SUMO's teleport time, but closure-aware: SUMO's own
+# teleport moved cars a closure held or blocked straight past it). Impatience
+# stays off: it did not change the outcome.
+JUNCTION_BLOCKER_S = 60
 IMPATIENCE_S = 0
-UNSTICK_AFTER_S = 120
+UNSTICK_AFTER_S = 300
+# `unstick` runs on this simulated-time clock, so its moves do not depend on
+# request size or on whether cars are being drawn.
+UNSTICK_EVERY_S = 10
 # Free road needed to place an unstuck car (SUMO's default car length plus
 # gap), searched at most UNSTICK_REACH roads ahead along its route.
 UNSTICK_ROOM_M = 7.5
@@ -579,7 +589,8 @@ class Simulation:
             self.variables = variables
             # With a view, the whole fleet reports only what the metrics need;
             # cars around the view report everything (`watch`).
-            self.fleet_variables = (constants.VAR_SPEED, constants.VAR_ROAD_ID, constants.VAR_ROUTE_INDEX)
+            self.fleet_variables = (constants.VAR_SPEED, constants.VAR_ROAD_ID, constants.VAR_ROUTE_INDEX,
+                                    constants.VAR_WAITING_TIME)
             self.watching = False
             self.subscribed = [True, False]
             self.baseline_variables = (constants.VAR_SPEED, constants.VAR_WAITING_TIME)
@@ -862,9 +873,10 @@ class Simulation:
                 'pending': len(baseline.simulation.getPendingVehicles()),
                 'arrived': len(self.arrivals[1]),
                 'stopped': sum(s[constants.VAR_SPEED] < 0.1 for s in baseline_states.values()),
+                'unstuck': getattr(self, 'unstuck', [0, 0])[1],
             }
         else:
-            metrics['baseline'] = {key: metrics[key] for key in ('active', 'pending', 'arrived', 'stopped')}
+            metrics['baseline'] = {key: metrics[key] for key in ('active', 'pending', 'arrived', 'stopped', 'unstuck')}
         metrics['stopped_roads'] = sorted(stopped_roads.items())
         types = [self.type_for(vid) if hasattr(self, 'mixed') else 'DEFAULT_VEHTYPE' for vid, _, _ in fleet]
         metrics['vehicle_types'] = {tid: types.count(tid) for tid in set(types)}
@@ -983,6 +995,7 @@ class Simulation:
         self.connections.append(baseline)
         self.subscribed[1] = True
         self.arrivals[1] = dict(self.arrivals[0])
+        self.unstuck[1] = self.unstuck[0]
         self.forked = self.fresh_fork = True
 
     def withhold(self, c, newly_closed):
@@ -1120,8 +1133,10 @@ class Simulation:
                                         self.rerouted.add(trip.id)
                         self.future_entries.append((depart,trip))
                 # With a view, the whole fleet is read once per request, for its
-                # metrics; every step reads only the cars around the view.
-                self.fleet_fresh = remaining == ticks or not self.watching
+                # metrics, and on the `unstick` clock; otherwise only the cars
+                # around the view are read.
+                due = round(self.connections[0].simulation.getTime() + ticks * STEP_S) % UNSTICK_EVERY_S == 0
+                self.fleet_fresh = remaining == ticks or not self.watching or due
                 def step(index, c):
                     if self.subscribed[index]:
                         c.junction.unsubscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE,
@@ -1144,8 +1159,8 @@ class Simulation:
                         c.junction.subscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE,
                                                     self.context_radius, variables)
                     self.arrivals[index].update({v: c.simulation.getTime() for v in c.simulation.getArrivedIDList()})
-                    # Keep queues in place; relocating a gridlocked car to a
-                    # later road creates visible jumps through other vehicles.
+                    if due:
+                        self.unstick(index, c)
                 self.fresh_fork = False
                 now=self.connections[0].simulation.getTime()
                 # SUMO can retain a departure exactly at the sample boundary
