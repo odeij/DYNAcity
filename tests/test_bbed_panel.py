@@ -82,3 +82,16 @@ def test_leakage_assertion_rejects_future_features():
     )
     with pytest.raises(ValueError, match="leakage"):
         assert_no_temporal_leakage(bad)
+
+
+def test_snapshot_records_centroids_and_backfills_old_snapshots(bbed_collection):
+    from datetime import date
+
+    from dynacity.snapshot import attach_centroids, snapshot_from_bbed
+
+    snapshot = snapshot_from_bbed(bbed_collection, snapshot_id="s", as_of=date(2024, 4, 30), data_version="v")
+    assert [(o.centroid_x_m, o.centroid_y_m) for o in snapshot.objects] == [(5.0, 5.0), (25.0, 5.0)]
+    stripped = snapshot.model_copy(update={"objects": [
+        o.model_copy(update={"centroid_x_m": None, "centroid_y_m": None}) for o in snapshot.objects
+    ]})
+    assert attach_centroids(stripped, bbed_collection) == snapshot

@@ -72,7 +72,7 @@ def snapshot_from_bbed(
         if geometry_issue(feature.get("geometry")) is None:
             geometry = shape(feature["geometry"])
             geometry_area = max(float(geometry.area), 0.0)
-            # Where hazards find the building. In the BBED CRS (UTM metres).
+            # Where the building sits, in the BBED CRS (UTM metres).
             if not geometry.is_empty:
                 centroid = (float(geometry.centroid.x), float(geometry.centroid.y))
         area = _optional_nonnegative(props.get("Shape__Area"))
@@ -140,8 +140,8 @@ def snapshot_from_bbed(
 def attach_centroids(snapshot: UrbanStateSnapshot, collection: dict) -> UrbanStateSnapshot:
     """Fill missing centroids from BBED geometry, matched by composite object id.
 
-    For snapshots built before centroids were recorded: without them no local
-    hazard can reach a building. Objects that already have a centroid, or
+    For snapshots built before centroids were recorded: without them spatial
+    tools (terrain, corridor, map) cannot place a building. Objects that already have a centroid, or
     whose id is not in the collection, are left as they are.
     """
 

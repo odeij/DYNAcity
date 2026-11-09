@@ -1,4 +1,5 @@
 // Run with node --test tests/viewer_bridges.test.cjs.
+require('./viewer_ground_helper.cjs');
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -25,6 +26,7 @@ function roads() {
 function scene() {
   const context = {DATA: {traffic: {roads: roads()}}, metresBetween};
   load('// ---- bridges', 'function roadMarkings(', context);
+  vm.runInContext('elevateRoads()', context);  // the page runs it once the ground grid has loaded
   load('// Height of road `i`', 'function simulationSummary(', context);
   return context;
 }
@@ -128,6 +130,7 @@ test('short bridge pieces meet adjoining road heights exactly without vertical s
   {u:4,v:5,path:[at(50),at(150)]}];
  const context={DATA:{traffic:{roads:data}},metresBetween};
  load('// ---- bridges','function roadMarkings(',context);
+ vm.runInContext('elevateRoads()',context);
  assert.equal(data[1].path[0][2],0);
  assert.ok(Math.abs(data[1].path.at(-1)[2]-6)<1e-8);
  assert.ok(Math.abs(data[1].path.at(-1)[2]-data[2].path[0][2])<1e-8);

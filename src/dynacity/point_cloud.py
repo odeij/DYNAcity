@@ -1,4 +1,4 @@
-"""Measured LAS positions and RGB for local viewing, separate from flood terrain."""
+"""Measured LAS positions and RGB for local viewing, separate from verified terrain."""
 from __future__ import annotations
 
 import hashlib
@@ -64,7 +64,7 @@ def export_point_cloud(source, output_dir, *, crs, crs_evidence, max_points=10_0
         "footprint": footprint,
         "bounds": [[min(xx), min(yy)], [max(xx), max(yy)]],
         "vertical_datum": None, "display_z_offset": z_shift,
-        "vertical_note": "Display Z = source Z minus the tile minimum; no vertical datum transformation. Not flood terrain.",
+        "vertical_note": "Display Z = source Z minus the tile minimum; no vertical datum transformation. Not verified terrain.",
         "color_conversion": "high byte of 16-bit source RGB" if scaled else "8-bit source RGB",
         "sampling": "all source points; no decimation",
     }

@@ -74,7 +74,7 @@ def test_missing_geometry_and_estimated_heights_are_counted(bbed_collection):
     bbed_collection["features"][0]["properties"]["Building_Hight_m"] = None
     payload = build_viewer_payload(bbed_collection, snapshot_for(bbed_collection))
     assert {k: v for k, v in payload["coverage"].items() if k != "quality"} == {"drawn": 1, "missing_geometry": 1, "estimated_height": 1}
-    assert payload["buildings"][0]["est"] is True and payload["buildings"][0]["h"] == pytest.approx(4 * 3.2 + 3.2)
+    assert payload["buildings"][0]["est"] is True and payload["buildings"][0]["h"] == pytest.approx(5 * 3.0)
 
 
 def test_forecast_for_other_snapshot_is_rejected(bbed_collection):
@@ -176,7 +176,7 @@ def test_evidence_distinguishes_source_wave_and_height_derivation(bbed_collectio
     payload = build_viewer_payload(bbed_collection, snapshot)
     building = payload['buildings'][0]
     assert building['status_source'] == 'BBED 2022 fallback'
-    assert building['height_source'] == 'Estimated from floors × 3.2 m'
+    assert building['height_source'] == 'Estimated from 5 floors × 3 m'
     assert payload['evidence']['status_sources'] == {'BBED 2022 fallback': 1, 'BBED 2024': 1}
     assert payload['evidence']['height_recorded'] == 1
     assert 'private_probe' not in json.dumps(payload)
@@ -215,3 +215,41 @@ def test_forecast_evidence_survives_api_and_saved_result(bbed_collection):
     legacy_summary = build_viewer_payload(bbed_collection, snapshot, legacy)['forecast']
     assert legacy_summary['training_intervals'] == []
     assert legacy_summary['monte_carlo_draws'] is None
+
+
+def test_forward_utm_inverts_the_viewer_projection():
+    from dynacity.viewer import lonlat_to_utm
+
+    for x, y in [(732346.89, 3752967.64), (820000.0, 3800000.0), (0.0, 0.0), (5100.0, 40.0)]:
+        assert lonlat_to_utm(*utm_to_lonlat(x, y, 36), 36) == pytest.approx((x, y), abs=0.01)
+
+
+def test_bbed_size_bin_estimate_uses_recorded_built_heights_and_skips_vacant_lots(bbed_collection):
+    import copy
+    template = bbed_collection["features"][0]
+    features = []
+    for i in range(8):
+        f = copy.deepcopy(template)
+        f["properties"].update(OBJECTID=100 + i, BULBuildingID=100 + i, Building_Hight_m=20.0 + i, NoofFloor=7,
+                               Shape__Area=300.0, F5__Current_status="Complete Building")
+        features.append(f)
+    for oid, status in ((200, "Complete Building"), (201, "Empty Lot")):
+        f = copy.deepcopy(template)
+        f["properties"].update(OBJECTID=oid, BULBuildingID=oid, Building_Hight_m=None, NoofFloor=None,
+                               Shape__Area=310.0, F5__Current_status=status)
+        features.append(f)
+    collection = {"type": "FeatureCollection", "features": features}
+    payload = build_viewer_payload(collection, snapshot_for(collection))
+    by_id = {b["id"].split("OBJECTID:")[1].split("|")[0]: b for b in payload["buildings"]}
+    guess, vacant = by_id["200"], by_id["201"]
+    assert guess["height_kind"] == "size_bin" and guess["est"] and guess["h"] == pytest.approx(23.5)
+    assert vacant["height_kind"] == "fallback" and vacant["h"] == 6.0
+    assert payload["evidence"]["height_kinds"] == {"recorded": 8, "size_bin": 1, "fallback": 1}
+
+
+def test_payload_flags_height_kind_for_every_building(bbed_collection):
+    payload = build_viewer_payload(bbed_collection, snapshot_for(bbed_collection))
+    assert all(b["height_kind"] in ("recorded", "floors", "size_bin", "fallback") for b in payload["buildings"])
+    assert all((b["height_kind"] != "recorded") == b["est"] for b in payload["buildings"])
+    assert payload["storey_height_m"] == 3.0
+    assert sum(payload["evidence"]["height_kinds"].values()) == len(payload["buildings"])

@@ -60,10 +60,9 @@
         { "path": "src/dynacity/snapshot.py", "line": 44, "label": "snapshot_from_bbed" },
         { "path": "src/dynacity/cli.py", "line": 153, "label": "build-snapshot command" }
       ] },
-    { "id": "engine", "type": "backend", "label": "ForecastEngine", "sublabel": "Monte Carlo p05/p50/p95", "pos": [1040, 400], "size": [160, 64], "tag": "hazards first",
+    { "id": "engine", "type": "backend", "label": "ForecastEngine", "sublabel": "Monte Carlo p05/p50/p95", "pos": [1040, 400], "size": [160, 64],
       "sources": [
         { "path": "src/dynacity/engine.py", "line": 163, "label": "forecast()" },
-        { "path": "src/dynacity/engine.py", "line": 189, "label": "Hazard shocks" },
         { "path": "src/dynacity/engine.py", "line": 245, "end_line": 264, "label": "Sample states, compute KPIs" }
       ] },
 
@@ -138,8 +137,7 @@
     ] },
     { "dot": "cyan", "title": "Forecast engine", "items": [
       "8 canonical building states, one 2-year step at a time",
-      "Monte Carlo draws give p05/p50/p95 KPI bands at 2, 4 and 6 years",
-      "Hazards strike before the model on their step; fragility numbers are uncalibrated"
+      "Monte Carlo draws give p05/p50/p95 KPI bands at 2, 4 and 6 years"
     ] },
     { "dot": "rose", "title": "LLM guardrails", "items": [
       "The LLM drafts structure; code checks scope and sets every number",

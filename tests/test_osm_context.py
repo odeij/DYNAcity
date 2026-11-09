@@ -53,10 +53,12 @@ def test_building_height_provenance_and_invalid_geometry_are_explicit():
         {'type':'way','id':3,'nodes':[99,100],'tags':{'highway':'footway'}},
     ]})
     first,second=result['features']
-    assert first['properties']['height_m']==12.8
-    assert 'floor count' in first['properties']['height_source']
+    assert first['properties']['height_m']==12.0
+    assert 'floors' in first['properties']['height_source']
+    assert first['properties']['height_kind']=='floors' and first['properties']['estimated'] is True
     assert second['properties']['height_m']==6
     assert second['properties']['height_source']=='illustrative fallback'
+    assert second['properties']['height_kind']=='fallback'
     assert result['geometry_rejected']=={'paths':1}
 
 

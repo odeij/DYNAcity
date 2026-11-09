@@ -26,8 +26,8 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-from .contracts import HazardEvent
 from .traffic import TrafficModel, RoadDisruption, background_flow, lane_counts, lanes_of, LANE_WIDTH_M
+from .traffic_planning import lanes_left, resolve_planning, speed_caps, summarize as summarize_planning
 from .viewer import _utm_zone, utm_to_lonlat
 
 ASSUMPTIONS = (
@@ -472,8 +472,9 @@ class BoundaryInflow:
     schedule is shared by both runs and never responds to scenario arrivals.
     """
     def __init__(self, model, net, hour, seed, *, interior=True, router=None, interior_scale=None,
-                 exit_deterrence_s=None):
+                 exit_deterrence_s=None, demand_scale=1.0):
         self.net = net
+        self.demand_scale = demand_scale
         self.rng = random.Random(seed + 104729)
         self.interior_rng = random.Random(seed + 7919)
         self.heap, self.pool, self.exits = [], {}, []
@@ -519,7 +520,7 @@ class BoundaryInflow:
 
         for node in sorted(model.boundary):
             entering, exiting = model.boundary[node]
-            for edge, vph in shares(leaving.get(str(node), []), float(entering[hour])) if entering[hour] > 0 else ():
+            for edge, vph in shares(leaving.get(str(node), []), float(entering[hour]) * self.demand_scale) if entering[hour] > 0 else ():
                 if vph > 0:
                     self.expected_vph += vph
                     heapq.heappush(self.heap, (self.rng.expovariate(vph / 3600), 'boundary', edge.getID(), vph / 3600))
@@ -544,6 +545,7 @@ class BoundaryInflow:
             if outward:
                 self.exits.append(edge)
                 self.exit_weight[edge.getID()] = max(rate*3600, 1.0)
+            rate *= self.demand_scale
             if inward and math.isfinite(rate) and rate>0:
                 self.expected_vph += rate*3600
                 heapq.heappush(self.heap,(self.rng.expovariate(rate),'boundary',edge.getID(),rate))
@@ -568,10 +570,11 @@ class BoundaryInflow:
             return float((model.length_m[i] / (speed[i] / 3.6)).sum())
 
         # Cars the entries keep on the network: each entry's rate times its trips' duration.
-        self.represented_fleet = fleet
+        # The demand multiplier scales the fleet to keep along with the entries' rates.
+        self.represented_fleet = fleet * self.demand_scale
         self.entering_fleet = sum(rate * float(np.mean([trip_seconds(r) for r in self.routes(edge_id)]))
                                   for _, kind, edge_id, rate in sorted(self.heap) if kind == 'boundary')
-        missing = fleet - self.entering_fleet
+        missing = self.represented_fleet - self.entering_fleet
         if missing <= 0:
             return
         sample = self.interior_rng.choices(self.places, weights=self.weights, k=INTERIOR_SAMPLE_TRIPS)
@@ -582,6 +585,8 @@ class BoundaryInflow:
         self.interior_vph = total * 3600
         for edge, weight in zip(self.places, self.weights):
             rate = total * weight / fleet
+            if rate <= 0:
+                continue
             heapq.heappush(self.heap, (self.interior_rng.expovariate(rate), 'interior', edge.getID(), rate))
 
     def interior_routes(self, edge_id):
@@ -656,7 +661,10 @@ class BoundaryInflow:
 
 class Simulation:
     def __init__(self, model: TrafficModel, hour=8, *, trips=None, seed=42, continuous=False, mixed=False,
-                 lanes=None, spare=None, interior_scale=None):
+                 lanes=None, spare=None, interior_scale=None, demand_scale=1.0):
+        if not math.isfinite(demand_scale) or not 0 <= demand_scale <= 2:
+            raise ValueError("Demand multiplier must be between 0 and 2")
+        self.demand_scale = demand_scale
         self.model, self.hour = model, hour
         # Lanes added by hand (road -> lanes each way). With any, this run drives
         # the widened roads and the comparison run the original ones, both from
@@ -681,6 +689,9 @@ class Simulation:
         self.connections = []
         self.closed = set()
         self.last_factors = None
+        self.plan = {}
+        self.removed_lanes = {}
+        self.last_speed_kmh = np.asarray(model.free_kmh, dtype=np.float64).copy()
         self.seen = set()
         self.retry = set()
         self.blocked = set()
@@ -745,7 +756,8 @@ class Simulation:
             router = EdgeRouter(original)
             self.trips = demand(model, original, hour, seed, router) if trips is None else list(trips)
             self.initial_trips = len(self.trips)
-            self.inflow = (BoundaryInflow(model, original, hour, seed, router=router, interior_scale=interior_scale)
+            self.inflow = (BoundaryInflow(model, original, hour, seed, router=router, interior_scale=interior_scale,
+                                          demand_scale=demand_scale)
                            if continuous else None)
             self.trip_ids = {t.id for t in self.trips}
             self.routes = {t.id: t.route for t in self.trips}
@@ -922,11 +934,27 @@ class Simulation:
             self.entry_route_cache[key]=route if route and not self.closed.intersection(route) else None
         return self.entry_route_cache[key]
 
-    def apply(self, disruption: RoadDisruption):
+    def apply(self, disruption: RoadDisruption, plan=None):
+        """Put closures, crashes and planner interventions into the scenario run.
+
+        `plan` (see `traffic_planning`) caps a road's speed below whatever the
+        closures and crashes leave it and bars motor traffic from its curb-side lanes
+        through SUMO lane permissions; no lane left means closed. Everything
+        is recomputed from the arguments, so dropping an entry restores the
+        road's original speed and permissions.
+        """
         c = self.connections[0]
+        plan = plan or {}
+        left = lanes_left(self.model, plan)
+        shut = {road for road, n in left.items() if n == 0}
+        removed = {road: plan[road][1] for road, n in left.items() if n}
+        target_kmh = np.minimum(np.asarray(self.model.free_kmh, dtype=np.float64) * disruption.speed_factor,
+                                speed_caps(self.model, plan))
         closed = {edge.getID() for edge in self.net.getEdges()
-                  if disruption.closed[int(edge.getID().split(':')[0])]}
-        changed = closed != self.closed or self.last_factors is None or not np.array_equal(self.last_factors, disruption.speed_factor)
+                  if disruption.closed[int(edge.getID().split(':')[0])] or int(edge.getID().split(':')[0]) in shut}
+        changed = (closed != self.closed or self.last_factors is None
+                   or not np.array_equal(self.last_factors, disruption.speed_factor) or plan != self.plan)
+        lane_toggled = set()
         if changed:
             self.entry_route_cache.clear()
         present = set(c.vehicle.getIDList())
@@ -935,18 +963,25 @@ class Simulation:
         for edge in self.net.getEdges() if changed else ():
             eid = edge.getID()
             i = int(eid.split(':')[0])
-            if self.last_factors is None or disruption.speed_factor[i] != self.last_factors[i]:
-                c.edge.setMaxSpeed(eid, max(0.1, float(self.model.free_kmh[i]) * float(disruption.speed_factor[i]) / 3.6))
-            if (eid in closed) != (eid in self.closed):
+            if target_kmh[i] != self.last_speed_kmh[i]:
+                c.edge.setMaxSpeed(eid, max(0.1, float(target_kmh[i]) / 3.6))
+            was_removed, now_removed = self.removed_lanes.get(i, 0), removed.get(i, 0)
+            if (eid in closed) != (eid in self.closed) or was_removed != now_removed:
                 for lane in edge.getLanes():
                     original = self.permissions[lane.getID()]
-                    # A closed spare lane stays closed when its road reopens.
-                    if eid in closed or lane.getID() in self.spare_lanes - self.open_spare:
+                    # SUMO numbers lanes from the right-hand curb. A closed spare
+                    # lane stays closed when its road reopens.
+                    if (eid in closed or lane.getIndex() < now_removed
+                            or lane.getID() in self.spare_lanes - self.open_spare):
                         c.lane.setDisallowed(lane.getID(), ['all'])
                     else:
                         c.lane.setAllowed(lane.getID(), original)
+                if was_removed != now_removed:
+                    lane_toggled.add(eid)
         previous_closed = self.closed
         self.closed = closed
+        self.plan, self.removed_lanes = dict(plan), removed
+        self.last_speed_kmh = np.asarray(target_kmh, dtype=np.float64).copy()
         if closed - previous_closed:
             self.withhold(c, closed - previous_closed)
         self.last_factors = disruption.speed_factor.copy()
@@ -963,7 +998,7 @@ class Simulation:
         # Only cars whose remaining route crosses a road that closed or reopened
         # need their lane choice refreshed; refreshing the whole fleet one car
         # at a time stalled the full city for seconds.
-        toggled = closed ^ previous_closed
+        toggled = (closed ^ previous_closed) | lane_toggled
         for vid in candidates:
             state = states.get(vid, {})
             road = state.get(self.traci.constants.VAR_ROAD_ID)
@@ -1064,7 +1099,7 @@ class Simulation:
                 road = int(road_id.split(':')[0])
                 detour_counts[road] = detour_counts.get(road, 0) + 1
         factors = getattr(self, 'last_factors', None)
-        undisturbed = not getattr(self, 'closed', None) and (factors is None or bool(np.all(factors == 1)))
+        undisturbed = not getattr(self, 'closed', None) and not getattr(self, 'plan', None) and (factors is None or bool(np.all(factors == 1)))
         if undisturbed and now >= SPEED_CHECK_WARMUP_S and hasattr(self, 'speed_sum'):
             for _, speed, road_id in fleet:
                 if not road_id.startswith(':'):
@@ -1312,7 +1347,8 @@ class Simulation:
                 'ratio_p50': round(float(np.median(simulated / np.maximum(observed, 1.0))), 2),
                 'mae_kmh': round(float(np.mean(np.abs(simulated - observed))), 1)}
 
-    def advance(self, disruption, seconds=2, *, include_initial=True, view=None, limit=None):
+    def advance(self, disruption, seconds=2, *, include_initial=True, view=None, limit=None, planning=None):
+        plan = planning if isinstance(planning, dict) else resolve_planning(self.model, planning)
         with self.lock:
             self.last_used = time.monotonic()
             self.view, self.limit = view, limit
@@ -1329,9 +1365,9 @@ class Simulation:
                                             self.fleet_set())
                 self.subscribed[0] = True
             self.fleet_fresh = True
-            if not self.forked and (disruption.closed.any() or (disruption.speed_factor != 1).any()):
+            if not self.forked and (disruption.closed.any() or (disruption.speed_factor != 1).any() or plan):
                 self.fork()
-            self.apply(disruption)
+            self.apply(disruption, plan)
             frames = [self.frame()] if include_initial else []
             remaining = max(1, round(seconds / STEP_S))
             runs = self.connections if self.forked else self.connections[:1]
@@ -1415,15 +1451,16 @@ class Simulation:
                 self.future_entries=still_future
                 frames.append(self.frame())
                 remaining -= ticks
-            return {'frames': frames, 'assumptions': ASSUMPTIONS, 'network': self.network_quality}
+            return {'frames': frames, 'assumptions': ASSUMPTIONS, 'network': self.network_quality,
+                    'planning': summarize_planning(self.model, plan)}
 
 
 def install_routes(app, model, snapshot, ground=None):
     """Traffic-only API registration; sessions own independent TraCI connections."""
     from fastapi import HTTPException
     from pydantic import BaseModel, Field, ConfigDict
-    from .contracts import HazardEvent
-    from .traffic import road_events, road_disruption, combine_disruptions
+    from .traffic_planning import MAX_PLANNED_ROADS, RoadPlanning
+    from .traffic import road_events
 
     # sumolib imports pyproj, and pyproj (3.8) empties the process environment
     # when the thread that first imported it exits. Requests run on worker
@@ -1444,25 +1481,24 @@ def install_routes(app, model, snapshot, ground=None):
         max_vehicles: int | None = Field(default=None, ge=0, le=100000)
         continuous: bool = False
         mixed: bool = False
+        demand_scale: float = Field(default=1, ge=0, le=2, allow_inf_nan=False)
         closed: list[int] = Field(default_factory=list, max_length=1000)
         # Lanes added by hand: road index -> lanes added in each direction.
         lanes: dict[int, int] = Field(default_factory=dict, max_length=200)
         crashes: list[int] = Field(default_factory=list, max_length=20)
-        hazards: list[HazardEvent] = Field(default_factory=list, max_length=8)
+        planning: list[RoadPlanning] = Field(default_factory=list, max_length=MAX_PLANNED_ROADS)
 
     # FastAPI evaluates annotations in module globals (Request is local).
     sessions = {}
     registry_lock = threading.RLock()
 
     def disruption(request):
-        parts = [road_events(model, closed=request.closed, crashes=request.crashes)]
-        if request.hazards:
-            parts.append(road_disruption(request.hazards, snapshot, model, ground=ground))
-        return combine_disruptions(*parts)
+        return road_events(model, closed=request.closed, crashes=request.crashes)
 
     def create(request):
         try:
             changes = disruption(request)
+            plan = resolve_planning(model, request.planning)
             with registry_lock:
                 for key, sim in list(sessions.items()):
                     if time.monotonic() - sim.last_used > 120:
@@ -1472,12 +1508,12 @@ def install_routes(app, model, snapshot, ground=None):
                 if len(sessions) >= 4:
                     raise HTTPException(429, 'Four traffic sessions are active; close a viewer or retry after two minutes')
                 sim = Simulation(model, request.hour, continuous=request.continuous, mixed=request.mixed,
-                                 lanes=request.lanes)
+                                 lanes=request.lanes, demand_scale=request.demand_scale)
                 key = uuid.uuid4().hex
                 sessions[key] = sim
             try:
                 return {'session': key, **sim.advance(changes, request.seconds,
-                                                      view=request.view, limit=request.max_vehicles)}
+                                                      view=request.view, limit=request.max_vehicles, planning=plan)}
             except Exception:
                 with registry_lock:
                     sessions.pop(key, None)
@@ -1501,12 +1537,15 @@ def install_routes(app, model, snapshot, ground=None):
                 raise HTTPException(409, 'Create a new session when changing the hour')
             if sim.continuous != request.continuous:
                 raise HTTPException(409, 'Create a new session when changing traffic demand')
+            if sim.demand_scale != request.demand_scale:
+                raise HTTPException(409, "Create a new session when changing incoming demand")
             if sim.mixed != request.mixed:
                 raise HTTPException(409, 'Create a new session when changing vehicle mix')
             if sim.lanes != request.lanes:
                 raise HTTPException(409, 'Create a new session when changing lanes')
             return sim.advance(disruption(request), request.seconds, include_initial=False,
-                               view=request.view, limit=request.max_vehicles)
+                               view=request.view, limit=request.max_vehicles,
+                               planning=resolve_planning(model, request.planning))
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         except (RuntimeError, OSError, subprocess.SubprocessError) as exc:

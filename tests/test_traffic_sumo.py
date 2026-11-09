@@ -251,6 +251,8 @@ def test_api_rejects_invalid_roads_and_reports_missing_runtime(network,monkeypat
         response=client.post('/v1/viewer/traffic/simulation',json={})
         assert response.status_code==503 and 'unavailable' in response.json()['detail']
         assert client.post('/v1/viewer/traffic/simulation',json={'hour':24}).status_code==422
+        for multiplier in (-1, 2.1, 'NaN', 'Infinity'):
+            assert client.post('/v1/viewer/traffic/simulation',json={'demand_scale':multiplier}).status_code==422
         assert client.post('/v1/viewer/traffic/simulation/missing',json={}).status_code==404
 
 def test_generated_signal_holds_and_releases_vehicle(network):
@@ -312,6 +314,7 @@ def test_real_session_api_reuses_fleet_and_releases_runtime(network,monkeypatch)
         assert frame['vehicles'][0][0]=='api-car'
         assert client.post(f'/v1/viewer/traffic/simulation/{key}',json={'hour':9}).status_code==409
         assert client.post(f'/v1/viewer/traffic/simulation/{key}',json={'continuous':True}).status_code==409
+        assert client.post(f'/v1/viewer/traffic/simulation/{key}',json={'demand_scale':2}).status_code==409
         assert client.delete(f'/v1/viewer/traffic/simulation/{key}').status_code==200
         assert client.post(f'/v1/viewer/traffic/simulation/{key}',json={}).status_code==404
         assert made[0].connections==[]
@@ -358,6 +361,25 @@ def test_continuous_demand_is_independent_of_request_chunk_size(network):
             runs.append((dict(sim.routes),set(sim.trip_ids),result['frames'][-1]['metrics']['arrived']))
         finally: sim.close()
     assert runs[0]==runs[1]
+
+
+def test_incoming_demand_multiplier_changes_real_entry_schedule_and_zero_stops_entries(network):
+    from dynacity.traffic_sumo import BoundaryInflow
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    sim = Simulation(network, trips=[], continuous=True, demand_scale=0)
+    try:
+        assert sim.inflow.heap == []
+        result = sim.advance(road_events(network), 2)
+        assert result['frames'][-1]['metrics']['total'] == 0
+        normal = BoundaryInflow(network, sim.net, 8, 42, router=sim.inflow.router)
+        double = BoundaryInflow(network, sim.net, 8, 42, router=sim.inflow.router, demand_scale=2)
+        assert double.expected_vph == pytest.approx(normal.expected_vph*2)
+        assert double.interior_vph == pytest.approx(normal.interior_vph*2)
+        assert len(double.heap) == len(normal.heap)
+        assert double.heap[0][0] == pytest.approx(normal.heap[0][0]/2)
+    finally:
+        sim.close()
 
 
 def test_closed_inflow_origin_queues_new_trips_and_reopens_without_losses(network):

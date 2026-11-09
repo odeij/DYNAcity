@@ -1,4 +1,5 @@
 // Pure playback adapter tests, using authoritative TraCI-shaped frames.
+require('./viewer_ground_helper.cjs');
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -50,7 +51,7 @@ test('street-level zoom replaces dots with poles and preserves separate movement
 test('traffic-light meshes have upright shafts and only the selected lens is bright',()=>{
  const context=vm.createContext({});
  vm.runInContext(html.slice(html.indexOf('function meshOf('),html.indexOf('const meshes =')),context);
- vm.runInContext(html.slice(html.indexOf('function signalPoleMesh('),html.indexOf('// Unit funnel:')),context);
+ vm.runInContext(html.slice(html.indexOf('function signalPoleMesh('),html.indexOf('const mesh = (name, make)')),context);
  const pole=vm.runInContext('signalPoleMesh()',context);
  const head=vm.runInContext("signalHeadMesh('r')",context);
  assert.equal(Math.max(...pole.positions.value.filter((_,i)=>i%3===2)),Math.fround(3.7));
@@ -107,8 +108,8 @@ test('road overlay follows simulated carriageway width, with a legacy fallback',
 });
 function fixture(overrides = {}) {
  const context=vm.createContext({ui:{traffic:true,hour:8,closedRoads:new Set(),crashes:new Set(),addedLanes:new Map()},
-  DATA:{traffic:{roads:[]}},currentHazards:()=>[],prepareRoads:()=>{},CAR_SPEEDUP:1,
-  TRAFFIC_INITIAL_RATE:1,
+  DATA:{traffic:{roads:[]}},prepareRoads:()=>{},CAR_SPEEDUP:1,
+  TRAFFIC_INITIAL_RATE:1,mobilityLab:{paused:false,incoming:1},renderMobilityLab:()=>{},
   clamp01:x=>Math.max(0,Math.min(1,x)),renderTraffic:()=>{},render:()=>{},esc:x=>x,
   fetch:async()=>{throw new Error('unexpected fetch')},performance:{now:()=>0},console,...overrides});
  const run=s=>vm.runInContext(s,context);
@@ -147,9 +148,10 @@ test('mobility comparison shows paired baseline results and distinguishes unfini
 });
 
 test('mobility comparison does not invent results before startup and flags mixed effects',()=>{
- const {run}=fixture({currentHazards:()=>[{kind:'earthquake'}]});
+ const {run}=fixture();
+ run('ui.crashes.add(4)');
  assert.match(run('mobilityComparison()'),/Comparison appears when traffic simulation is available/);
- assert.match(run('mobilityComparison()'),/also includes active crashes or disaster effects/);
+ assert.match(run('mobilityComparison()'),/also includes active crashes/);
  assert.doesNotMatch(run('mobilityComparison()'),/<table/);
 });
 
@@ -301,15 +303,14 @@ test('a stale failed request cannot clear the fetch lock for the new hour',async
  await settle();
  assert.equal(run('trafficFetch'),false);
 });
-test('road and hazard edits during a fetch keep the fleet and reach SUMO in the next request',async()=>{
- const pending=deferred(), requests=[];let hazards=[];
- const {run}=fixture({currentHazards:()=>hazards,fetch:(url,options)=>{
+test('road edits during a fetch keep the fleet and reach SUMO in the next request',async()=>{
+ const pending=deferred(), requests=[];
+ const {run}=fixture({fetch:(url,options)=>{
   requests.push(JSON.parse(options.body));
   return requests.length===1 ? pending.promise : Promise.resolve(response({frames:[frame(5),frame(6)]}));
  }});
  run('advanceCars(0);carHour=8;trafficSession="live";trafficFetch=false');
  const first=run('fetchTrafficFrames()');
- hazards=[{kind:'storm',severity:1}];
  run('ui.closedRoads.add(3);ui.crashes.add(4);prepareCars()');
  assert.equal(run('cars[0].key'),'a');
  assert.equal(run('cars[0].pose.position[0]'),35);
@@ -319,7 +320,7 @@ test('road and hazard edits during a fetch keep the fleet and reach SUMO in the 
  run('advanceCars(250)');
  await settle();
  assert.equal(requests.length,2);
- assert.deepEqual(requests[1],{hour:8,seconds:2,continuous:true,mixed:false,closed:[3],crashes:[4],hazards,view:null,max_vehicles:8000});
+ assert.deepEqual(requests[1],{hour:8,seconds:2,continuous:true,mixed:false,demand_scale:1,closed:[3],crashes:[4],planning:[],view:null,max_vehicles:8000});
  assert.equal(run('cars[0].key'),'a');
 });
 test('departures and replacements appear only at their authoritative frame, with shortest-turn interpolation',()=>{

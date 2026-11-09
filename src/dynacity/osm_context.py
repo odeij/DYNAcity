@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 import math
 import re
+from .heights import FALLBACK, RECORDED, resolve_height
 from .osm_geometry import osm_geometry
 
 PATHS={'footway','path','pedestrian','steps','cycleway','bridleway','corridor'}
@@ -86,10 +87,15 @@ def context_features(osm, existing_ids=()):
             geometry={'type':'LineString','coordinates':geometry['coordinates'][0]}
         width=metres(tags.get('width'),None,100)
         height=metres(tags.get('height'),None,300)
-        levels=metres(tags.get('building:levels'),None,80)
-        if group=='buildings' and height is None and levels is not None:
-            height=levels*3.2;height_source='OSM floor count × illustrative 3.2 m'
+        levels=tags.get('building:levels')
+        if group=='buildings':
+            # Shared order in `heights`: tagged height, then levels x the fitted storey height.
+            resolved=resolve_height(recorded=height,recorded_label='OSM height tag; unverified',floors=levels)
+            height,height_source,height_kind=resolved.height_m,resolved.source,resolved.kind
+            height=None if resolved.kind==FALLBACK else height
+            height_source=height_source if height is not None else 'illustrative fallback'
         else:
+            height_kind=RECORDED if height is not None else None
             height_source='OSM height tag; unverified' if height is not None else 'illustrative fallback'
         if group=='buildings' and geometry['type'] not in ('Polygon','MultiPolygon'):
             rejected[group]+=1;continue
@@ -99,6 +105,7 @@ def context_features(osm, existing_ids=()):
             'width_source':'OSM width tag; unverified' if width is not None else 'illustrative',
             'height_m':height if height is not None else 6 if group=='buildings' else None,
             'height_source':height_source,
+            **({'height_kind':height_kind,'estimated':height_kind!=RECORDED} if group=='buildings' else {}),
             'as_of':e.get('source_as_of',osm.get('osm3s',{}).get('timestamp_osm_base')),
             'retrieved_on':e.get('retrieved_on',osm.get('retrieved_on'))}
         features.append({'type':'Feature','geometry':geometry,'properties':props})

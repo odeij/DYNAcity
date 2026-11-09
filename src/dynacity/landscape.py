@@ -178,10 +178,12 @@ def apply_context_buildings(payload: dict, companion: dict) -> dict:
     heights = companion['osm_heights']
     for f in payload['features']:
         props = f['properties']
-        if props.get('context_group') != 'buildings' or props.get('height_source') != 'illustrative fallback':
+        if props.get('context_group') != 'buildings' or (props.get('height_kind') or ('fallback' if props.get('height_source') == 'illustrative fallback' else None)) != 'fallback':
             continue
         if props['id'] in heights:
-            props['height_m'], props['height_source'] = heights[props['id']]
+            height, label, *kind = heights[props['id']]
+            props['height_m'], props['height_source'], props['height_kind'] = height, label, kind[0] if kind else 'size_bin'
+            props['estimated'] = props['height_kind'] != 'recorded'
     payload['features'].extend(companion['features'])
     payload['counts']['buildings'] = payload['counts'].get('buildings', 0) + len(companion['features'])
     payload['context_buildings'] = {'added_footprints': len(companion['features']),

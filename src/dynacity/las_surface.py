@@ -2,8 +2,8 @@
 
 Every populated cell records actual point extrema and support. Empty cells stay
 NaN; no interpolation, datum conversion, ground classification or hydraulic
-conditioning is performed. The output deliberately differs from TerrainGrid so
-an unclassified roof surface cannot silently become flood terrain.
+conditioning is performed. The output deliberately differs from a ground model so
+an unclassified roof surface cannot silently become verified terrain.
 """
 from __future__ import annotations
 

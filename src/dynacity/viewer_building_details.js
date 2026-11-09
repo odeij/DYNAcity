@@ -30,7 +30,7 @@ function buildingDetailGeometry(items, centre, radius = 250) {
   for(const {b,ring,points} of nearby) {
     if(count>=120||windows.length>=6000)break;
     if(!ring?.length||['empty_or_parking','demolished','destroyed'].includes(b.state))continue;
-    const h=elevation(b);
+    const h=elevation(b),base=ground.grid?groundedRing(ring)[0][2]:0;
     if(!Number.isFinite(h)||h<4.6||!points.every(p=>p.every(Number.isFinite)))continue;
     const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);
     if(Math.min(...xs)>radius||Math.max(...xs)<-radius||Math.min(...ys)>radius||Math.max(...ys)<-radius)continue;
@@ -42,14 +42,14 @@ function buildingDetailGeometry(items, centre, radius = 250) {
       if(length<.4)continue;
       const nx=dy/length*Math.sign(area),ny=-dx/length*Math.sign(area),yaw=Math.atan2(dy,dx)*180/Math.PI;
       // Small continuous coping follows every actual edge, including concave roofs.
-      coping.push({position:ll((a[0]+c[0])/2,(a[1]+c[1])/2,h+.015),scale:[length,.18,.18],orientation:[0,yaw,0],illustrative:true,buildingId:b.id});
+      coping.push({position:ll((a[0]+c[0])/2,(a[1]+c[1])/2,h+base+.015),scale:[length,.18,.18],orientation:[0,yaw,0],illustrative:true,buildingId:b.id});
       if(length<3.5)continue;
       const cols=Math.min(40,Math.floor((length-1.4)/3.2)),rows=Math.min(25,Math.floor((h-1.2)/3.2));
       for(let row=0;row<rows;row++)for(let col=0;col<cols;col++) {
         if(windows.length>=6000)break;
         const d=length*(col+1)/(cols+1),z=1.2+row*3.2;
         if(z+1.45>h-.45)continue;
-        windows.push({position:ll(a[0]+dx*d/length+nx*.045,a[1]+dy*d/length+ny*.045,z),
+        windows.push({position:ll(a[0]+dx*d/length+nx*.045,a[1]+dy*d/length+ny*.045,z+base),
           scale:[Math.min(1.15,length/(cols+1)*.55),.045,1.45],orientation:[0,yaw,0],illustrative:true,buildingId:b.id});
       }
     }
@@ -73,8 +73,9 @@ function buildingDetailLayers() {
   }
   const night=nightLevel(),common={mesh:mesh('building-detail-box',blockMesh),getPosition:d=>d.position,
     getScale:d=>d.scale,getOrientation:d=>d.orientation,pickable:false,material:{ambient:.6,diffuse:.6,shininess:8,specularColor:[25,30,35]}};
-  return [new deck.SimpleMeshLayer({...common,id:'illustrative-facade-windows',data:buildingDetailCache.visibleWindows,
-    getColor:shade(isDark()?[64,77,85]:[89,108,115],night,.65),updateTriggers:{getColor:[night,isDark()]}}),
-    new deck.SimpleMeshLayer({...common,id:'illustrative-roof-coping',data:buildingDetailCache.visibleCoping,
+  // Once the night windows are on (viewer_night.js), the dark illustrative glass boxes would only cover them.
+  const windows=night>=.5?[]:[new deck.SimpleMeshLayer({...common,id:'illustrative-facade-windows',data:buildingDetailCache.visibleWindows,
+    getColor:shade(isDark()?[64,77,85]:[89,108,115],night,.65),updateTriggers:{getColor:[night,isDark()]}})];
+  return [...windows,new deck.SimpleMeshLayer({...common,id:'illustrative-roof-coping',data:buildingDetailCache.visibleCoping,
     getColor:shade(isDark()?[114,119,123]:[192,190,179],night,.5),updateTriggers:{getColor:[night,isDark()]}})];
 }

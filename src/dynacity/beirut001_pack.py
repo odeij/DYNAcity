@@ -263,6 +263,17 @@ def bridge_decks(pack: Beirut001Pack, model, *, reach_m: float = 4.0, min_overla
     return decks
 
 
+def _model_height_source(pack: Beirut001Pack, i: int) -> dict:
+    """Model height is a recorded height (roof minus model ground); without ground under
+    the building it is the full solid, so it is flagged as an estimate."""
+
+    if np.isfinite(pack.ground_z[i]):
+        return {"height_kind": "recorded", "estimated": False,
+                "height_source": "Beirut 001 model (roof minus model ground)"}
+    return {"height_kind": "fallback", "estimated": True,
+            "height_source": "Beirut 001 model, full solid: no model ground under this building"}
+
+
 def viewer_payload(pack: Beirut001Pack, bbed_collection: dict | None = None) -> dict:
     """Buildings in lon/lat for the map, with the allowlisted BBED record of each linked one."""
 
@@ -280,7 +291,8 @@ def viewer_payload(pack: Beirut001Pack, bbed_collection: dict | None = None) -> 
         buildings.append({
             "id": str(pack.building_ids[i]),
             "parts": [[ring(p.exterior.coords), *[ring(h.coords) for h in p.interiors]] for p in getattr(geom, "geoms", [geom])],
-            "height_m": round(float(heights[i]), 2), "top_z": round(float(pack.top_z[i]), 2),
+            "height_m": round(float(heights[i]), 2), **_model_height_source(pack, i),
+            "top_z": round(float(pack.top_z[i]), 2),
             "ground_z": None if not np.isfinite(pack.ground_z[i]) else round(float(pack.ground_z[i]), 2),
             "roof_levels": int(pack.roof_levels[i]),
             "objectid": int(pack.bbed_objectid[i]) if linked else None,
@@ -296,7 +308,7 @@ def viewer_payload(pack: Beirut001Pack, bbed_collection: dict | None = None) -> 
     return {
         "attribution": pack.meta["attribution"], "source": pack.meta["source"],
         "matched": pack.meta["counts"]["linked"], "matching": pack.meta["matching"],
-        "vertical": pack.meta["vertical"], "buildings": buildings, "bbed": records,
+        "vertical": pack.meta["vertical"], "alignment": pack.meta.get("alignment"), "buildings": buildings, "bbed": records,
         "bridge_mesh": bridge_mesh_payload(pack),
     }
 
@@ -347,8 +359,10 @@ def bridge_mesh_payload(pack: Beirut001Pack) -> dict | None:
     return {'origin': [lon, lat, 0], 'vertices': len(triangles)*3,
             'positions': encode(triangles), 'normals': encode(np.repeat(normals[:, None, :], 3, axis=1)),
             'triangles': len(triangles),
-            'provenance': 'January 2020 source transport meshes; inferred horizontal alignment. '
-                          'Heights relative to the model ground; underground portions clipped. '
+            'provenance': 'January 2020 source transport meshes; '
+                          + ('horizontal alignment refined against OSM footprints. ' if pack.meta.get('alignment')
+                             else 'inferred horizontal alignment. ')
+                          + 'Heights relative to the model ground; underground portions clipped. '
                           'No columns or girders have been invented.'}
 
 

@@ -1,4 +1,4 @@
-"""Street traffic: an OpenStreetMap road graph with observed speeds, and what disasters do to it.
+"""Street traffic: an OpenStreetMap road graph with observed speeds, and what closures do to it.
 
 `build_traffic_model` joins two open sources over the snapshot's extent:
 
@@ -24,20 +24,8 @@ of probe readings on a way stands in for how busy it is when trips are
 sampled. The speeds also predate the 2019 crisis and the 2020 port blast, so
 they are "typical pre-2020 conditions", not today's traffic.
 
-Disasters act on roads through `road_disruption`:
-
-- rubble: a building the hazard is likely to destroy blocks the streets within
-  reach of its collapse (half its height plus half its footprint width); a road
-  is closed when it is more likely blocked than not, and slowed below that;
-- water: a flood closes a road where it stands deeper than `FLOOD_CLOSE_DEPTH_M`
-  (following terrain when the snapshot carries ground elevations), and slows
-  it below that to the safe speed for its deepest water (`flood_speed_kmh`);
-- cordons: fires, riots, blasts, crashes and strikes close the roads in the
-  inner part of the footprint (exposure at least `CORDON_EXPOSURE`);
-- weather: storms and rain slow the roads they reach.
-
-Closures and vehicle crashes can also be placed on the map by hand
-(`road_events`), God's Plan style, and combined with any disasters
+Closures and vehicle crashes can be placed on the map by hand or typed in a
+scenario (`road_events`), God's Plan style, and combined
 (`combine_disruptions`).
 
 `traffic_impact` then samples trips across the graph and routes each before
@@ -48,9 +36,8 @@ volume-delay curve (capacity from OSM lane counts), so a detour through a
 narrow street jams, and the roads they leave speed up; trips are then re-timed
 once on that network. Bus and van routes from OSM are kept
 alongside, so a result can name the lines a closure cuts.
-Every closure rule and slowdown factor is an illustrative assumption, like the
-fragility numbers in `hazards.PROFILES`; nothing here is calibrated against
-observed disruptions. It is a picture of the consequence, not a traffic model.
+Every closure rule and slowdown factor is an illustrative assumption; nothing
+here is calibrated against observed disruptions. It is a picture of the consequence, not a traffic model.
 """
 
 from __future__ import annotations
@@ -64,8 +51,7 @@ from typing import Any
 
 import numpy as np
 
-from .contracts import HazardEvent, HazardKind, UrbanObjectState, UrbanStateSnapshot
-from .hazards import PROFILES, _distance_to_path, _exposure, flood_level, hazard_shock, magnitude_of, radius_of
+from .contracts import UrbanStateSnapshot
 from .viewer import _utm_zone, lonlat_to_utm, utm_to_lonlat
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
@@ -102,23 +88,6 @@ LANE_WIDTH_M = 3.2
 MIN_MOVING_KMH = 3.0
 MAX_SPEED_KMH = 160.0
 
-# Road disruption rules (assumptions, see the module docstring).
-FLOOD_CLOSE_DEPTH_M = 0.3
-# Shallower water slows cars instead: the highest safe speed, km/h, at depth d
-# mm is a d² + b d + c (Pregnolato et al. 2017, the curve Costa et al. 2024 use
-# for Copenhagen). About 2 km/h at the 300 mm closure depth; a car's free-flow
-# speed takes over below the depth where the curve rises past it.
-FLOOD_SPEED_CURVE = (0.0009, -0.5529, 86.9448)
-RUBBLE_CLOSE_PROBABILITY = 0.5
-# Below that, a road likely to carry some debris is slowed in proportion.
-RUBBLE_SLOW_PROBABILITY = 0.15
-# Cordons cover the part of the footprint where exposure is at least this.
-CORDON_EXPOSURE = 0.5
-CORDON_KINDS = frozenset({
-    HazardKind.FIRE, HazardKind.RIOT, HazardKind.EXPLOSION, HazardKind.PLANE_CRASH, HazardKind.ORBITAL_STRIKE,
-})
-# Speed multiplier at full exposure; it eases back to 1 at the footprint edge.
-WEATHER_SLOWDOWN = {HazardKind.STORM: 0.7, HazardKind.RAIN: 0.85}
 # A crash blocks its own segment and slows traffic queuing behind it: speeds
 # drop to CRASH_SLOWDOWN × normal on the roads that drive into it, easing back
 # to normal CRASH_QUEUE_M back along the network. Assumptions, like the rules above.
@@ -143,8 +112,6 @@ BPR_ALPHA, BPR_BETA = 0.15, 4.0
 ASSIGNMENT_ITERATIONS = 6
 # A trip delayed by more than this counts as delayed.
 DELAYED_MIN = 0.5
-# Edge geometry is sampled this often when testing it against a hazard.
-SAMPLE_STEP_M = 10.0
 
 
 @dataclass
@@ -976,149 +943,18 @@ def background_flow(model: TrafficModel) -> np.ndarray:
     return flow
 
 
-# --- disasters on the road network -------------------------------------------
+# --- closures and crashes on the road network -------------------------------------------
 
 
 @dataclass(frozen=True)
 class RoadDisruption:
-    """Per-road outcome of a set of hazards, aligned with the traffic model's roads."""
+    """Per-road outcome of closures and crashes, aligned with the traffic model's roads."""
 
     closed: np.ndarray
     # Speed multiplier in (0, 1]; 1 where untouched.
     speed_factor: np.ndarray
-    # Why each closed road is closed: "rubble", "water", "cordon", "manual" or "crash".
+    # Why each closed road is closed: "manual" or "crash".
     reason: list[str | None]
-    # Share of each road's length under flood water, and the mean depth (m)
-    # over that wet part; None when no flood was applied. Road damage is
-    # priced from these (`impact_costs.road_damage`).
-    flood_wet_fraction: np.ndarray | None = None
-    flood_depth_m: np.ndarray | None = None
-
-
-def _samples(model: TrafficModel) -> tuple[np.ndarray, np.ndarray]:
-    """Points along every road at most `SAMPLE_STEP_M` apart, and the road each belongs to."""
-
-    cached = model._graph_cache.get("samples")
-    if cached is not None:
-        return cached
-    points, owner = [], []
-    for i, line in enumerate(model.geometry):
-        for a, b in zip(line[:-1], line[1:], strict=True):
-            steps = max(1, math.ceil(math.dist(a, b) / SAMPLE_STEP_M))
-            for k in range(steps + 1):
-                t = k / steps
-                points.append((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t))
-                owner.append(i)
-    result = (np.asarray(points, dtype=np.float64).reshape(-1, 2), np.asarray(owner, dtype=np.int64))
-    model._graph_cache["samples"] = result
-    return result
-
-
-def _hazard_exposure(hazard: HazardEvent, xy: np.ndarray) -> np.ndarray:
-    if hazard.citywide:
-        return np.ones(len(xy))
-    if hazard.path_m:
-        distance = _distance_to_path(xy, hazard.path_m)
-    else:
-        distance = np.linalg.norm(xy - np.asarray([hazard.center_x_m, hazard.center_y_m]), axis=1)
-    return _exposure(distance, radius_of(hazard), PROFILES[hazard.kind].core_fraction)
-
-
-def flood_speed_kmh(depth_m: np.ndarray) -> np.ndarray:
-    """Highest safe car speed through standing water (`FLOOD_SPEED_CURVE`); 0 where the road closes."""
-
-    a, b, c = FLOOD_SPEED_CURVE
-    mm = np.asarray(depth_m, dtype=np.float64) * 1000.0
-    return np.where(mm > FLOOD_CLOSE_DEPTH_M * 1000.0, 0.0, a * mm**2 + b * mm + c)
-
-
-def _collapse_reach(item: UrbanObjectState) -> float:
-    height = item.height_m or (item.floors * 3.2 if item.floors else 6.0)
-    width = math.sqrt(item.footprint_area_m2) if item.footprint_area_m2 else 10.0
-    return 0.5 * height + 0.5 * width
-
-
-def road_disruption(
-    hazards: Sequence[HazardEvent],
-    snapshot: UrbanStateSnapshot,
-    model: TrafficModel,
-    *,
-    ground: Any | None = None,
-) -> RoadDisruption:
-    """Which roads the hazards close or slow (see the module docstring for the rules)."""
-
-    from scipy.spatial import cKDTree
-
-    if model.crs != snapshot.crs:
-        raise ValueError(f"traffic model is in {model.crs}, snapshot in {snapshot.crs}")
-    xy, owner = _samples(model)
-    roads = len(model)
-    closed = np.zeros(roads, dtype=bool)
-    factor = np.ones(roads)
-    reason: list[str | None] = [None] * roads
-
-    def close(mask_points: np.ndarray, why: str) -> None:
-        for i in np.unique(owner[mask_points]):
-            if not closed[i]:
-                closed[i], reason[i] = True, why
-
-    # Rubble: P(road blocked) = 1 - Π(1 - P(destroyed)) over buildings whose
-    # collapse reaches it, combined across every hazard.
-    survive = np.ones(len(snapshot.objects))
-    for hazard in hazards:
-        survive *= 1.0 - hazard_shock(hazard, snapshot.objects).destroy
-    destroyed = 1.0 - survive
-    blocked_free = np.ones(roads)
-    tree = cKDTree(xy) if len(xy) else None
-    for j in np.flatnonzero(destroyed > 0.01):
-        item = snapshot.objects[j]
-        if item.centroid_x_m is None or tree is None:
-            continue
-        near = tree.query_ball_point((item.centroid_x_m, item.centroid_y_m), _collapse_reach(item))
-        for i in np.unique(owner[near]):
-            blocked_free[i] *= 1.0 - destroyed[j]
-    blocked = 1.0 - blocked_free
-    for i in np.flatnonzero(blocked >= RUBBLE_CLOSE_PROBABILITY):
-        closed[i], reason[i] = True, "rubble"
-    partly = (blocked >= RUBBLE_SLOW_PROBABILITY) & (blocked < RUBBLE_CLOSE_PROBABILITY)
-    factor[partly] = 1.0 - blocked[partly]
-
-    # Deepest water at each sample point over every flood.
-    water: np.ndarray | None = None
-    for hazard in hazards:
-        exposure = _hazard_exposure(hazard, xy)
-        if hazard.kind is HazardKind.FLOOD:
-            level = flood_level(hazard, snapshot.objects) if ground is not None else None
-            if level is None:
-                depth = magnitude_of(hazard) * exposure
-            else:
-                with np.errstate(invalid="ignore"):
-                    depth = np.nan_to_num(level - ground.sample(xy[:, 0], xy[:, 1]), nan=0.0).clip(0.0) * exposure
-            close(depth > FLOOD_CLOSE_DEPTH_M, "water")
-            # The deepest point a road keeps open sets its speed.
-            wet = (depth > 0) & (depth <= FLOOD_CLOSE_DEPTH_M)
-            cap = np.full(roads, np.inf)
-            np.minimum.at(cap, owner[wet], flood_speed_kmh(depth[wet]))
-            factor = np.minimum(factor, np.clip(cap / np.maximum(model.free_kmh, 1.0), 0.0, 1.0))
-            water = depth if water is None else np.maximum(water, depth)
-        elif hazard.kind in CORDON_KINDS:
-            close(exposure >= CORDON_EXPOSURE, "cordon")
-        elif hazard.kind in WEATHER_SLOWDOWN:
-            slow = 1.0 - (1.0 - WEATHER_SLOWDOWN[hazard.kind]) * exposure
-            per_road = np.ones(roads)
-            np.minimum.at(per_road, owner, slow)
-            factor = np.minimum(factor, per_road)
-    wet_fraction = mean_depth = None
-    if water is not None:
-        # Sample points are evenly spaced, so counting them measures length.
-        points = np.bincount(owner, minlength=roads).astype(np.float64)
-        wet = water > 0
-        wet_points = np.bincount(owner[wet], minlength=roads).astype(np.float64)
-        wet_sum = np.bincount(owner[wet], weights=water[wet], minlength=roads)
-        wet_fraction = wet_points / np.maximum(points, 1.0)
-        mean_depth = wet_sum / np.maximum(wet_points, 1.0)
-    return RoadDisruption(closed=closed, speed_factor=factor, reason=reason,
-                          flood_wet_fraction=wet_fraction, flood_depth_m=mean_depth)
 
 
 def _feeders(model: TrafficModel) -> dict[int, list[tuple[int, int]]]:
@@ -1192,20 +1028,12 @@ def road_events(model: TrafficModel, *, closed: Sequence[int] = (), crashes: Seq
 
 
 def combine_disruptions(*parts: RoadDisruption) -> RoadDisruption:
-    """Closed where any part closes a road (the first reason wins); speeds take the strongest slowdown.
-
-    Flood water comes from the first part that carries it.
-    """
+    """Closed where any part closes a road (the first reason wins); speeds take the strongest slowdown."""
 
     closed = np.logical_or.reduce([p.closed for p in parts])
     factor = np.minimum.reduce([p.speed_factor for p in parts])
     reason = [next((p.reason[i] for p in parts if p.closed[i]), None) for i in range(len(closed))]
-    flooded = next((p for p in parts if p.flood_depth_m is not None), None)
-    return RoadDisruption(
-        closed=closed, speed_factor=factor, reason=reason,
-        flood_wet_fraction=None if flooded is None else flooded.flood_wet_fraction,
-        flood_depth_m=None if flooded is None else flooded.flood_depth_m,
-    )
+    return RoadDisruption(closed=closed, speed_factor=factor, reason=reason)
 
 
 @_cached
@@ -1375,7 +1203,7 @@ def _traffic_impact(
     approaches an equilibrium for the diversion, not for the whole city.
 
     `affected` trips are those whose usual route crosses a closed or slowed
-    road; `cut_off` and `delay_min` are over them, so a local disaster is not
+    road; `cut_off` and `delay_min` are over them, so a local closure is not
     averaged away across the city. `spillover` counts the other trips the
     detour traffic delays.
     """
@@ -1523,7 +1351,7 @@ def _traffic_impact(
     loaded_vc = np.maximum(flow + extra - left, 0.0) / cap
     reasons = {
         why: int(sum(1 for r in disruption.reason if r == why))
-        for why in ("rubble", "water", "cordon", "manual", "crash")
+        for why in ("manual", "crash")
     }
     closed_ways = {model.way_id[i] for i in np.flatnonzero(disruption.closed)}
     routes_hit = [

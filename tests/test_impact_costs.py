@@ -1,25 +1,18 @@
 import numpy as np
 import pytest
 
-from dynacity.contracts import HazardEvent, HazardKind
 from dynacity.impact_costs import (
     GDP_PER_CAPITA_EU28_2015,
     Prices,
     construction_cost,
     damage_fraction,
     event_cost,
-    road_damage,
     road_type,
     trip_costs,
 )
-from dynacity.traffic import combine_disruptions, road_disruption, road_events, traffic_impact
+from dynacity.traffic import road_events, traffic_impact
 
-from test_traffic import X0, Y0, model, roads_of_way, snapshot  # noqa: F401 (fixture)
-
-
-def flood(depth_m: float) -> HazardEvent:
-    return HazardEvent(hazard_id="f", kind=HazardKind.FLOOD, magnitude=depth_m,
-                       center_x_m=X0, center_y_m=Y0, radius_m=150)
+from test_traffic import model, roads_of_way  # noqa: F401 (fixture)
 
 
 def test_road_types_follow_van_ginkel():
@@ -52,29 +45,8 @@ def test_construction_cost_scales_by_type_lanes_and_gdp(model):
     assert prices.road_cost_scale == pytest.approx(0.2624, abs=1e-3)
 
 
-def test_flood_damage_covers_only_wet_roads(model):
-    dry = road_events(model)
-    assert dry.flood_depth_m is None and not road_damage(model, dry).any()
-    out = road_disruption([flood(0.2)], snapshot(), model)
-    damage = road_damage(model, out)
-    wet = out.flood_wet_fraction > 0
-    assert wet.any() and (~wet).any()
-    assert (damage[wet] > 0).all() and not damage[~wet].any()
-    cost = construction_cost(model)
-    i = int(np.flatnonzero(wet)[0])
-    share = damage_fraction(model.highway[i], np.array([out.flood_depth_m[i]]))[0]
-    assert damage[i] == pytest.approx(cost[i] * out.flood_wet_fraction[i] * share)
-    # Deeper water damages more.
-    assert road_damage(model, road_disruption([flood(1.0)], snapshot(), model)).sum() > damage.sum()
-
-
-def test_combined_disruption_keeps_the_flood(model):
-    out = combine_disruptions(road_events(model, closed=[0]), road_disruption([flood(0.5)], snapshot(), model))
-    assert out.flood_depth_m is not None and out.closed[0]
-
-
 def test_trip_costs_price_vehicle_hours(model):
-    out = road_disruption([flood(1.0)], snapshot(), model)
+    out = road_events(model, closed=roads_of_way(model, 1))
     impact = traffic_impact(model, out, origins=6, per_origin=6)
     hours = impact["vehicle_hours"]
     assert set(hours) == {"delay", "spillover", "cut_off_usual"}
@@ -85,16 +57,14 @@ def test_trip_costs_price_vehicle_hours(model):
     assert cost["cut_off"] == pytest.approx(hours["cut_off_usual"] * 3.0 * 0.5)
 
 
-def test_event_cost_counts_damage_once_and_trips_each_hour(model):
-    out = road_disruption([flood(1.0)], snapshot(), model)
+def test_event_cost_sums_trips_each_hour(model):
+    out = road_events(model, closed=roads_of_way(model, 1))
     one = event_cost(model, out, start_hour=8, duration_h=1, origins=6, per_origin=6)
     three = event_cost(model, out, start_hour=8, duration_h=3, origins=6, per_origin=6)
     assert one["currency"] == "USD" and set(one["sources"]) >= {"value_of_time", "road_cost"}
-    assert one["road_damage"] > 0
-    assert three["road_damage"] == pytest.approx(one["road_damage"])
     assert [h["hour"] for h in three["hourly"]] == [8, 9, 10]
     assert three["delay"] == pytest.approx(sum(h["delay"] for h in three["hourly"]))
-    parts = ("road_damage", "delay", "spillover", "cut_off")
+    parts = ("delay", "spillover", "cut_off")
     assert three["total"] == pytest.approx(sum(three[p] for p in parts))
     with pytest.raises(ValueError):
         event_cost(model, out, duration_h=0)

@@ -1,0 +1,58 @@
+{
+  "leaflet_version": "1.9.4",
+  "leaflet_license": "BSD-2-Clause",
+  "proj4_version": "2.12.1",
+  "proj4_license": "MIT",
+  "files": [
+    {
+      "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js",
+      "file": "leaflet/leaflet.js",
+      "sha256": "db49d009c841f5ca34a888c96511ae936fd9f5533e90d8b2c4d57596f4e5641a"
+    },
+    {
+      "url": "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css",
+      "file": "leaflet/leaflet.css",
+      "sha256": "a7837102824184820dfa198d1ebcd109ff6d0ff9a2672a074b9a1b4d147d04c6"
+    },
+    {
+      "url": "https://raw.githubusercontent.com/Leaflet/Leaflet/v1.9.4/LICENSE",
+      "file": "leaflet/LICENSE",
+      "sha256": "53e8dc25862014e4324741ca18fbe3611e11d42ef69f59f86ea8c5389647d4cb"
+    },
+    {
+      "url": "https://unpkg.com/proj4@2.12.1/dist/proj4.js",
+      "file": "proj4/proj4.js",
+      "sha256": "9ecae61d88a976481c70d25069066205b10d541f098cdb69c02f3dd4dcac99cf"
+    },
+    {
+      "url": "https://unpkg.com/proj4@2.12.1/LICENSE.md",
+      "file": "proj4/LICENSE.md",
+      "sha256": "d514fd8b286fc00a5c97a29f8a99b73f1a4053bbdd00c400aee5f24a1b6b301e"
+    },
+    {
+      "url": "https://unpkg.com/leaflet@1.9.4/dist/images/layers.png",
+      "file": "leaflet/images/layers.png",
+      "sha256": "1dbbe9d028e292f36fcba8f8b3a28d5e8932754fc2215b9ac69e4cdecf5107c6"
+    },
+    {
+      "url": "https://unpkg.com/leaflet@1.9.4/dist/images/layers-2x.png",
+      "file": "leaflet/images/layers-2x.png",
+      "sha256": "066daca850d8ffbef007af00b06eac0015728dee279c51f3cb6c716df7c42edf"
+    },
+    {
+      "url": "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+      "file": "leaflet/images/marker-icon.png",
+      "sha256": "574c3a5cca85f4114085b6841596d62f00d7c892c7b03f28cbfa301deb1dc437"
+    },
+    {
+      "url": "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+      "file": "leaflet/images/marker-icon-2x.png",
+      "sha256": "00179c4c1ee830d3a108412ae0d294f55776cfeb085c60129a39aa6fc4ae2528"
+    },
+    {
+      "url": "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+      "file": "leaflet/images/marker-shadow.png",
+      "sha256": "264f5c640339f042dd729062cfc04c17f8ea0f29882b538e3848ed8f10edb4da"
+    }
+  ]
+}

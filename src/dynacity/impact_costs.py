@@ -1,18 +1,20 @@
-"""Money on what a flood does to the streets: road damage, delays and trips cut off.
+"""Money on what a road disruption costs: delays and trips cut off, plus road cost tables.
 
 This is the cost side of the Copenhagen reinforcement-learning setup (Costa et
 al. 2024, 2026; see docs/rl-flood-transport.md) for Beirut. It prices the
 outputs the traffic model already gives:
 
-- road damage: van Ginkel et al. (2021). A road's construction cost per km
-  comes from its type's range (Table 1), moved 25% per lane above or below the
-  type's default, and the damage is a share of that cost read off a
-  depth-damage curve (Table 2) over the flooded length at its mean depth.
-  Costs are an EU-28 average at 2015 prices; as the paper does, they are
-  scaled to the local economy by GDP per capita, then converted to US dollars.
 - delay: vehicle-hours lost (`traffic_impact`'s `vehicle_hours`) × occupancy ×
   a value of time;
 - trips cut off: a share of their usual trip cost, as Costa et al. (2026) do.
+
+It also keeps van Ginkel et al. (2021) road costs: a road's construction cost
+per km from its type's range (Table 1), moved 25% per lane above or below the
+type's default, and the share of it a given water depth destroys (Table 2).
+Costs are an EU-28 average at 2015 prices; as the paper does, they are scaled
+to the local economy by GDP per capita, then converted to US dollars. Nothing
+gives roads a water depth since disasters were removed, so no disruption is
+charged road damage.
 
 Every unit value sits in `Prices` with its source. They are transferred from
 studies made for other places or purposes, with price years from 2015 to 2016;
@@ -161,20 +163,6 @@ def damage_fraction(highway: str, depth_m: np.ndarray, prices: Prices | None = N
     return 0.5 * (read(low_curve) + read(high_curve))
 
 
-def road_damage(model: TrafficModel, disruption: RoadDisruption, prices: Prices | None = None) -> np.ndarray:
-    """Damage to each road from the disruption's flood water, in `prices.currency`; zeros without a flood."""
-
-    prices = prices or Prices()
-    if disruption.flood_depth_m is None or disruption.flood_wet_fraction is None:
-        return np.zeros(len(model))
-    cost = construction_cost(model, prices)
-    out = np.zeros(len(model))
-    for i in np.flatnonzero(disruption.flood_wet_fraction > 0):
-        share = damage_fraction(model.highway[i], np.asarray([disruption.flood_depth_m[i]]), prices)[0]
-        out[i] = cost[i] * disruption.flood_wet_fraction[i] * share
-    return out
-
-
 def trip_costs(impact: dict[str, Any], prices: Prices | None = None) -> dict[str, float]:
     """Cost of one hour of a disruption from a `traffic_impact` result, in `prices.currency`."""
 
@@ -199,23 +187,20 @@ def event_cost(
 ) -> dict[str, Any]:
     """Total cost of a disruption lasting `duration_h` whole hours from `start_hour`.
 
-    Road damage is counted once; trip costs are summed over each hour, routed
-    at that hour of day (`impact_options` go to `traffic_impact`). The road
-    network is assumed to stay as `disruption` leaves it for the whole time:
-    water does not rise or recede within the event.
+    Trip costs are summed over each hour, routed at that hour of day
+    (`impact_options` go to `traffic_impact`). The road network is assumed to
+    stay as `disruption` leaves it for the whole time.
     """
 
     prices = prices or Prices()
     if duration_h < 1:
         raise ValueError("duration_h must be at least one hour")
-    damage = road_damage(model, disruption, prices)
     hourly = []
     for step in range(duration_h):
         hour = (start_hour + step) % 24
         impact = traffic_impact(model, disruption, hour=hour, **impact_options)
         hourly.append({"hour": hour, "vehicle_hours": impact["vehicle_hours"], **trip_costs(impact, prices)})
     costs = {
-        "road_damage": float(damage.sum()),
         "delay": sum(h["delay"] for h in hourly),
         "spillover": sum(h["spillover"] for h in hourly),
         "cut_off": sum(h["cut_off"] for h in hourly),
@@ -225,8 +210,6 @@ def event_cost(
         "total": sum(costs.values()),
         **costs,
         "hourly": hourly,
-        # Road indices and their damage, largest first.
-        "damaged_roads": [[int(i), round(float(damage[i]), 2)] for i in np.argsort(-damage) if damage[i] > 0],
         "prices": {
             "value_of_time": prices.value_of_time, "occupancy": prices.occupancy,
             "cut_off_share": prices.cut_off_share, "road_cost_scale": round(prices.road_cost_scale, 4),
