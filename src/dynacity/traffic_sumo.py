@@ -117,6 +117,18 @@ EXIT_DETERRENCE_S = 60.0
 ENTRY_ROUTE_DRAWS = 32
 
 
+# Right of way at unsignalised junctions follows the road class, with SUMO's
+# own OSM import priorities (data/typemap/osmNetconvert.typ.xml). With every
+# edge at the same priority netconvert guessed the main road from angles, and
+# on the corridor 19 of 104 motorway and 26 of 160 trunk turns gave way, a
+# trunk to its own slip road among them.
+ROAD_PRIORITY = {
+    'motorway': 14, 'trunk': 13, 'primary': 12, 'secondary': 11, 'tertiary': 10,
+    'motorway_link': 9, 'trunk_link': 8, 'primary_link': 7, 'secondary_link': 6, 'tertiary_link': 5,
+    'unclassified': 4, 'residential': 3, 'living_street': 2,
+}
+
+
 
 
 def trim_entry(route, length_of, min_length=MIN_ENTRY_M):
@@ -211,6 +223,7 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mix
                              'to': str(int(model.v[i] if direction == 1 else model.u[i]))},
                           numLanes=str(int(lanes[i]) + (i in spare)), width=str(LANE_WIDTH_M),
                           speed=str(max(1, float(model.free_kmh[i]) / 3.6)),
+                          priority=str(ROAD_PRIORITY.get(model.highway[i], 1)),
                           shape=' '.join(f'{x},{y}' for x, y in shape), allow=' '.join(allowed),
                           # An undivided two-way way describes the shared centre
                           # line: each direction belongs on its right. A one-way
