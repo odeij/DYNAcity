@@ -14,6 +14,7 @@ files rather than in-process state:
     pack-beirut001  → Beirut 001 Rhino model → small private pack (.npz) of outlines, heights, ground
     build-traffic   → OSM road graph + Tari'ak hourly speeds (.json) for traffic and road closures
     build-zones     → decision zones (.json) over the roads from OSM boundaries, for adaptation policies
+    run-plan        → a street plan in SUMO against a paired baseline (.json), without the viewer
     freeze-evidence → registry JSON → content-hashed EvidenceBundle
     compile-scenario→ planner prose → checked ScenarioSpec + audit trail
     train           → ModelBundle + sibling .metrics.json
@@ -496,6 +497,31 @@ def command_build_zones(args: argparse.Namespace) -> None:
           + (f"; {unzoned} roads outside every zone" if unzoned else "") + ")")
 
 
+def command_run_plan(args: argparse.Namespace) -> None:
+    from .plan_runs import RunSettings, StreetPlan, run_plan
+    from .traffic import TrafficModel
+
+    model = TrafficModel.load(args.traffic)
+    if args.corridor:
+        from .corridor import Corridor
+        from .mobility_inputs import pilot_network
+        corridor = Corridor.load(args.corridor, model.crs, args.corridor_buffer_m)
+        model, _ = pilot_network(model, list(corridor.bounds()), note=f'Whole-road subset around {corridor.name}; '
+                                 'cars enter and leave at its edge; not a citywide run.')
+    plan = StreetPlan.from_json(_json(args.plan), model)
+    settings = RunSettings(hour=args.hour, seeds=tuple(args.seed or (42,)), warmup_s=round(args.warmup_min * 60),
+                           measure_s=round(args.measure_min * 60))
+    result = run_plan(model, plan, settings)
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(result, indent=1), encoding="utf-8")
+    hours = result['summary']['vehicle_hours']['change']['median']
+    print(f"plan {plan.plan_id} -> {args.output} ({len(model)} roads, {len(settings.seeds)} seed(s); "
+          f"median change {hours:+.1f} vehicle-hours over {args.measure_min:g} min)")
+    for warning in result['warnings']:
+        print(f"warning: {warning}")
+
+
 def _business_as_usual(engine: ForecastEngine, snapshot: UrbanStateSnapshot) -> ForecastResult:
     return engine.forecast(ForecastRequest(
         snapshot=snapshot,
@@ -847,6 +873,18 @@ def build_parser() -> argparse.ArgumentParser:
     zones.add_argument("--grid-m", type=float, default=500.0, help="grid cell for roads outside every boundary; 0 for none")
     zones.add_argument("--output", required=True)
     zones.set_defaults(func=command_build_zones)
+
+    run = subparsers.add_parser("run-plan", help="a street plan in SUMO against a paired baseline, without the viewer")
+    run.add_argument("--traffic", required=True, help="traffic model from build-traffic")
+    run.add_argument("--plan", required=True, help="JSON: plan_id, close_roads, close_streets, add_lanes")
+    run.add_argument("--corridor", help="GeoJSON line; the roads are cut to its buffer, as `serve --corridor` does")
+    run.add_argument("--corridor-buffer-m", type=float, default=250.0)
+    run.add_argument("--hour", type=int, default=8)
+    run.add_argument("--seed", type=int, action="append", help="repeat for more seeds (default 42)")
+    run.add_argument("--warmup-min", type=float, default=10.0)
+    run.add_argument("--measure-min", type=float, default=30.0)
+    run.add_argument("--output", required=True)
+    run.set_defaults(func=command_run_plan)
 
     train = subparsers.add_parser("train")
     train.add_argument("--panel", required=True)
