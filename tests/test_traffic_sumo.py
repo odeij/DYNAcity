@@ -691,6 +691,30 @@ def test_api_restarts_sessions_when_lanes_change(network):
     client.delete(f'/v1/viewer/traffic/simulation/{key}')
 
 
+def test_light_mode_sends_no_cars_but_simulates_the_same_traffic(network):
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    runs = []
+    for limit in (None, 0):
+        sim = Simulation(network, continuous=True, seed=7, lanes={0: 1})
+        try:
+            frames = []
+            for _ in range(4):
+                frames += sim.advance(road_events(network), 10, include_initial=False, limit=limit)['frames']
+            runs.append(frames)
+            if limit == 0:
+                assert all(f['vehicles'] == [] for f in frames)
+                assert any(f['metrics']['stopped_roads'] for f in frames) or frames[-1]['metrics']['active']
+                # Back to live cars mid-run: positions come back.
+                live = sim.advance(road_events(network), 4, include_initial=False)['frames']
+                assert live[-1]['vehicles'] and len(live[-1]['vehicles']) == live[-1]['metrics']['active']
+        finally:
+            sim.close()
+    keys = ('total', 'active', 'pending', 'arrived', 'stopped', 'stopped_roads', 'mean_completed_delay_s', 'baseline')
+    for live, light in zip(*runs):
+        assert {k: live['metrics'][k] for k in keys} == {k: light['metrics'][k] for k in keys}
+
+
 def _turns(net, skip=()):
     return {(e.getID(), l.getIndex(), c.getTo().getID(), c.getToLane().getIndex())
             for e in net.getEdges() for l in e.getLanes() for c in l.getOutgoing()

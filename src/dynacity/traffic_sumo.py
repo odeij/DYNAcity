@@ -981,7 +981,7 @@ class Simulation:
         # thousands of per-vehicle socket round trips.
         constants = self.traci.constants
         states = c.junction.getContextSubscriptionResults(self.context_node) or {}
-        watched = states
+        watched = {} if getattr(self, 'light', False) else states
         if getattr(self, 'watching', False):
             watched = c.poi.getContextSubscriptionResults(WATCH_POI) or {}
             west, south, east, north = self.view
@@ -1113,13 +1113,25 @@ class Simulation:
             vehicles = sorted(vehicles, key=lambda v: zlib.crc32(v[0].encode()))[:limit]
         return vehicles
 
+    def fleet_set(self):
+        """Variables the whole fleet reports: all of them only when every car is sent."""
+        return self.fleet_variables if self.watching or getattr(self, 'light', False) else self.variables
+
     def watch(self, c):
         """Subscribe every variable for the cars around `view`, the fleet for metrics only.
+
+        With no cars to send (`light`) nothing is watched; the fleet still
+        reports what the metrics and the per-road queues need.
 
         A point of interest at the view centre carries a context subscription
         over the view's half-diagonal; `frame` trims it to the box.
         """
         constants = self.traci.constants
+        if getattr(self, 'light', False):
+            if self.watching:
+                c.poi.unsubscribeContext(WATCH_POI, constants.CMD_GET_VEHICLE_VARIABLE, self.watch_radius)
+            self.watching = False
+            return
         if self.watching and self.view and self.to_xy is not None:
             west, south, east, north = self.view
             box = self.to_xy([west, east], [south, north])
@@ -1275,11 +1287,17 @@ class Simulation:
         with self.lock:
             self.last_used = time.monotonic()
             self.view, self.limit = view, limit
+            # Light mode: no cars sent, so none are read or converted. The
+            # simulation itself is the same; only the fleet subscription changes.
+            light = limit == 0
+            if light != getattr(self, 'light', False):
+                self.light = light
+                self.subscribed[0] = False
             self.watch(self.connections[0])
             c = self.connections[0]
             if not self.subscribed[0]:
                 c.junction.subscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE, self.context_radius,
-                                            self.fleet_variables if self.watching else self.variables)
+                                            self.fleet_set())
                 self.subscribed[0] = True
             self.fleet_fresh = True
             if not self.forked and (disruption.closed.any() or (disruption.speed_factor != 1).any()):
@@ -1342,7 +1360,7 @@ class Simulation:
                     if index:
                         variables = self.baseline_variables
                     else:
-                        variables = self.fleet_variables if self.watching else self.variables
+                        variables = self.fleet_set()
                         if self.watching:
                             self.watch(c)
                     self.subscribed[index] = self.fleet_fresh
