@@ -129,6 +129,15 @@ ROAD_PRIORITY = {
 }
 
 
+# OSM draws one junction as several nodes a few metres apart (a dual
+# carriageway crossing, an interchange). Each became a junction of its own,
+# with its own right of way, and with ramps merging without an acceleration
+# lane the corridor's motorways cleared far less than they carry. SUMO's
+# recommended OSM import options join such clusters and build ramp lanes
+# (docs/sumo-internals.md#joined-junctions-and-ramps-8-november-2026). The roads inside a
+# joined cluster, about 12 m each, disappear (`excluded_roads`); a ramp
+# lane splits its road into `<road>:<direction>` and a `-Added…RampEdge` piece.
+OSM_IMPORT_OPTIONS = ['--junctions.join', 'true', '--ramps.guess', 'true']
 
 
 def trim_entry(route, length_of, min_length=MIN_ENTRY_M):
@@ -164,6 +173,7 @@ def spare_connections(model: TrafficModel, base_net, spare) -> list[tuple[str, i
     only adds the spare lanes' copies: a spare lane leaves as the lane beside
     it does, and is reached wherever the lane beside it is.
     """
+    # The built lane count: a guessed ramp lane can add one to the model's.
     beside = {f'{i}:{d}': base_net.getEdge(f'{i}:{d}').getLaneNumber()
               for i in spare for d in (1, -1) if base_net.hasEdge(f'{i}:{d}')}
     nodes = {node for eid in beside for node in (base_net.getEdge(eid).getFromNode(), base_net.getEdge(eid).getToNode())}
@@ -242,10 +252,14 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mix
     for name, root in (('nodes', nodes), ('edges', edges), ('connections', connections)):
         ET.ElementTree(root).write(directory / f'{name}.xml')
     net = directory / 'network.net.xml'
+    # Cut nodes and surveyed signals are looked up by their own node id, so
+    # they stay out of joined clusters.
+    keep = sorted(str(n) for n in set(model.boundary or ()) | {s.node for s in (mobility.signals if mobility else ())})
+    options = OSM_IMPORT_OPTIONS + (['--junctions.join-exclude', ','.join(keep)] if keep else [])
     converter = Path(shutil.which(netconvert) or netconvert).resolve()
     converter_stat = converter.stat()
     digest = hashlib.sha256()
-    for value in (str(converter), str(converter_stat.st_size), str(converter_stat.st_mtime_ns)):
+    for value in (str(converter), str(converter_stat.st_size), str(converter_stat.st_mtime_ns), *options):
         digest.update(value.encode()); digest.update(b'\0')
     for name in ('nodes', 'edges', 'connections'):
         data = (directory / f'{name}.xml').read_bytes()
@@ -261,7 +275,7 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mix
     result = subprocess.run([netconvert, '--node-files', str(directory / 'nodes.xml'),
                              '--edge-files', str(directory / 'edges.xml'),
                              '--connection-files', str(directory / 'connections.xml'), '-o', str(net),
-                             '--no-turnarounds', 'true', '--junctions.corner-detail', '5'],
+                             '--no-turnarounds', 'true', '--junctions.corner-detail', '5', *options],
                             capture_output=True, text=True, timeout=120)
     if result.returncode:
         raise RuntimeError(f'SUMO network conversion failed: {result.stderr[-2000:]}')
@@ -494,6 +508,7 @@ class BoundaryInflow:
         """
         leaving, arriving = {}, {}
         for edge in sorted(self.net.getEdges(), key=lambda e: e.getID()):
+            # Joined clusters have ids like 'cluster_1_2'; cut nodes are never joined.
             leaving.setdefault(edge.getFromNode().getID(), []).append(edge)
             arriving.setdefault(edge.getToNode().getID(), []).append(edge)
 
@@ -704,6 +719,7 @@ class Simulation:
                                   converter, mixed=mixed, spare=self.spare, base_net=original)
             self.net = sumolib.net.readNet(str(path))
             original = original or self.net
+            # The spare lane is the leftmost, after any guessed ramp lane.
             self.spare_lanes = {f'{edge.getID()}_{edge.getLaneNumber() - 1}' for road in self.spare
                                 for edge in (self.net.getEdge(f'{road}:{d}') for d in (1, -1)
                                              if self.net.hasEdge(f'{road}:{d}'))}
