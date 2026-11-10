@@ -28,6 +28,9 @@ public:
     void Draw(AHUD* HUD, UCanvas* Canvas, const APawn* Player, float X, float Y, float Size,
         const TArray<FDynaMapSegment>& Roads, const TMap<FIntPoint,TArray<int32>>& Grid);
     UFUNCTION(BlueprintCallable, Category="Beirut|Minimap") bool SetPreferences(const FString& ModeName, bool bHeadingUp);
+    // WGS84 position and compass heading (degrees, clockwise from true north) of a world point
+    // looking along Forward. False when the map has no EPSG:32636 origin.
+    bool GeoPose(const FVector& WorldPosition, const FVector& Forward, double& Lon, double& Lat, double& HeadingDeg) const;
     void CycleMode();
     void ToggleOrientation();
     virtual void EndPlay(const EEndPlayReason::Type Reason) override;

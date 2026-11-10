@@ -113,8 +113,17 @@ def assert_accounting(frame):
 
 def test_replay_samples_each_step_and_keeps_junction_safety(simulation, network):
     from dynacity.traffic_sumo import JUNCTION_BLOCKER_S, IMPATIENCE_S, STEP_S
-    assert JUNCTION_BLOCKER_S == -1
-    assert IMPATIENCE_S == 0
+    # Held drivers eventually push past junction blockers and grow impatient
+    # (citywide junctions otherwise lock for good), but never before waiting,
+    # and no car is ever teleported.
+    assert JUNCTION_BLOCKER_S >= 10
+    assert IMPATIENCE_S >= 60
+    assert '-1' == simulation._sumo_command[simulation._sumo_command.index('--time-to-teleport') + 1]
+    # Every driver re-plans from current speeds, in both runs (same command).
+    from dynacity.traffic_sumo import REROUTE_PERIOD_S
+    command = simulation._sumo_command
+    assert command[command.index('--device.rerouting.probability') + 1] == '1'
+    assert command[command.index('--device.rerouting.period') + 1] == str(REROUTE_PERIOD_S) and REROUTE_PERIOD_S > 0
     # Any old gridlock relocation call would turn this into an immediate failure.
     simulation.unstick = lambda *args: pytest.fail('Replay must not relocate cars')
     original_frame = simulation.frame

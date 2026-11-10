@@ -35,6 +35,7 @@
 #include "EngineUtils.h"
 #include "InputCoreTypes.h"
 #include "Modules/ModuleManager.h"
+#include "HAL/PlatformProcess.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
@@ -152,6 +153,7 @@ void ADynaDrivePawn::SetupPlayerInputComponent(UInputComponent* Input)
     BindDriving(EKeys::H, &ADynaDrivePawn::ToggleHazards);
     BindDriving(EKeys::M, &ADynaDrivePawn::CycleMinimap);
     BindDriving(EKeys::B, &ADynaDrivePawn::ToggleMinimapOrientation);
+    BindDriving(EKeys::G, &ADynaDrivePawn::OpenStreetView);
     Input->BindKey(EKeys::Tab, IE_Pressed, this, &ADynaDrivePawn::ToggleCursor);
     Input->BindKey(EKeys::F3, IE_Pressed, this, &ADynaDrivePawn::OpenLocationSearch);
     Input->BindKey(EKeys::F1, IE_Pressed, this, &ADynaDrivePawn::OpenControls);
@@ -165,6 +167,36 @@ void ADynaDrivePawn::CycleMinimap()
 void ADynaDrivePawn::ToggleMinimapOrientation()
 {
     if(Mobility && Mobility->Minimap)Mobility->Minimap->ToggleOrientation();
+}
+
+FString ADynaDrivePawn::StreetViewUrl() const
+{
+    if (!Mobility || !Mobility->Minimap) return FString();
+    // Position is the car (or the flying pawn); heading follows the camera so right-mouse look
+    // and the cockpit/chase views open Street View facing what is on screen.
+    const FVector Forward = Camera ? Camera->GetForwardVector() : GetActorForwardVector();
+    double Lon = 0, Lat = 0, HeadingDeg = 0;
+    if (!Mobility->Minimap->GeoPose(GetActorLocation(), Forward, Lon, Lat, HeadingDeg)) return FString();
+    return FString::Printf(TEXT("https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=%.6f,%.6f&heading=%d&pitch=0&fov=90"),
+        Lat, Lon, FMath::RoundToInt(HeadingDeg) % 360);
+}
+
+void ADynaDrivePawn::OpenStreetView()
+{
+    const FString Url = StreetViewUrl();
+    if (Url.IsEmpty())
+    {
+        SurfaceStatus = TEXT("Street View unavailable: this map has no EPSG:32636 origin.");
+        return;
+    }
+    // The browser takes focus; stop the car so a held W does not keep driving unseen.
+    SpeedCmS = 0;
+    ReleaseDriveInputs();
+    if (APlayerController* PC = Cast<APlayerController>(GetController())) PC->FlushPressedKeys();
+    FString Error;
+    FPlatformProcess::LaunchURL(*Url, nullptr, &Error);
+    SurfaceStatus = Error.IsEmpty() ? TEXT("Opened Google Street View here (nearest panorama).")
+                                    : TEXT("Could not open the browser: ") + Error;
 }
 
 void ADynaDrivePawn::OpenControls()
@@ -388,6 +420,9 @@ bool ADynaDrivePawn::SampleSurface(const FVector& Centre, float Yaw, FVector& Po
         if (!GetWorld()->LineTraceSingleByChannel(Hit, Probe + FVector(0, 0, Above),
             Probe - FVector(0, 0, Below), ECC_Visibility, Query))
         { BlockedReason = TEXT("Missing wheel support"); return false; }
+        if ((Hit.GetActor() && Hit.GetActor()->ActorHasTag(TEXT("DYNACITY_WATER_SURFACE"))) ||
+            (Hit.GetComponent() && Hit.GetComponent()->ComponentHasTag(TEXT("DYNACITY_WATER_SURFACE"))))
+        { BlockedReason = TEXT("Water is not a drivable surface"); return false; }
         if (Hit.ImpactNormal.Z < 0.7) { BlockedReason = TEXT("Surface too steep"); return false; }
         Average += Hit.ImpactPoint; Normal += Hit.ImpactNormal;
         Low = FMath::Min(Low, Hit.ImpactPoint.Z); High = FMath::Max(High, Hit.ImpactPoint.Z);
@@ -702,7 +737,7 @@ void ADynaDriveHUD::BeginPlay()
             TEXT("F  Fly / return to car"), TEXT("Fly: WASD + mouse"),
             TEXT("Fly: E / Q  Up / down"), TEXT("Fly: Shift  Faster"),
             TEXT("C  Camera / cockpit"), TEXT("L  Day / night"),
-            TEXT("M  Map style"), TEXT("B  Map orientation"),
+            TEXT("M  Map style"), TEXT("B  Map orientation"), TEXT("G  Google Street View here"),
             TEXT("F1 / Tab  Menu / return to driving"), TEXT("F3  Location search")})
         {
             Shortcuts->AddSlot()

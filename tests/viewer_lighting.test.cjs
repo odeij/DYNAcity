@@ -86,3 +86,33 @@ test('terrain shadow layers: a sunk depth-only copy, then the transparent receiv
  assert.ok(depth.getTranslation[2]<-1);assert.equal(depth.parameters,undefined);
  assert.equal(receiver.parameters.depthWriteEnabled,false);
 });
+
+test('sun shadow map keeps a ground-fixed texel grid and one size while panning',()=>{
+ const ctx={};
+ vm.runInNewContext(html.slice(html.indexOf('function stabiliseShadowMatrix('),html.indexOf('function stabiliseShadowModule(')),ctx);
+ const size=[1184,1098],point=[306.51,307.30,0.0006];
+ // deck's fitted map for two camera positions: centred on each origin, slightly refitted in size.
+ const fitted=(origin,scale,offset)=>({m:[scale,0,0,0, 0,scale*.72,0,0, 0,scale*.33,-scale,0, 0,0,0,0],c:[offset[0],offset[1],0,1],origin});
+ const texel=({m,c,origin})=>[0,1].map(r=>((m[r]*(point[0]-origin[0])+m[r+4]*(point[1]-origin[1])+m[r+8]*(point[2]-origin[2])+c[r])+1)/2*size[r]);
+ const a=fitted([306.4967,307.2895,0],163.2,[.623,-.598]),b=fitted([306.4971,307.2899,0],163.9,[.611,-.590]);
+ for(const f of [a,b])ctx.stabiliseShadowMatrix(f.m,f.c,f.origin,size);
+ assert.equal(a.m[0],b.m[0],'a small refit lands on the same quarter-octave size');
+ assert.ok(a.m[0]<=163.2,'coverage only grows');
+ const [ta,tb]=[texel(a),texel(b)];
+ for(const i of [0,1])assert.ok(Math.abs((ta[i]-tb[i])-Math.round(ta[i]-tb[i]))<1e-6,'a world point keeps its place inside its texel');
+});
+
+test('the packed-depth shadow map is read with nearest filtering, also after a resize recreates it',()=>{
+ const ctx={};
+ vm.runInNewContext(html.slice(html.indexOf('let shadowStableEffect'),html.indexOf('// Cache effects between camera')),ctx);
+ const texture=()=>({sampler:{props:{minFilter:'linear',magFilter:'linear'}},setSampler(p){this.sampler={props:p};}});
+ const fbo={width:4,height:4,colorAttachments:[{texture:texture()}]},effect={shadowPasses:[{fbo}]};
+ const project={name:'project',getUniforms:()=>({commonOrigin:[0,0,0]})};
+ const shadow={name:'shadow',dependencies:[project],getUniforms:()=>({viewProjectionMatrix0:[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],projectCenter0:[0,0,0,1]})};
+ ctx.stabiliseShadowModule({deck:{layerManager:{context:{defaultShaderModules:[shadow]}}}},effect);
+ shadow.getUniforms({project:{}});
+ assert.equal(fbo.colorAttachments[0].texture.sampler.props.minFilter,'nearest');
+ assert.equal(fbo.colorAttachments[0].texture.sampler.props.magFilter,'nearest');
+ fbo.colorAttachments[0]={texture:texture()};shadow.getUniforms({project:{}});
+ assert.equal(fbo.colorAttachments[0].texture.sampler.props.minFilter,'nearest','a recreated map is fixed on the next draw');
+});

@@ -292,6 +292,20 @@ def create_app(
     if viewer_snapshot is not None and viewer_traffic is not None:
         from .traffic_sumo import install_routes
         install_routes(app, viewer_traffic, viewer_snapshot, viewer_ground)
+
+        # The 2D street-planning table (planner.py), on the same SUMO routes.
+        from .planner import planner_page, planner_roads
+        planner_cache: dict[str, Any] = {}
+
+        @app.get("/planner", response_class=HTMLResponse, include_in_schema=False)
+        def planner() -> str:
+            return planner_page()
+
+        @app.get("/v1/planner/roads")
+        def planner_road_list() -> dict:
+            if "roads" not in planner_cache:
+                planner_cache["roads"] = planner_roads(viewer_traffic)
+            return planner_cache["roads"]
         @app.post("/v1/viewer/traffic")
         def viewer_traffic_impact(request: ViewerTrafficRequest) -> dict:
             try:

@@ -80,7 +80,8 @@ DEFAULTS = {
         'glass_top_drop_m': R(0.0, 0.0, 9.3, 'ESTIMATED diagnostic: how far the rounded glass, mullions, floored facade and C frames end below the cream roof/parapet top. The photo (1288771293) shows the glazed volume ending lower than the cream upper mass; the number is not measured. 0 = single-tier envelope (unchanged). Snapped to a floor line'),
         'upper_setback_x_m': R(0.0, 0.0, 14.0, 'ESTIMATED diagnostic: distance from the rounded-corner end of the frontage to where the taller cream upper mass begins (0 = it spans the whole width). Snapped to a bay line. Only used when glass_top_drop_m > 0'),
         'upper_setback_y_m': R(0.0, 0.0, 3.0, 'ESTIMATED diagnostic: how far the upper cream mass is recessed behind the facade plane. Only used when glass_top_drop_m > 0'),
-        'terrace_parapet_h_m': R(1.0, 0.0, 1.0, 'ESTIMATED diagnostic: height of the low white upstand along the exposed terrace edges (0 = none; the closed terrace cap stays). Only used when glass_top_drop_m > 0; not measured')},
+        'terrace_parapet_h_m': R(1.0, 0.0, 1.0, 'ESTIMATED diagnostic: height of the low white upstand along the exposed terrace edges (0 = none; the closed terrace cap stays). Only used when glass_top_drop_m > 0; not measured'),
+        'corner_slab_projection_m': R(0.0, 0.0, 0.6, 'ESTIMATED optional: how far the cream corner floor bands project beyond the curved glass corner (0 = default, unchanged geometry; >0 projects bands past glass and cuts matching narrow bands out of the glass extrusion so they do not z-fight). Not measured')},
 }
 
 # render colours: measured gray-world RGB of photo patches, lifted because patches sit in overcast shade
@@ -563,28 +564,84 @@ def _lgb(ctx, L, p, sides, rng):
 
     gt = 0.08  # glass thickness
     st = 0.35  # floor slab setback behind glass
+    proj_raw = p.get('corner_slab_projection_m', 0.0)
+    if proj_raw is None:
+        proj_raw = 0.0
+    proj_raw = float(proj_raw)
+    if not math.isfinite(proj_raw) or proj_raw < 0.0 or proj_raw > 0.6:
+        raise ValueError(f'corner_slab_projection_m must be finite and in [0, 0.6], got {proj_raw}')
+    proj = proj_raw
     th = np.linspace(math.pi, 1.5 * math.pi, 9)
     outer = [(r + r * math.cos(a), r + r * math.sin(a)) for a in th]
     inner = [(r + (r - gt) * math.cos(a), r + (r - gt) * math.sin(a)) for a in th]
     inner_edge = [(r + (r - st) * math.cos(a), r + (r - st) * math.sin(a)) for a in th]
 
-    # Curved corner glazing: 8 arc prism segments, ending at the top of the floored facade
+    # Floor-band intervals (used both for projecting floor edges and for cutting glass)
+    band_levels = []
+    for k in range(m_floors):
+        z = L.g + k * L.fh
+        band_levels.append((max(0.0, z - 0.25), z))
+
+    # Curved corner glazing: 8 arc prism segments, ending at the top of the floored facade.
+    # Narrow floor-band intervals are cut out of each vertical glass segment so cream bands
+    # and glass never share a volume (no z-fighting) when corner_slab_projection_m > 0.
+    glass_z0, glass_z1 = 0.0, Hg - 0.25
     for j in range(8):
         poly = [outer[j], outer[j + 1], inner[j + 1], inner[j]]
-        ctx.prism('curved_corner_glass', poly, 0.0, Hg - 0.25)
+        if proj > 0 and band_levels:
+            # sub-divide vertically so each band interval is excluded from the glass
+            zcuts = sorted({glass_z0, glass_z1, *[x for a, b in band_levels for x in (a, b)]})
+            # clamp each cut to [glass_z0, glass_z1]
+            zcuts = [max(glass_z0, min(glass_z1, z)) for z in zcuts]
+            zcuts = sorted(set(zcuts))
+            for zz0, zz1 in zip(zcuts[:-1], zcuts[1:]):
+                if zz1 - zz0 < _EPS:
+                    continue
+                if any(a < zz1 - _EPS and b > zz0 + _EPS for a, b in band_levels):
+                    continue  # band interior: leave this slice to corner_floor_edges
+                ctx.prism('curved_corner_glass', poly, zz0, zz1)
+        else:
+            ctx.prism('curved_corner_glass', poly, glass_z0, glass_z1)
 
     # Corner mullions: vertical fins centered at the glass joints
     for j in range(9):
         cx = r + (r - gt / 2) * math.cos(th[j])
         cy = r + (r - gt / 2) * math.sin(th[j])
-        ctx.box('corner_mullions', cx - 0.03, cx + 0.03, cy - 0.03, cy + 0.03, L.g, Hg - 0.25)
+        if proj > 0 and band_levels:
+            # split mullion z intervals to match the glass intervals (exclude band interiors)
+            # clamp to original mullion range [L.g, Hg-0.25]
+            zmin, zmax = L.g, Hg - 0.25
+            zcuts = sorted({zmin, zmax, *[x for a, b in band_levels for x in (a, b)]})
+            # clamp each cut to [zmin, zmax]
+            zcuts = [max(zmin, min(zmax, z)) for z in zcuts]
+            zcuts = sorted(set(zcuts))
+            for zz0, zz1 in zip(zcuts[:-1], zcuts[1:]):
+                if zz1 - zz0 < _EPS:
+                    continue
+                if any(a < zz1 - _EPS and b > zz0 + _EPS for a, b in band_levels):
+                    continue  # band interior: leave this slice to corner_floor_edges
+                ctx.box('corner_mullions', cx - 0.03, cx + 0.03, cy - 0.03, cy + 0.03, zz0, zz1)
+        else:
+            ctx.box('corner_mullions', cx - 0.03, cx + 0.03, cy - 0.03, cy + 0.03, L.g, Hg - 0.25)
 
-    # Floor edges: behind glass, floors 0..m_floors-1 (the top floor is capped by the lower cap)
+    # Floor edges: behind glass, floors 0..m_floors-1 (the top floor is capped by the lower cap).
+    # With corner_slab_projection_m > 0 the outer arc extends beyond the glass to r + projection
+    # so the cream floor band reads as a projecting horizontal band past the curved glazing
+    # (photo 1288771293: cream bands outside the glass corner). Matching narrow bands are cut
+    # out of the vertical glass extrusion so glass and cream never occupy the same volume.
     for k in range(m_floors):
         z = L.g + k * L.fh
-        for j in range(8):
-            poly = [inner[j], inner[j + 1], inner_edge[j + 1], inner_edge[j]]
-            ctx.prism('corner_floor_edges', poly, max(0.0, z - 0.25), z)
+        if proj > 0:
+            # One positive-volume ring per band: inner arc radius r-st, outer arc radius r+proj, center (r,r).
+            # Use CCW winding (from +Z) for positive volume: proj_outer (larger radius) first, then inner_edge.
+            proj_outer = [(r + (r + proj) * math.cos(a), r + (r + proj) * math.sin(a)) for a in th]
+            for j in range(8):
+                poly = [proj_outer[j], proj_outer[j + 1], inner_edge[j + 1], inner_edge[j]]
+                ctx.prism('corner_floor_edges', poly, max(0.0, z - 0.25), z)
+        else:
+            for j in range(8):
+                poly = [inner[j], inner[j + 1], inner_edge[j + 1], inner_edge[j]]
+                ctx.prism('corner_floor_edges', poly, max(0.0, z - 0.25), z)
 
     xf0, xf1 = r, r + zone * (L.W - r)
     for b in range(nb):

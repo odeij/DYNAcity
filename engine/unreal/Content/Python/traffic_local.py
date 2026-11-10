@@ -20,7 +20,9 @@ JOIN_M = 4.0
 class LocalTrafficClient:
     def __init__(self, index, view, count=70, seed=17):
         self.origin = index['origin_utm_m']
-        self.roads = {str(r['id']): r for r in index['roads'] if len(r['path']) > 1}
+        # Roads flagged over water (see scripts/annotate_location_index_traffic.py) never carry a car.
+        self.roads = {str(r['id']): r for r in index['roads'] if len(r['path']) > 1 and not r.get('over_water')}
+        self.hour = None   # set 0-23 to use that hour's observed speeds instead of the all-day median
         self.session = 'local'
         self.request = {}
         self.appearance = None
@@ -57,6 +59,15 @@ class LocalTrafficClient:
             return b[0] - RADIUS_M <= cx <= b[2] + RADIUS_M and b[1] - RADIUS_M <= cy <= b[3] + RADIUS_M
         return any(math.dist(p[:2], self.centre) < RADIUS_M for p in self.roads[key]['path'])
 
+    def _speed_ms(self, key):
+        """Observed speed on this road in m/s: the Tari'ak median for `self.hour` (all-day median if unset),
+        with a little per-vehicle spread. Roads without observed speeds keep the old 7-13 m/s guess."""
+        observed = self.roads[key].get('speed_kmh')
+        if not observed:
+            return self.random.uniform(7, 13)
+        kmh = observed[int(self.hour) % 24] if self.hour is not None else sorted(observed)[len(observed) // 2]
+        return max(1.0, kmh * self.random.uniform(0.9, 1.1) / 3.6)
+
     def _spawn(self):
         candidates = [k for k in self.roads if self._near(k) and self.lengths[k][-1] > 20]
         if not candidates:
@@ -67,7 +78,7 @@ class LocalTrafficClient:
         # Type ids map to the installed fleet's mesh groups (mixed traffic draws only typed vehicles).
         type_id = 'van' if u < .08 else ('taxi' if u < .18 else ('car:bmw' if u < .59 else 'car:toyota'))
         agent = {'id': f'local{self.next_id}', 'road': key, 'dir': direction, 'type': type_id,
-                 's': self.random.uniform(0, self.lengths[key][-1]), 'speed': self.random.uniform(7, 13)}
+                 's': self.random.uniform(0, self.lengths[key][-1]), 'speed': self._speed_ms(key)}
         self.next_id += 1
         return agent
 

@@ -1,0 +1,1181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beirut Street Planner</title>
+<script>if (/[?&]embed=1(&|$)/.test(location.search)) document.documentElement.classList.add('embed');</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IM+Fell+English+SC&family=IM+Fell+English:ital@0;1&family=Amiri:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+:root {
+  --desk: #1c130c;
+  --desk-2: #2b1d12;
+  --paper: #f3e6c8;
+  --paper-2: #ead7ae;
+  --paper-edge: #c9a76f;
+  --ink: #2b1a0e;
+  --ink-soft: #5b4128;
+  --ink-faint: #8a6d4c;
+  --red: #8f2213;
+  --red-2: #b0341f;
+  --green: #2e6a3c;
+  --amber: #a8681a;
+  --purple: #5b3a8c;
+  --gold: #c39a45;
+  --frame: 26px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--desk); color: var(--ink);
+  font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+button { font-family: inherit; }
+
+/* Full bleed: the torn frame covers the margin, and the map's centre and scale
+   match the full-screen 3D viewer exactly when one hands over to the other. */
+#map { position: absolute; inset: 0; }
+/* Old paper laid over the live map: warm tone, fibres and darker edges. */
+#paper { position: absolute; inset: 0; pointer-events: none; z-index: 2;
+  mix-blend-mode: multiply;
+  background:
+    radial-gradient(ellipse at 50% 45%, rgba(255,250,235,0) 60%, rgba(170,120,60,.2) 90%, rgba(120,75,30,.38) 100%),
+    var(--fibres),
+    linear-gradient(#fdf8ee, #f8efdc);
+  background-size: auto, 320px 320px, auto;
+  opacity: .62; }
+#frame { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; transform-origin: 50% 50%; }
+
+/* ---------- Title cartouche ---------- */
+#cartouche { position: absolute; z-index: 5; top: calc(var(--frame) + 18px); left: calc(var(--frame) + 22px);
+  pointer-events: none; filter: drop-shadow(0 3px 6px rgba(60,35,10,.35)); }
+#cartouche svg { display: block; width: 360px; height: auto; }
+.carto-title { font-family: 'IM Fell English SC', serif; font-size: 50px; fill: var(--ink); letter-spacing: 3px; }
+.carto-sub { font-family: 'IM Fell English', serif; font-style: italic; font-size: 17px; fill: var(--ink-soft); }
+.carto-ar { font-family: Amiri, serif; font-size: 22px; fill: var(--red); }
+#cartouche .ink { stroke: var(--ink); stroke-width: .6; stroke-dasharray: 900; stroke-dashoffset: 900;
+  fill-opacity: 0; animation: ink 2.6s .5s ease forwards; }
+@keyframes ink { 60% { fill-opacity: 0; } to { stroke-dashoffset: 0; fill-opacity: 1; } }
+
+/* ---------- Compass rose ---------- */
+#compass { position: absolute; z-index: 5; left: calc(var(--frame) + 18px); bottom: calc(var(--frame) + 40px);
+  width: 132px; height: 132px; cursor: pointer; filter: drop-shadow(0 2px 3px rgba(60,35,10,.35));
+  transition: transform .8s cubic-bezier(.2,.7,.2,1); }
+#compass:hover { transform: rotate(-8deg) scale(1.04); }
+
+/* ---------- Scale bar & credits ---------- */
+.maplibregl-ctrl-bottom-left { left: calc(160px + var(--frame)); bottom: calc(14px + var(--frame)); z-index: 4; }
+.maplibregl-ctrl-scale { background: transparent; border: 2px solid var(--ink); border-top: none; color: var(--ink);
+  font: 600 11px Inter, sans-serif; padding: 0 6px; }
+.maplibregl-ctrl-attrib { background: rgba(243,230,200,.75) !important; font: 10.5px Inter, sans-serif; color: var(--ink-soft); }
+.maplibregl-ctrl-attrib a { color: var(--ink-soft); }
+.maplibregl-ctrl-bottom-left { display: flex; align-items: flex-end; gap: 10px; }
+.maplibregl-ctrl-bottom-left .maplibregl-ctrl { margin: 0 !important; float: none; }
+
+/* ---------- Side panel: a sheet of paper pinned to the map ---------- */
+#panel { position: absolute; z-index: 6; top: calc(var(--frame) + 16px); right: calc(var(--frame) + 16px);
+  bottom: calc(var(--frame) + 16px); width: 360px; display: flex; flex-direction: column;
+  background: linear-gradient(#f7ecd3, #efdfba); border-radius: 3px;
+  box-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 18px 40px rgba(30,15,5,.45), 0 2px 6px rgba(30,15,5,.35);
+  transform: rotate(.35deg); }
+#panel::before { content: ''; position: absolute; inset: 7px; border: 1px solid rgba(91,65,40,.55);
+  outline: 3px double rgba(91,65,40,.35); outline-offset: 3px; pointer-events: none; border-radius: 2px; }
+#panel::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: var(--fibres);
+  background-size: 260px; mix-blend-mode: multiply; opacity: .55; border-radius: 3px; }
+.pin { position: absolute; top: -9px; left: 50%; width: 18px; height: 18px; margin-left: -9px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #e86a4f, #8f2213 60%, #4d0f07); box-shadow: 0 3px 4px rgba(0,0,0,.45); z-index: 2; }
+.scroll { position: relative; z-index: 1; flex: 1; overflow-y: auto; padding: 26px 26px 18px; scrollbar-width: thin;
+  scrollbar-color: var(--paper-edge) transparent; }
+.foot { position: relative; z-index: 1; padding: 0 26px 24px; }
+
+h2 { font-family: 'IM Fell English SC', serif; font-weight: 400; font-size: 25px; margin: 0; letter-spacing: 1px; }
+h3 { font: 600 11.5px Inter, sans-serif; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint);
+  margin: 22px 0 9px; display: flex; align-items: center; gap: 10px; }
+h3::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(91,65,40,.4), transparent); }
+.lede { font-size: 13.5px; line-height: 1.5; color: var(--ink-soft); margin: 6px 0 0; }
+
+/* time of day */
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.seg button { border: 1.5px solid rgba(91,65,40,.45); background: rgba(255,250,236,.5); border-radius: 8px;
+  padding: 8px 4px 7px; cursor: pointer; color: var(--ink); font-size: 12.5px; font-weight: 600; line-height: 1.2; }
+.seg button small { display: block; font-weight: 500; color: var(--ink-faint); font-size: 11px; margin-top: 2px; }
+.seg button[aria-pressed=true] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.seg button[aria-pressed=true] small { color: #d9c69d; }
+
+/* search */
+.search { position: relative; }
+.search input { width: 100%; font: 500 14px Inter, sans-serif; color: var(--ink); padding: 11px 12px 11px 38px;
+  border: 1.5px solid rgba(91,65,40,.45); border-radius: 10px; background: rgba(255,251,240,.75); outline: none; }
+.search input:focus { border-color: var(--ink); background: #fffbf0; }
+.search svg { position: absolute; left: 12px; top: 50%; margin-top: -9px; opacity: .6; }
+.suggest { position: absolute; left: 0; right: 0; top: 100%; margin-top: 4px; background: #fffaf0; border: 1px solid rgba(91,65,40,.35);
+  border-radius: 10px; box-shadow: 0 12px 24px rgba(40,20,5,.25); z-index: 5; overflow: hidden; display: none; }
+.suggest button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 9px 13px; font-size: 13.5px;
+  color: var(--ink); cursor: pointer; }
+.suggest button:hover, .suggest button.on { background: #f1e2bf; }
+
+/* the street card */
+.hint { display: flex; gap: 14px; align-items: center; padding: 14px; border: 1.5px dashed rgba(91,65,40,.45); border-radius: 12px;
+  color: var(--ink-soft); font-size: 14px; line-height: 1.45; }
+.hint svg { flex: none; }
+.street-name { font-family: 'IM Fell English', serif; font-size: 25px; line-height: 1.1; margin: 0; }
+.street-facts { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0 12px; }
+.fact { font-size: 12px; font-weight: 600; color: var(--ink-soft); background: rgba(91,65,40,.09); border-radius: 20px; padding: 4px 10px; }
+.whole { font-size: 12.5px; color: var(--ink-soft); background: none; border: 0; padding: 0; text-decoration: underline;
+  text-underline-offset: 3px; cursor: pointer; margin-bottom: 12px; }
+.actions { display: grid; gap: 8px; }
+.act { display: flex; align-items: center; gap: 13px; width: 100%; text-align: left; cursor: pointer;
+  border: 1.5px solid rgba(91,65,40,.4); background: rgba(255,251,240,.7); border-radius: 12px; padding: 11px 13px; color: var(--ink);
+  transition: transform .12s, background .2s, border-color .2s; }
+.act:hover { transform: translateY(-1px); background: #fffbf0; border-color: var(--ink-soft); }
+.act:active { transform: translateY(1px); }
+.act b { display: block; font-size: 14.5px; }
+.act span { display: block; font-size: 12px; color: var(--ink-faint); margin-top: 1px; }
+.act .ic { width: 38px; height: 38px; flex: none; border-radius: 10px; display: grid; place-items: center; }
+.act.close .ic { background: rgba(143,34,19,.12); color: var(--red); }
+.act.lane .ic { background: rgba(46,106,60,.13); color: var(--green); }
+.act.slow .ic { background: rgba(168,104,26,.14); color: var(--amber); }
+.act.undo .ic { background: rgba(91,65,40,.1); color: var(--ink-soft); }
+.act[aria-pressed=true] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.act[aria-pressed=true] span { color: #d9c69d; }
+.act[disabled] { opacity: .4; cursor: not-allowed; transform: none; }
+
+/* changes list */
+.changes { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.changes li { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px dotted rgba(91,65,40,.35); }
+.changes li .mark { font-family: 'IM Fell English SC', serif; font-size: 18px; width: 20px; text-align: center; }
+.changes li .what { flex: 1; font-size: 13px; line-height: 1.3; cursor: pointer; }
+.changes li .what i { font-style: normal; color: var(--ink-faint); display: block; font-size: 11.5px; }
+.changes li button { border: 0; background: none; color: var(--ink-faint); cursor: pointer; font-size: 18px; padding: 0 4px; }
+.changes li button:hover { color: var(--red); }
+.empty { font-family: 'IM Fell English', serif; font-style: italic; color: var(--ink-faint); font-size: 15px; margin: 2px 0; }
+
+/* the seal */
+.seal { width: 100%; display: flex; align-items: center; justify-content: center; gap: 14px; border: 0; cursor: pointer;
+  padding: 14px 18px; border-radius: 14px; color: #fff4e2; font: 700 16px Inter, sans-serif; letter-spacing: .01em;
+  background: radial-gradient(circle at 30% 20%, #c4472f, #8f2213 55%, #5e1309);
+  box-shadow: 0 2px 0 rgba(255,255,255,.25) inset, 0 -3px 0 rgba(0,0,0,.25) inset, 0 8px 18px rgba(94,19,9,.4);
+  transition: transform .15s, filter .2s; }
+.seal:hover { transform: translateY(-1px); filter: brightness(1.06); }
+.seal:active { transform: translateY(1px) scale(.99); }
+.seal[disabled] { filter: grayscale(.85) brightness(1.1); opacity: .55; cursor: not-allowed; transform: none; }
+.seal .wax { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: radial-gradient(circle at 35% 30%, #d55a40, #7a190b); box-shadow: 0 0 0 2px rgba(255,220,190,.25), 0 2px 4px rgba(0,0,0,.35) inset; }
+.seal.stop { background: radial-gradient(circle at 30% 20%, #5b4128, #2b1a0e 60%, #160d06); box-shadow: 0 8px 18px rgba(30,15,5,.4); }
+.note { font-size: 11.5px; color: var(--ink-faint); text-align: center; margin: 9px 0 0; line-height: 1.4; }
+
+/* results */
+.clock { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+.clock b { font-family: 'IM Fell English', serif; font-size: 30px; font-weight: 400; font-variant-numeric: lining-nums tabular-nums; }
+.clock span { font-size: 12px; color: var(--ink-faint); }
+.status { font-size: 13px; color: var(--ink-soft); display: flex; gap: 8px; align-items: center; min-height: 20px; }
+.quill { width: 16px; height: 16px; animation: write 1.1s ease-in-out infinite; transform-origin: 20% 90%; }
+@keyframes write { 0%,100% { transform: rotate(-6deg) translateX(0); } 50% { transform: rotate(6deg) translateX(3px); } }
+.results { display: grid; gap: 8px; margin-top: 10px; }
+.res { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 10px 12px; border-radius: 10px; background: rgba(255,251,240,.6);
+  border: 1px solid rgba(91,65,40,.22); }
+.res .k { font-size: 13px; font-weight: 600; }
+.res .v { font-family: 'IM Fell English', serif; font-size: 22px; line-height: 1; text-align: right; font-variant-numeric: lining-nums tabular-nums; }
+.res .d { grid-column: 1 / -1; font-size: 12px; color: var(--ink-faint); }
+.res.bad .v { color: var(--red); }
+.res.good .v { color: var(--green); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; font-size: 12px; color: var(--ink-soft); }
+.legend i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+
+/* sound toggle */
+#sound { position: absolute; z-index: 6; top: calc(var(--frame) + 16px); right: calc(var(--frame) + 440px);
+  width: 40px; height: 40px; border-radius: 50%; border: 1.5px solid rgba(91,65,40,.5); background: rgba(247,236,211,.92);
+  color: var(--ink); cursor: pointer; display: grid; place-items: center; box-shadow: 0 4px 10px rgba(30,15,5,.3); }
+
+/* back to the 3D city */
+#to3d { position: absolute; z-index: 6; top: calc(var(--frame) + 16px); right: calc(var(--frame) + 490px);
+  height: 40px; padding: 0 15px 0 11px; border-radius: 20px; border: 1.5px solid rgba(91,65,40,.5);
+  background: rgba(247,236,211,.92); color: var(--ink); cursor: pointer; display: flex; align-items: center; gap: 8px;
+  font: 600 13.5px Inter, sans-serif; box-shadow: 0 4px 10px rgba(30,15,5,.3); transition: transform .15s, background .2s; }
+#to3d:hover { background: #fffbf0; transform: translateY(-1px); }
+#to3d:active { transform: translateY(1px); }
+#to3d svg { flex: none; }
+#to3d kbd { font: 600 10.5px Inter, sans-serif; color: var(--ink-faint); border: 1px solid rgba(91,65,40,.35); border-radius: 4px; padding: 1px 4px; margin-left: 2px; }
+html:not(.embed) #to3d kbd { display: none; }
+
+/* hide the paper panel, title and compass (H): just the map and its edits */
+#bare { position: absolute; z-index: 6; top: calc(var(--frame) + 16px); right: calc(var(--frame) + 392px);
+  width: 40px; height: 40px; border-radius: 50%; border: 1.5px solid rgba(91,65,40,.5); background: rgba(247,236,211,.92);
+  color: var(--ink); cursor: pointer; display: grid; place-items: center; box-shadow: 0 4px 10px rgba(30,15,5,.3); }
+#bare .on { display: none; }
+.bare #bare .off { display: none; }
+.bare #bare .on { display: block; }
+#bare, #sound, #to3d { transition: right .5s cubic-bezier(.16,.84,.24,1), opacity .5s ease, transform .15s, background .2s; }
+#panel, #cartouche { transition: transform .55s cubic-bezier(.16,.84,.24,1), opacity .35s ease; }
+#compass { transition: transform .8s cubic-bezier(.2,.7,.2,1), opacity .35s ease; }
+.bare #panel { transform: translateX(calc(100% + 80px)) rotate(5deg); opacity: 0; pointer-events: none; }
+.bare #cartouche { transform: translateY(-18px) scale(.96); opacity: 0; }
+.bare #compass { transform: rotate(-160deg) scale(.55); opacity: 0; pointer-events: none; }
+.bare #bare { right: calc(var(--frame) + 16px); }
+.bare #sound { right: calc(var(--frame) + 64px); }
+.bare #to3d { right: calc(var(--frame) + 112px); }
+/* toggling skips the staggered entrance delays */
+.snappy #paper, .snappy #frame, .snappy #panel, .snappy #cartouche, .snappy #compass, .snappy #sound, .snappy #to3d, .snappy #bare { transition-delay: 0s !important; }
+
+/* intro */
+#intro { position: absolute; inset: 0; z-index: 20; background: radial-gradient(ellipse at center, #2b1d12, #0f0905 75%);
+  display: grid; place-items: center; transition: opacity 1.4s ease; }
+#intro.gone { opacity: 0; pointer-events: none; }
+#intro p { font-family: 'IM Fell English', serif; font-style: italic; color: #d9c08f; font-size: 20px; letter-spacing: .03em; margin: 0;
+  animation: breathe 2s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .45; } }
+
+/* toast */
+#toast { position: absolute; z-index: 8; left: 50%; bottom: calc(var(--frame) + 26px); transform: translate(-50%, 20px);
+  background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 10px; font-size: 13.5px; opacity: 0;
+  transition: opacity .3s, transform .3s; pointer-events: none; max-width: 520px; text-align: center;
+  box-shadow: 0 10px 24px rgba(0,0,0,.35); }
+#toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+.maplibregl-canvas { cursor: crosshair; }
+.maplibregl-canvas.hovering { cursor: pointer; }
+
+.embed #intro { display: none; }
+.embed, .embed body { background: transparent; }
+.embed #paper { transition: opacity .9s ease .1s; }
+.embed #frame { transition: opacity .55s ease .2s, transform 1s cubic-bezier(.16,.84,.24,1) .2s; }
+.embed #panel { transition: transform .9s cubic-bezier(.16,.84,.24,1) .42s, opacity .5s ease .42s; }
+.embed #cartouche { transition: opacity .6s ease .55s, transform .9s cubic-bezier(.16,.84,.24,1) .55s; }
+.embed #compass { transition: opacity .6s ease .5s, transform 1.2s cubic-bezier(.16,.84,.24,1) .5s; }
+.embed #sound, .embed #to3d, .embed #bare { transition: opacity .5s ease .7s, right .5s cubic-bezier(.16,.84,.24,1), transform .15s, background .2s; }
+.embed:not(.entered) #paper { opacity: 0; }
+.embed:not(.entered) #frame { opacity: 0; transform: scale(1.14); }
+.embed:not(.entered) #panel { transform: translateX(calc(100% + 80px)) rotate(5deg); opacity: 0; }
+.embed:not(.entered) #cartouche { opacity: 0; transform: translateY(-18px) scale(.96); }
+.embed:not(.entered) #cartouche .ink { animation: none; }
+.embed:not(.entered) #compass { opacity: 0; transform: rotate(-160deg) scale(.55); }
+.embed:not(.entered) #sound, .embed:not(.entered) #to3d, .embed:not(.entered) #bare { opacity: 0; pointer-events: none; }
+/* Leaving runs the same moves backwards, quickly and all at once. */
+.embed.leaving #paper, .embed.leaving #frame, .embed.leaving #panel, .embed.leaving #cartouche,
+.embed.leaving #compass, .embed.leaving #sound, .embed.leaving #to3d, .embed.leaving #bare { transition-delay: 0s !important; transition-duration: .45s !important; }
+
+@media (max-width: 760px) {
+  :root { --frame: 10px; }
+  #cartouche svg { width: 230px; }
+  #compass { width: 84px; height: 84px; bottom: auto; top: calc(var(--frame) + 92px); left: calc(var(--frame) + 10px); }
+  #panel { top: auto; left: calc(var(--frame) + 8px); right: calc(var(--frame) + 8px); width: auto; height: 46%; transform: none; }
+  #bare, .bare #bare { right: calc(var(--frame) + 12px); }
+  #sound, .bare #sound { right: calc(var(--frame) + 60px); }
+  #to3d, .bare #to3d { right: calc(var(--frame) + 108px); padding: 0 13px 0 10px; }
+  .bare #panel { transform: translateY(calc(100% + 60px)); }
+  #to3d kbd { display: none; }
+  .embed:not(.entered) #panel { transform: translateY(calc(100% + 60px)); }
+  .maplibregl-ctrl-bottom-left { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #cartouche .ink { animation: none; stroke-dashoffset: 0; fill-opacity: 1; }
+  .quill, #intro p { animation: none; }
+  .embed #paper, .embed #frame, .embed #panel, .embed #cartouche, .embed #compass, .embed #sound, .embed #to3d { transition-duration: .2s !important; transition-delay: 0s !important; }
+  .embed:not(.entered) #frame, .embed:not(.entered) #compass, .embed:not(.entered) #panel, .embed:not(.entered) #cartouche { transform: none; }
+}
+</style>
+</head>
+<body>
+<div id="map" aria-label="Map of Beirut"></div>
+<div id="paper"></div>
+<canvas id="frame" aria-hidden="true"></canvas>
+
+<div id="cartouche" aria-hidden="true">
+  <svg viewBox="0 0 400 150">
+    <defs>
+      <linearGradient id="rib" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#f6ead0"/><stop offset="1" stop-color="#e2c995"/></linearGradient>
+    </defs>
+    <!-- scroll ends -->
+    <!-- rolled scroll ends -->
+    <path d="M30 22 q-26 4 -22 26 q4 18 24 12 M30 22 L30 128 q-20 6 -24 -12 q-4 -22 22 -26" fill="#d7b981" stroke="#5b4128" stroke-width="1.4"/>
+    <path d="M370 22 q26 4 22 26 q-4 18 -24 12 M370 22 L370 128 q20 6 24 -12 q4 -22 -22 -26" fill="#d7b981" stroke="#5b4128" stroke-width="1.4"/>
+    <path d="M30 18 C120 8 280 8 370 18 L370 132 C280 122 120 122 30 132 Z" fill="url(#rib)" stroke="#5b4128" stroke-width="1.6"/>
+    <path d="M42 26 C130 16 270 16 358 26 M42 124 C130 114 270 114 358 124" fill="none" stroke="#5b4128" stroke-width=".7" opacity=".6"/>
+    <text class="carto-title ink" x="200" y="66" text-anchor="middle">Beyrouth</text>
+    <path d="M120 80 H178 M222 80 H280" stroke="#5b4128" stroke-width=".8" opacity=".7"/>
+    <text class="carto-ar" x="200" y="88" text-anchor="middle">بيروت</text>
+    <text class="carto-sub" x="200" y="111" text-anchor="middle">The Street Planning Table</text>
+  </svg>
+</div>
+
+<svg id="compass" viewBox="-100 -100 200 200" role="button" aria-label="Back to the whole city">
+  <defs>
+    <radialGradient id="cg"><stop offset="0" stop-color="#f6ead0"/><stop offset="1" stop-color="#e3cb98"/></radialGradient>
+  </defs>
+  <circle r="74" fill="url(#cg)" stroke="#5b4128" stroke-width="1.5"/>
+  <circle r="68" fill="none" stroke="#5b4128" stroke-width=".6"/>
+  <g id="ticks" stroke="#5b4128" stroke-width=".8"></g>
+  <g id="rose"></g>
+  <circle r="5" fill="#8f2213" stroke="#2b1a0e" stroke-width="1"/>
+  <text y="-80" text-anchor="middle" font-family="IM Fell English SC, serif" font-size="20" fill="#8f2213">N</text>
+</svg>
+
+<button id="to3d" title="Back to the 3D city at this spot" aria-label="Back to the 3D city">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 2.8 20.5 7.5v9L12 21.2 3.5 16.5v-9z"/><path d="M3.5 7.5 12 12.2l8.5-4.7M12 12.2v9"/></svg>
+  <span>3D city</span><kbd>Esc</kbd>
+</button>
+<button id="bare" title="Hide the panel (H)" aria-label="Hide the panel" aria-keyshortcuts="h" aria-pressed="false">
+  <svg class="off" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 5.1A9.8 9.8 0 0 1 12 5c5 0 8.7 4.3 9.8 7-.4 1-1.2 2.3-2.4 3.6M6.2 6.3C4.3 7.6 2.9 9.5 2.2 12c1.1 2.7 4.8 7 9.8 7 1.7 0 3.2-.5 4.6-1.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
+  <svg class="on" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 12C3.3 9.3 7 5 12 5s8.7 4.3 9.8 7c-1.1 2.7-4.8 7-9.8 7s-8.7-4.3-9.8-7z"/><circle cx="12" cy="12" r="3"/></svg>
+</button>
+<button id="sound" aria-label="Sound on" title="Sound on/off">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path id="waves" d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg>
+</button>
+
+<aside id="panel" aria-label="Planning panel">
+  <span class="pin"></span>
+  <div class="scroll" id="scroll">
+    <h2>Plan a street</h2>
+    <p class="lede">Pick a street, change it, then press the red seal to watch how Beirut's traffic copes.</p>
+
+    <h3>Time of day</h3>
+    <div class="seg" id="hours">
+      <button data-hour="8" aria-pressed="true">Morning<small>8:00 rush</small></button>
+      <button data-hour="13" aria-pressed="false">Midday<small>13:00</small></button>
+      <button data-hour="17" aria-pressed="false">Evening<small>17:00 rush</small></button>
+    </div>
+
+    <h3>Street</h3>
+    <div class="search">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2b1a0e" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="find" type="search" placeholder="Find a street by name…" autocomplete="off" aria-label="Find a street">
+      <div class="suggest" id="suggest"></div>
+    </div>
+    <div id="street" style="margin-top:12px"></div>
+
+    <h3>Your changes</h3>
+    <ul class="changes" id="changes"></ul>
+
+    <div id="sim" hidden>
+      <h3>What happens</h3>
+      <div class="clock"><b id="clock">08:00:00</b><span id="clockNote">simulated time</span></div>
+      <div class="status" id="status"></div>
+      <div class="results" id="results"></div>
+      <div class="legend">
+        <span><i style="background:var(--purple)"></i>Detours</span>
+        <span><i style="background:var(--red-2)"></i>Queues</span>
+        <span><i style="background:#2b1a0e;width:6px;height:6px;border-radius:50%"></i>A car</span>
+      </div>
+    </div>
+  </div>
+  <div class="foot">
+    <button class="seal" id="run" disabled>
+      <span class="wax"><svg width="16" height="16" viewBox="0 0 24 24" fill="#fff4e2"><path d="M7 4v16l13-8z"/></svg></span>
+      <span id="runLabel">Make a change first</span>
+    </button>
+    <p class="note">Simulated with SUMO on today's road network. Directions are reliable; exact numbers are rough until the model is calibrated.</p>
+  </div>
+</aside>
+
+<div id="intro"><p>Unrolling the map of Beirut…</p></div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+'use strict';
+
+// ---------------------------------------------------------------- paper fibres
+// A tiling noise texture, generated once, used by the map overlay and the panel.
+(function fibres() {
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320'>
+    <filter id='f'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' seed='7' stitchTiles='stitch'/>
+    <feColorMatrix values='0 0 0 0 .55  0 0 0 0 .40  0 0 0 0 .22  0 0 0 .55 0'/></filter>
+    <filter id='g'><feTurbulence type='fractalNoise' baseFrequency='.012 .04' numOctaves='2' seed='3' stitchTiles='stitch'/>
+    <feColorMatrix values='0 0 0 0 .6  0 0 0 0 .45  0 0 0 0 .25  0 0 0 .35 0'/></filter>
+    <rect width='100%' height='100%' filter='url(#g)'/><rect width='100%' height='100%' filter='url(#f)' opacity='.5'/></svg>`;
+  document.documentElement.style.setProperty('--fibres', `url("data:image/svg+xml,${encodeURIComponent(svg)}")`);
+})();
+
+// ---------------------------------------------------------------- compass rose
+(function rose() {
+  const ticks = document.getElementById('ticks');
+  for (let i = 0; i < 64; i++) {
+    const a = i * Math.PI / 32, long = i % 8 === 0, r1 = long ? 60 : 64;
+    const l = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    l.setAttribute('x1', (Math.sin(a) * r1).toFixed(2)); l.setAttribute('y1', (-Math.cos(a) * r1).toFixed(2));
+    l.setAttribute('x2', (Math.sin(a) * 68).toFixed(2)); l.setAttribute('y2', (-Math.cos(a) * 68).toFixed(2));
+    ticks.appendChild(l);
+  }
+  const g = document.getElementById('rose');
+  const point = (angle, len, w, light, dark) => {
+    const s = Math.sin(angle), c = Math.cos(angle);
+    const tip = [s * len, -c * len], l = [Math.sin(angle - Math.PI / 2) * w, -Math.cos(angle - Math.PI / 2) * w],
+      r = [Math.sin(angle + Math.PI / 2) * w, -Math.cos(angle + Math.PI / 2) * w];
+    return `<path d="M0 0L${l}L${tip}Z" fill="${light}" stroke="#2b1a0e" stroke-width=".8"/>` +
+           `<path d="M0 0L${r}L${tip}Z" fill="${dark}" stroke="#2b1a0e" stroke-width=".8"/>`;
+  };
+  let html = '';
+  for (let i = 0; i < 8; i++) html += point(Math.PI / 8 + i * Math.PI / 4, 40, 7, '#efe0bd', '#8a6d4c');
+  for (let i = 0; i < 4; i++) html += point(Math.PI / 4 + i * Math.PI / 2, 52, 10, '#f6ead0', '#5b4128');
+  for (let i = 0; i < 4; i++) html += point(i * Math.PI / 2, 66, 13, i === 0 ? '#c4472f' : '#f6ead0', i === 0 ? '#7a190b' : '#2b1a0e');
+  g.innerHTML = html;
+})();
+
+// ---------------------------------------------------------------- the torn frame
+const frame = document.getElementById('frame');
+function drawFrame() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W = innerWidth, H = innerHeight;
+  frame.width = W * dpr; frame.height = H * dpr;
+  const ctx = frame.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const m = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--frame')) || 26;
+
+  // Torn edge: the paper's outline wanders inward by a few pixels, with the odd deeper nick.
+  let seed = 11;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const waves = Array.from({ length: 4 }, () => [rnd() * 6.28, 0.004 + rnd() * 0.03, 1 + rnd() * 2.5]);
+  const jag = (t) => {
+    let v = 0;
+    for (const [p, f, a] of waves) v += Math.sin(t * f * 6.28 + p) * a;
+    return Math.max(0, 3 + v + rnd() * 2.2 + (rnd() < 0.025 ? 5 + rnd() * 7 : 0));
+  };
+  const pts = [], step = 7;
+  for (let x = m; x < W - m; x += step) pts.push([x, m + jag(x)]);
+  for (let y = m; y < H - m; y += step) pts.push([W - m - jag(y + 999), y]);
+  for (let x = W - m; x > m; x -= step) pts.push([x, H - m - jag(x + 1999)]);
+  for (let y = H - m; y > m; y -= step) pts.push([m + jag(y + 2999), y]);
+  const edge = new Path2D();
+  pts.forEach(([x, y], i) => (i ? edge.lineTo(x, y) : edge.moveTo(x, y)));
+  edge.closePath();
+
+  // The desk under the map.
+  const desk = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .3, W / 2, H / 2, Math.max(W, H) * .75);
+  desk.addColorStop(0, '#3a2716'); desk.addColorStop(1, '#120b06');
+  ctx.fillStyle = desk; ctx.fillRect(0, 0, W, H);
+  // Shadow the paper casts on the desk, then cut the paper's hole.
+  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.75)'; ctx.shadowBlur = 26; ctx.shadowOffsetY = 6;
+  ctx.fillStyle = '#000'; ctx.fill(edge); ctx.restore();
+  ctx.save(); ctx.globalCompositeOperation = 'destination-out'; ctx.fill(edge); ctx.restore();
+
+  // Scorched, darkened margin inside the paper.
+  ctx.save(); ctx.clip(edge);
+  ctx.filter = 'blur(14px)'; ctx.strokeStyle = 'rgba(96,56,20,.55)'; ctx.lineWidth = 46; ctx.stroke(edge);
+  ctx.filter = 'blur(4px)'; ctx.strokeStyle = 'rgba(70,38,12,.6)'; ctx.lineWidth = 12; ctx.stroke(edge);
+  ctx.filter = 'none'; ctx.strokeStyle = 'rgba(40,20,6,.9)'; ctx.lineWidth = 2.2; ctx.stroke(edge);
+
+  // Faint rhumb lines from the compass, as on a sea chart.
+  const compass = document.getElementById('compass').getBoundingClientRect();
+  const cx = compass.left + compass.width / 2, cy = compass.top + compass.height / 2;
+  ctx.strokeStyle = 'rgba(91,65,40,.11)'; ctx.lineWidth = 1;
+  for (let i = 0; i < 32; i++) {
+    const a = i * Math.PI / 16;
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * 4000, cy + Math.sin(a) * 4000);
+    if (i % 4) ctx.setLineDash([4, 6]); else ctx.setLineDash([]);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------- sound: a pencil on paper
+const audio = { ctx: null, noise: null, on: true };
+function audioCtx() {
+  if (!audio.on) return null;
+  if (!audio.ctx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    audio.ctx = new AC();
+    const len = audio.ctx.sampleRate * 1.5, buf = audio.ctx.createBuffer(1, len, audio.ctx.sampleRate), d = buf.getChannelData(0);
+    let b = 0;
+    for (let i = 0; i < len; i++) { const w = Math.random() * 2 - 1; b = 0.6 * b + 0.4 * w; d[i] = w * 0.7 + b * 0.3; }
+    audio.noise = buf;
+  }
+  if (audio.ctx.state === 'suspended') audio.ctx.resume();
+  return audio.ctx;
+}
+// A few quick strokes of graphite: band-passed noise with a grainy, uneven envelope.
+function pencil(strokes = 4) {
+  const ac = audioCtx(); if (!ac) return;
+  const out = ac.createGain(); out.gain.value = 0.55; out.connect(ac.destination);
+  let t = ac.currentTime + 0.01;
+  for (let s = 0; s < strokes; s++) {
+    const dur = 0.07 + Math.random() * 0.11;
+    const src = ac.createBufferSource(); src.buffer = audio.noise;
+    src.playbackRate.value = 0.8 + Math.random() * 0.5;
+    const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2600 + Math.random() * 2400; bp.Q.value = 0.9;
+    bp.frequency.linearRampToValueAtTime(bp.frequency.value * (0.75 + Math.random() * 0.5), t + dur);
+    const hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1300;
+    const g = ac.createGain();
+    const grain = new Float32Array(24);
+    for (let i = 0; i < grain.length; i++) {
+      const env = Math.sin(Math.PI * i / (grain.length - 1)) ** 0.6;
+      grain[i] = env * (0.35 + Math.random() * 0.65) * (0.16 + Math.random() * 0.1);
+    }
+    grain[0] = 0; grain[grain.length - 1] = 0;
+    g.gain.setValueCurveAtTime(grain, t, dur);
+    src.connect(bp).connect(hp).connect(g).connect(out);
+    src.start(t, Math.random() * 1.2, dur + 0.02);
+    t += dur + 0.025 + Math.random() * 0.06;
+  }
+  // The soft body of the paper under the lead.
+  const body = ac.createBufferSource(); body.buffer = audio.noise;
+  const lp = ac.createBiquadFilter(); lp.type = 'bandpass'; lp.frequency.value = 520; lp.Q.value = 0.7;
+  const bg = ac.createGain(); bg.gain.setValueAtTime(0.0001, ac.currentTime);
+  bg.gain.linearRampToValueAtTime(0.05, ac.currentTime + 0.03); bg.gain.linearRampToValueAtTime(0.0001, t);
+  body.connect(lp).connect(bg).connect(out); body.start(ac.currentTime, 0, t - ac.currentTime + 0.05);
+}
+// Pressing the wax seal: a dull thump.
+function stamp() {
+  const ac = audioCtx(); if (!ac) return;
+  const t = ac.currentTime;
+  const o = ac.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(140, t); o.frequency.exponentialRampToValueAtTime(48, t + 0.18);
+  const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.5, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+  o.connect(g).connect(ac.destination); o.start(t); o.stop(t + 0.32);
+  const n = ac.createBufferSource(); n.buffer = audio.noise;
+  const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900;
+  const ng = ac.createGain(); ng.gain.setValueAtTime(0.25, t); ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+  n.connect(lp).connect(ng).connect(ac.destination); n.start(t, 0, 0.14);
+}
+document.getElementById('sound').addEventListener('click', (e) => {
+  audio.on = !audio.on;
+  e.currentTarget.setAttribute('aria-label', audio.on ? 'Sound on' : 'Sound off');
+  e.currentTarget.querySelector('#waves').style.display = audio.on ? '' : 'none';
+  if (audio.on) pencil(2);
+});
+
+// ---------------------------------------------------------------- helpers
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = (n) => Math.round(n).toLocaleString('en-US');
+let toastTimer;
+function toast(text) {
+  const t = $('toast'); t.textContent = text; t.classList.add('on');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 3200);
+}
+const CLASS_WORDS = { motorway: 'Motorway', trunk: 'Highway', primary: 'Main road', secondary: 'Main road', tertiary: 'Local road',
+  residential: 'Residential street', unclassified: 'Street', living_street: 'Living street', service: 'Service road' };
+const classWord = (c) => CLASS_WORDS[String(c).replace('_link', '')] || 'Street';
+
+// ---------------------------------------------------------------- state
+const state = {
+  hour: 8,
+  roads: null,                 // GeoJSON from the server
+  byName: new Map(),           // name -> [road ids]
+  selected: [],                // road ids being edited
+  edits: new Map(),            // road id -> {close, lane, slow}
+  sim: null,                   // running simulation
+};
+const editOf = (id) => state.edits.get(id) || { close: false, lane: false, slow: false };
+const hasEdit = (e) => e.close || e.lane || e.slow;
+
+// ---------------------------------------------------------------- the map
+const BEIRUT = [35.505, 33.889];
+const EMBED = document.documentElement.classList.contains('embed');
+const ZOOMS = [11, 19];
+const clampZoom = (z) => Math.min(ZOOMS[1], Math.max(ZOOMS[0], z));
+// A camera handed over from the 3D viewer: `#lon=…&lat=…&zoom=…`, the viewer's own hash keys.
+function linkedCamera() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  const lon = Number(p.get('lon')), lat = Number(p.get('lat')), zoom = Number(p.get('zoom'));
+  if (!p.get('lon') || !p.get('lat') || !Number.isFinite(lon) || !Number.isFinite(lat)) return null;
+  return { center: [lon, lat], zoom: clampZoom(Number.isFinite(zoom) && p.get('zoom') ? zoom : 15) };
+}
+const startCamera = linkedCamera();
+// Arabic street and place names: without this plugin MapLibre lays label
+// letters out left to right and unjoined, so they read backwards.
+if (maplibregl.getRTLTextPluginStatus() === 'unavailable') {
+  maplibregl.setRTLTextPlugin('https://unpkg.com/@mapbox/mapbox-gl-rtl-text@0.2.3/mapbox-gl-rtl-text.min.js', false);
+}
+const map = new maplibregl.Map({
+  container: 'map',
+  style: 'https://tiles.openfreemap.org/styles/liberty',
+  center: startCamera ? startCamera.center : [35.47, 33.905], zoom: startCamera ? startCamera.zoom : 12.3,
+  minZoom: ZOOMS[0], maxZoom: ZOOMS[1],
+  maxBounds: [[35.36, 33.78], [35.66, 34.0]],
+  pitchWithRotate: false, dragRotate: false, attributionControl: false,
+});
+map.touchZoomRotate.disableRotation();
+map.addControl(new maplibregl.ScaleControl({ maxWidth: 110, unit: 'metric' }), 'bottom-left');
+map.addControl(new maplibregl.AttributionControl({ compact: true,
+  customAttribution: 'Traffic: SUMO on DynaCITY road model' }), 'bottom-left');
+
+// Warm the basemap a little toward old paper while keeping it a normal street map.
+function warmBasemap() {
+  const set = (layer, prop, value) => { if (map.getLayer(layer)) try { map.setPaintProperty(layer, prop, value); } catch (_) {} };
+  for (const layer of map.getStyle().layers) {
+    const id = layer.id;
+    if (layer.type === 'background') set(id, 'background-color', '#f6efe0');
+    if (/^water/.test(id) && layer.type === 'fill') set(id, 'fill-color', '#a9c3bd');
+    if (/^water/.test(id) && layer.type === 'line') set(id, 'line-color', '#93b1ab');
+    if (/building/.test(id) && layer.type === 'fill') { set(id, 'fill-color', '#e6dccb'); set(id, 'fill-outline-color', '#cbbda4'); }
+    if (/building-3d/.test(id)) map.setLayoutProperty(id, 'visibility', 'none');
+    // Bus stops, shops and other points of interest crowd a planning map; streets and places stay.
+    if (layer.type === 'symbol' && /^poi|transit|bus|aerialway|airport/.test(id)) map.setLayoutProperty(id, 'visibility', 'none');
+    if (/^park|landcover_grass|landcover_wood|landuse_park/.test(id) && layer.type === 'fill') set(id, 'fill-color', '#c9d2a0');
+    if (layer.type === 'symbol' && layer.paint && 'text-color' in layer.paint) {
+      set(id, 'text-halo-color', 'rgba(246,236,212,.9)');
+    }
+  }
+}
+
+function roadWidth(base) {
+  return ['interpolate', ['exponential', 1.6], ['zoom'], 12, base * 0.35, 15, base, 18, base * 3.2];
+}
+// Same, scaled per road by its `w` property (zoom must stay the top-level input).
+function roadWidthByW(base) {
+  const w = (k) => ['*', base * k, ['get', 'w']];
+  return ['interpolate', ['exponential', 1.6], ['zoom'], 12, w(0.35), 15, w(1), 18, w(3.2)];
+}
+
+map.on('load', async () => {
+  warmBasemap();
+  let roads;
+  try {
+    const r = await fetch('/v1/planner/roads');
+    if (!r.ok) throw new Error(r.status);
+    roads = await r.json();
+  } catch (err) {
+    $('intro').querySelector('p').textContent = location.protocol === 'file:'
+      ? 'This is the page\'s source file. Open it through the server instead: http://127.0.0.1:8012/planner'
+      : 'The road network could not be loaded. Is the server running with --traffic?';
+    if (EMBED) { $('intro').style.display = 'grid'; parent.postMessage({ type: 'dynacity-planner:loaded', error: true }, location.origin); }
+    return;
+  }
+  state.roads = roads;
+  for (const f of roads.features) {
+    const n = f.properties.name;
+    if (!n) continue;
+    if (!state.byName.has(n)) state.byName.set(n, []);
+    state.byName.get(n).push(f.id);
+  }
+
+  const firstLabel = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
+  map.addSource('roads', { type: 'geojson', data: roads, promoteId: undefined });
+  map.addSource('edits', { type: 'geojson', data: empty() });
+  map.addSource('ink', { type: 'geojson', data: empty(), lineMetrics: true });
+  map.addSource('pick', { type: 'geojson', data: empty() });
+  map.addSource('detours', { type: 'geojson', data: empty() });
+  map.addSource('queues', { type: 'geojson', data: empty() });
+  map.addSource('cars', { type: 'geojson', data: empty() });
+
+  // Simulation overlays sit under the edits and labels.
+  map.addLayer({ id: 'queues', type: 'line', source: 'queues', layout: { 'line-cap': 'round' },
+    paint: { 'line-color': '#b0341f', 'line-opacity': 0.55, 'line-blur': 2, 'line-width': roadWidthByW(5) } }, firstLabel);
+  map.addLayer({ id: 'detours', type: 'line', source: 'detours', layout: { 'line-cap': 'round' },
+    paint: { 'line-color': '#5b3a8c', 'line-opacity': 0.6, 'line-blur': 1, 'line-width': roadWidthByW(5) } }, firstLabel);
+
+  // Hover and selection.
+  map.addLayer({ id: 'hover', type: 'line', source: 'roads', filter: ['==', ['id'], -1], layout: { 'line-cap': 'round' },
+    paint: { 'line-color': '#2b1a0e', 'line-opacity': 0.35, 'line-width': roadWidth(9) } }, firstLabel);
+  map.addLayer({ id: 'pick-glow', type: 'line', source: 'pick', layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#e0b356', 'line-opacity': 0.55, 'line-blur': 4, 'line-width': roadWidth(20) } }, firstLabel);
+  map.addLayer({ id: 'pick-core', type: 'line', source: 'pick', layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#6b4a1e', 'line-width': roadWidth(2.4) } }, firstLabel);
+
+  // Edits, drawn in ink.
+  map.addLayer({ id: 'edit-halo', type: 'line', source: 'edits', layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#f7ecd3', 'line-width': roadWidth(11), 'line-opacity': 0.9 } }, firstLabel);
+  map.addLayer({ id: 'edit-lane', type: 'line', source: 'edits', filter: ['all', ['get', 'lane'], ['!', ['get', 'close']]],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#2e6a3c', 'line-width': roadWidth(7), 'line-opacity': 0.9 } }, firstLabel);
+  map.addLayer({ id: 'edit-slow', type: 'line', source: 'edits', filter: ['all', ['get', 'slow'], ['!', ['get', 'close']], ['!', ['get', 'lane']]],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': '#a8681a', 'line-width': roadWidth(6), 'line-opacity': 0.9 } }, firstLabel);
+  map.addLayer({ id: 'edit-slow-dash', type: 'line', source: 'edits', filter: ['all', ['get', 'slow'], ['get', 'lane'], ['!', ['get', 'close']]],
+    layout: { 'line-cap': 'butt' },
+    paint: { 'line-color': '#a8681a', 'line-width': roadWidth(3), 'line-dasharray': [1.5, 2] } }, firstLabel);
+  map.addLayer({ id: 'edit-close', type: 'line', source: 'edits', filter: ['get', 'close'], layout: { 'line-cap': 'butt', 'line-join': 'round' },
+    paint: { 'line-color': '#8f2213', 'line-width': roadWidth(6), 'line-dasharray': [1.1, 0.9] } }, firstLabel);
+  map.addLayer({ id: 'ink', type: 'line', source: 'ink', layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-width': roadWidth(7), 'line-gradient': ['interpolate', ['linear'], ['line-progress'], 0, 'rgba(0,0,0,0)', 1, 'rgba(0,0,0,0)'] } });
+  map.addLayer({ id: 'edit-x', type: 'symbol', source: 'edits', filter: ['get', 'close'],
+    layout: { 'symbol-placement': 'line', 'symbol-spacing': 170, 'text-field': 'X', 'text-font': ['Noto Sans Bold'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 13, 14, 17, 26], 'text-padding': 18, 'text-keep-upright': false, 'text-rotation-alignment': 'viewport' },
+    paint: { 'text-color': '#8f2213', 'text-halo-color': '#f7ecd3', 'text-halo-width': 2.5 } });
+  map.addLayer({ id: 'edit-30', type: 'symbol', source: 'edits', filter: ['all', ['get', 'slow'], ['!', ['get', 'close']]],
+    layout: { 'symbol-placement': 'line', 'symbol-spacing': 200, 'text-field': '30', 'text-font': ['Noto Sans Bold'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 13, 11, 17, 17], 'text-padding': 18, 'text-rotation-alignment': 'viewport' },
+    paint: { 'text-color': '#a8681a', 'text-halo-color': '#f7ecd3', 'text-halo-width': 2.5 } });
+
+  // Cars: small ink dots, red when stopped.
+  map.addLayer({ id: 'cars', type: 'circle', source: 'cars',
+    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 1.2, 15, 2.6, 18, 5],
+      'circle-color': ['case', ['<', ['get', 's'], 0.5], '#b0341f', ['<', ['get', 's'], 4], '#a8681a', '#2b1a0e'],
+      'circle-opacity': 0.85, 'circle-stroke-color': '#f7ecd3', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 13, 0, 16, 0.8] } });
+
+  // Invisible wide line for easy clicking.
+  map.addLayer({ id: 'hit', type: 'line', source: 'roads', filter: ['!', ['has', 'lvl']],
+    paint: { 'line-color': '#000', 'line-opacity': 0.01, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 8, 16, 18, 19, 34] } });
+  map.addLayer({ id: 'hit-bridge', type: 'line', source: 'roads', filter: ['>', ['coalesce', ['get', 'lvl'], 0], 0],
+    paint: { 'line-color': '#000', 'line-opacity': 0.01, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 8, 16, 18, 19, 34] } });
+
+  let hovered = null;
+  const canvas = map.getCanvas();
+  map.on('mousemove', (e) => {
+    const f = topRoad(e.point);
+    const id = f ? f.id : -1;
+    if (id === hovered) return;
+    hovered = id;
+    map.setFilter('hover', ['==', ['id'], id]);
+    canvas.classList.toggle('hovering', id >= 0);
+  });
+  map.on('mouseout', () => { hovered = null; map.setFilter('hover', ['==', ['id'], -1]); canvas.classList.remove('hovering'); });
+  map.on('click', (e) => {
+    const f = topRoad(e.point);
+    if (!f) { select([]); return; }
+    const additive = e.originalEvent.shiftKey;
+    select(additive ? toggleIn(state.selected, f.id) : [f.id]);
+    pencil(2);
+  });
+
+  renderStreet(); renderChanges();
+  // Inside the 3D viewer the parent runs the opening; it is told the roads are in.
+  if (EMBED) { parent.postMessage({ type: 'dynacity-planner:loaded' }, location.origin); return; }
+  // Opening: fade the desk lamp up and glide in over the bay (or stay where the 3D view was).
+  setTimeout(() => {
+    $('intro').classList.add('gone');
+    if (!startCamera) map.flyTo({ center: BEIRUT, zoom: 14.4, duration: 5200, curve: 1.3, essential: true });
+  }, 600);
+});
+
+function topRoad(point) {
+  const box = [[point.x - 4, point.y - 4], [point.x + 4, point.y + 4]];
+  const found = map.queryRenderedFeatures(box, { layers: ['hit-bridge', 'hit'] });
+  return found[0] || null;
+}
+const empty = () => ({ type: 'FeatureCollection', features: [] });
+const toggleIn = (list, id) => list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+const feature = (id) => state.roads.features[id];
+
+// ---------------------------------------------------------------- selection
+function select(ids) {
+  state.selected = ids;
+  map.getSource('pick').setData({ type: 'FeatureCollection', features: ids.map(feature) });
+  renderStreet();
+}
+function selectionSummary(ids) {
+  const fs = ids.map(feature);
+  const names = [...new Set(fs.map((f) => f.properties.name).filter(Boolean))];
+  const lanes = Math.max(...fs.map((f) => f.properties.lanes));
+  const minLanes = Math.min(...fs.map((f) => f.properties.lanes));
+  const free = Math.round(Math.max(...fs.map((f) => f.properties.free)));
+  const oneway = fs.every((f) => f.properties.oneway);
+  const len = fs.reduce((s, f) => s + lineLength(f.geometry.coordinates), 0);
+  const rank = (c) => ['motorway', 'trunk', 'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street', 'service'].indexOf(String(c).replace('_link', ''));
+  const cls = fs.map((f) => f.properties.cls).sort((a, b) => (rank(a) < 0 ? 99 : rank(a)) - (rank(b) < 0 ? 99 : rank(b)))[0];
+  return { names, lanes, minLanes, free, oneway, len, cls };
+}
+function lineLength(coords) {
+  let s = 0;
+  for (let i = 1; i < coords.length; i++) {
+    const [x1, y1] = coords[i - 1], [x2, y2] = coords[i];
+    const dx = (x2 - x1) * 111320 * Math.cos(y1 * Math.PI / 180), dy = (y2 - y1) * 110540;
+    s += Math.hypot(dx, dy);
+  }
+  return s;
+}
+
+const ICONS = {
+  close: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 5l14 14M19 5L5 19"/></svg>',
+  lane: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 3v18M12 3v3M12 10v4M12 18v3"/><path d="M20 3v18" stroke-dasharray="1 3"/><circle cx="17" cy="9" r="1.4" fill="currentColor"/><path d="M17 11v4l-1.5 3M17 15l1.5 3"/></svg>',
+  slow: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><text x="12" y="16" text-anchor="middle" font-size="9.5" font-family="Inter" font-weight="700" fill="currentColor" stroke="none">30</text></svg>',
+  undo: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>',
+};
+
+function renderStreet() {
+  const el = $('street');
+  if (!state.selected.length) {
+    el.innerHTML = `<div class="hint">
+      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#5b4128" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V10m0-1.5a1.5 1.5 0 0 1 3 0V11m0-1a1.5 1.5 0 0 1 3 0v4.5A6.5 6.5 0 0 1 11.5 21h-.6a6 6 0 0 1-4.6-2.2L3.6 15.4a1.6 1.6 0 0 1 2.4-2.1L9 16"/></svg>
+      <span><b>Tap any street on the map</b><br>or search for it above. Hold Shift to pick several.</span></div>`;
+    return;
+  }
+  const s = selectionSummary(state.selected);
+  const e = state.selected.map(editOf);
+  const all = (k) => e.every((x) => x[k]);
+  const any = e.some(hasEdit);
+  const title = s.names.length ? s.names.slice(0, 2).join(' · ') : 'Unnamed street';
+  const pieces = state.selected.length > 1 ? `${state.selected.length} pieces · ` : '';
+  const laneText = s.lanes === s.minLanes ? `${s.lanes} lane${s.lanes > 1 ? 's' : ''}` : `${s.minLanes}–${s.lanes} lanes`;
+  const wholeIds = s.names.length === 1 ? state.byName.get(s.names[0]) : null;
+  const canWhole = wholeIds && wholeIds.length > state.selected.length;
+  el.innerHTML = `
+    <p class="street-name">${esc(title)}</p>
+    <div class="street-facts">
+      <span class="fact">${esc(classWord(s.cls))}</span>
+      <span class="fact">${laneText}${s.oneway ? ', one way' : ' each way'}</span>
+      <span class="fact">cars reach ${s.free} km/h</span>
+      <span class="fact">${pieces}${s.len >= 1000 ? (s.len / 1000).toFixed(1) + ' km' : Math.round(s.len) + ' m'}</span>
+    </div>
+    ${canWhole ? `<button class="whole" id="whole">Pick the whole of ${esc(s.names[0])} (${wholeIds.length} pieces)</button>` : ''}
+    <div class="actions">
+      <button class="act close" data-k="close" aria-pressed="${all('close')}">
+        <span class="ic">${ICONS.close}</span><span><b>Close it to cars</b><span>Cars must find another way. People can still walk.</span></span></button>
+      <button class="act lane" data-k="lane" aria-pressed="${all('lane')}" ${s.lanes < 2 ? 'disabled title="Only one lane: close it instead"' : ''}>
+        <span class="ic">${ICONS.lane}</span><span><b>Give one lane to people</b><span>${s.lanes < 2 ? 'Only one lane here. Close it instead.' : s.minLanes < 2 ? 'Wider pavement where there are 2+ lanes; single-lane pieces stay as they are.' : 'One car lane each way becomes wider pavement.'}</span></span></button>
+      <button class="act slow" data-k="slow" aria-pressed="${all('slow')}" ${s.free <= 30 ? 'disabled' : ''}>
+        <span class="ic">${ICONS.slow}</span><span><b>Slow it to 30 km/h</b><span>${s.free <= 30 ? 'Already 30 km/h or slower.' : 'Calmer, safer street; cars may avoid it.'}</span></span></button>
+      ${any ? `<button class="act undo" data-k="undo"><span class="ic">${ICONS.undo}</span><span><b>Put it back as it was</b><span>Removes the changes on this street.</span></span></button>` : ''}
+    </div>`;
+  el.querySelectorAll('.act').forEach((b) => b.addEventListener('click', () => applyAction(b.dataset.k)));
+  const whole = $('whole');
+  if (whole) whole.addEventListener('click', () => { select(wholeIds.slice()); fitTo(wholeIds); pencil(3); });
+}
+
+function applyAction(kind) {
+  const ids = state.selected;
+  if (!ids.length) return;
+  if (kind === 'undo') {
+    ids.forEach((id) => state.edits.delete(id));
+    pencil(2);
+    afterEdit([], null);
+    return;
+  }
+  const turnOn = !ids.every((id) => editOf(id)[kind]);
+  const changed = [];
+  for (const id of ids) {
+    const p = feature(id).properties;
+    if (kind === 'lane' && p.lanes < 2 && turnOn) continue;
+    if (kind === 'slow' && p.free <= 30 && turnOn) continue;
+    const e = { ...editOf(id), [kind]: turnOn };
+    if (kind === 'close' && turnOn) { e.lane = false; e.slow = false; }
+    if (kind !== 'close' && turnOn) e.close = false;
+    if (hasEdit(e)) state.edits.set(id, e); else state.edits.delete(id);
+    changed.push(id);
+  }
+  pencil(turnOn ? 5 : 2);
+  afterEdit(turnOn ? changed : [], turnOn ? kind : null);
+}
+
+function afterEdit(drawIds, kind) {
+  syncEdits(drawIds, kind);
+  renderStreet(); renderChanges();
+  if (state.sim) toast('Change sent. The traffic will react within a few seconds.');
+}
+
+// Draw the new edit as if inked by hand, then hand it to the permanent layer.
+const INK = { close: '#8f2213', lane: '#2e6a3c', slow: '#a8681a' };
+let inkAnim = 0;
+function syncEdits(drawIds = [], kind = null) {
+  const now = [...state.edits.entries()].filter(([id]) => !drawIds.includes(id))
+    .map(([id, e]) => ({ type: 'Feature', id, properties: { ...e }, geometry: feature(id).geometry }));
+  map.getSource('edits').setData({ type: 'FeatureCollection', features: now });
+  if (!drawIds.length) return;
+  const color = INK[kind] || '#2b1a0e';
+  map.getSource('ink').setData({ type: 'FeatureCollection', features: drawIds.map((id) => ({ type: 'Feature', properties: {}, geometry: feature(id).geometry })) });
+  const start = performance.now(), dur = 650, token = ++inkAnim;
+  const tick = (t) => {
+    if (token !== inkAnim) return;
+    const p = Math.min(1, (t - start) / dur);
+    const q = Math.max(0.0001, Math.min(0.9998, p));
+    map.setPaintProperty('ink', 'line-gradient', ['interpolate', ['linear'], ['line-progress'],
+      0, color, q, color, Math.min(0.9999, q + 0.0001), 'rgba(0,0,0,0)', 1, 'rgba(0,0,0,0)']);
+    if (p < 1) requestAnimationFrame(tick);
+    else {
+      map.getSource('ink').setData(empty());
+      syncEdits();
+    }
+  };
+  requestAnimationFrame(tick);
+}
+
+function fitTo(ids) {
+  let w = 180, s = 90, e = -180, n = -90;
+  for (const id of ids) for (const [x, y] of feature(id).geometry.coordinates) { w = Math.min(w, x); e = Math.max(e, x); s = Math.min(s, y); n = Math.max(n, y); }
+  const m = innerWidth > 760 ? 26 : 10;
+  const right = innerWidth > 760 ? 420 : 40, bottom = innerWidth > 760 ? 80 : innerHeight * 0.5;
+  map.fitBounds([[w, s], [e, n]], { padding: { top: 140 + m, left: 180 + m, right: right + m, bottom: bottom + m }, maxZoom: 17, duration: 1600 });
+}
+
+// ---------------------------------------------------------------- the changes list
+function editWords(e) {
+  if (e.close) return ['X', 'Closed to cars', '#8f2213'];
+  if (e.lane && e.slow) return ['⇥', 'One lane to people, 30 km/h', '#2e6a3c'];
+  if (e.lane) return ['⇥', 'One lane to people', '#2e6a3c'];
+  return ['◔', 'Slowed to 30 km/h', '#a8681a'];
+}
+function renderChanges() {
+  const ul = $('changes');
+  // Group consecutive pieces of the same street with the same change.
+  const groups = new Map();
+  for (const [id, e] of state.edits) {
+    const name = feature(id).properties.name || 'Unnamed street';
+    const [mark, words, color] = editWords(e);
+    const key = name + '|' + words;
+    if (!groups.has(key)) groups.set(key, { name, mark, words, color, ids: [] });
+    groups.get(key).ids.push(id);
+  }
+  if (!groups.size) {
+    ul.innerHTML = '<li style="border:0"><p class="empty">Nothing changed yet. The city is as it is today.</p></li>';
+  } else {
+    ul.innerHTML = [...groups.values()].map((g, i) => `
+      <li><span class="mark" style="color:${g.color}">${g.mark}</span>
+        <span class="what" data-i="${i}">${esc(g.name)}<i>${g.words}${g.ids.length > 1 ? ` · ${g.ids.length} pieces` : ''}</i></span>
+        <button data-i="${i}" aria-label="Remove this change" title="Remove">×</button></li>`).join('');
+    const list = [...groups.values()];
+    ul.querySelectorAll('.what').forEach((el) => el.addEventListener('click', () => { const g = list[+el.dataset.i]; select(g.ids.slice()); fitTo(g.ids); }));
+    ul.querySelectorAll('button').forEach((el) => el.addEventListener('click', () => {
+      list[+el.dataset.i].ids.forEach((id) => state.edits.delete(id)); pencil(2); afterEdit([], null);
+    }));
+  }
+  const n = state.edits.size;
+  const run = $('run');
+  if (state.sim) { run.disabled = false; $('runLabel').textContent = 'Stop watching'; run.classList.add('stop'); }
+  else {
+    run.classList.remove('stop');
+    run.disabled = n === 0;
+    $('runLabel').textContent = n ? 'See what happens' : 'Make a change first';
+  }
+}
+
+// ---------------------------------------------------------------- search
+const find = $('find'), suggest = $('suggest');
+let options = [], active = -1;
+find.addEventListener('input', () => {
+  const q = find.value.trim().toLowerCase();
+  if (q.length < 2 || !state.roads) { suggest.style.display = 'none'; return; }
+  options = [...state.byName.keys()].filter((n) => n.toLowerCase().includes(q))
+    .sort((a, b) => (a.toLowerCase().startsWith(q) ? 0 : 1) - (b.toLowerCase().startsWith(q) ? 0 : 1) || state.byName.get(b).length - state.byName.get(a).length)
+    .slice(0, 7);
+  active = -1;
+  suggest.innerHTML = options.length ? options.map((n, i) => `<button data-i="${i}">${esc(n)}</button>`).join('')
+    : '<button disabled>No street by that name in the model</button>';
+  suggest.style.display = 'block';
+  suggest.querySelectorAll('button[data-i]').forEach((b) => b.addEventListener('mousedown', (ev) => { ev.preventDefault(); choose(+b.dataset.i); }));
+});
+find.addEventListener('keydown', (e) => {
+  if (suggest.style.display !== 'block') return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    active = (active + (e.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length;
+    suggest.querySelectorAll('button').forEach((b, i) => b.classList.toggle('on', i === active));
+  } else if (e.key === 'Enter') { e.preventDefault(); choose(active < 0 ? 0 : active); }
+  else if (e.key === 'Escape') suggest.style.display = 'none';
+});
+find.addEventListener('blur', () => setTimeout(() => (suggest.style.display = 'none'), 120));
+function choose(i) {
+  const name = options[i]; if (!name) return;
+  find.value = name; suggest.style.display = 'none';
+  const ids = state.byName.get(name).slice();
+  select(ids); fitTo(ids); pencil(3);
+}
+
+// ---------------------------------------------------------------- time of day
+$('hours').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  const hour = +b.dataset.hour; if (hour === state.hour) return;
+  state.hour = hour;
+  $('hours').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  pencil(2);
+  if (state.sim) { stopSim(); startSim(); }
+});
+
+$('compass').addEventListener('click', () => { map.flyTo({ center: BEIRUT, zoom: 13.6, duration: 2200 }); pencil(2); });
+
+// ---------------------------------------------------------------- the 3D city
+// Embedded, the viewer hands over its camera ("prepare"), fades this page in over its
+// flattened city and asks for the paper to be laid down ("enter"). Going back, the
+// paper lifts off first, then the viewer takes over at this exact centre and zoom.
+function setHour(hour) {
+  if (![8, 13, 17].includes(hour) || hour === state.hour || state.sim) return;
+  state.hour = hour;
+  $('hours').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(+x.dataset.hour === hour)));
+}
+function cameraHash() {
+  const c = map.getCenter();
+  return `lon=${c.lng.toFixed(7)}&lat=${c.lat.toFixed(7)}&zoom=${map.getZoom().toFixed(2)}`;
+}
+const root = document.documentElement;
+let leaving = false;
+let snapTimer;
+function setBare(on, animate = true) {
+  if (animate) { root.classList.add('snappy'); clearTimeout(snapTimer); snapTimer = setTimeout(() => root.classList.remove('snappy'), 900); }
+  root.classList.toggle('bare', on);
+  const b = $('bare');
+  b.setAttribute('aria-pressed', String(on));
+  b.title = on ? 'Show the panel (H)' : 'Hide the panel (H)';
+  b.setAttribute('aria-label', on ? 'Show the panel' : 'Hide the panel');
+  if (on) { find.blur(); suggest.style.display = 'none'; }
+}
+$('bare').addEventListener('click', () => { setBare(!root.classList.contains('bare')); pencil(2); });
+addEventListener('keydown', (e) => {
+  if ((e.key !== 'h' && e.key !== 'H') || e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = e.target;
+  if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  if (EMBED && !root.classList.contains('entered')) return;
+  e.preventDefault(); setBare(!root.classList.contains('bare')); pencil(2);
+});
+function to3d() {
+  if (leaving) return;
+  leaving = true;
+  pencil(2);
+  if (state.sim) stopSim(true);
+  if (!EMBED) { location.href = `/#${cameraHash()}&pitch=0&bearing=0&rise=1`; return; }
+  root.classList.add('leaving');
+  root.classList.remove('entered');
+  find.blur();
+  const c = map.getCenter();
+  setTimeout(() => {
+    parent.postMessage({ type: 'dynacity-planner:leave', lon: c.lng, lat: c.lat, zoom: map.getZoom(), bare: root.classList.contains('bare') }, location.origin);
+    leaving = false;
+  }, 480);
+}
+$('to3d').addEventListener('click', to3d);
+addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !EMBED || !root.classList.contains('entered')) return;
+  if (e.target.closest && e.target.closest('input') && suggest.style.display === 'block') return;
+  e.preventDefault(); to3d();
+});
+if (EMBED) addEventListener('message', (e) => {
+  if (e.origin !== location.origin || e.source !== parent) return;
+  const m = e.data || {};
+  if (m.type === 'dynacity-planner:prepare') {
+    if (!m.showing) root.classList.remove('entered', 'leaving');
+    if (typeof m.bare === 'boolean') setBare(m.bare, false);
+    map.stop();
+    map.jumpTo({ center: [m.lon, m.lat], zoom: clampZoom(m.zoom), bearing: 0, pitch: 0 });
+    setHour(m.hour);
+    let done = false;
+    const reply = () => { if (done) return; done = true; parent.postMessage({ type: 'dynacity-planner:prepared' }, location.origin); };
+    // Tiles for the new spot first, so the cross-fade never shows a blank sheet.
+    map.once('idle', reply);
+    setTimeout(reply, 2500);
+  } else if (m.type === 'dynacity-planner:enter') {
+    root.classList.remove('leaving');
+    drawFrame();
+    // Two frames so the hidden state has painted and the moves run.
+    requestAnimationFrame(() => requestAnimationFrame(() => root.classList.add('entered')));
+    setTimeout(() => pencil(3), 650);
+  }
+});
+if (!EMBED) map.on('moveend', () => history.replaceState(null, '', `#${cameraHash()}`));
+
+// ---------------------------------------------------------------- the simulation
+function planBody(seconds) {
+  const closed = [], planning = [];
+  for (const [id, e] of state.edits) {
+    if (e.close) { closed.push(id); continue; }
+    const p = { road: id };
+    if (e.lane) p.lanes_removed = 1;
+    if (e.slow) p.speed_limit_kmh = 30;
+    planning.push(p);
+  }
+  const b = map.getBounds(), padX = (b.getEast() - b.getWest()) * 0.1, padY = (b.getNorth() - b.getSouth()) * 0.1;
+  return { hour: state.hour, seconds, continuous: true, closed, planning, max_vehicles: 2500,
+    view: [b.getWest() - padX, b.getSouth() - padY, b.getEast() + padX, b.getNorth() + padY] };
+}
+
+$('run').addEventListener('click', () => {
+  if (state.sim) { stopSim(); pencil(2); return; }
+  stamp();
+  startSim();
+});
+
+async function startSim() {
+  const sim = { key: null, queue: [], frame: null, prev: null, shownAt: 0, stopped: false, fetching: false, metrics: null };
+  state.sim = sim;
+  $('sim').hidden = false;
+  renderChanges();
+  setStatus('Releasing the morning traffic onto the streets… (about 20 seconds)', true);
+  $('results').innerHTML = '';
+  $('scroll').scrollTo({ top: $('scroll').scrollHeight, behavior: 'smooth' });
+  try {
+    const r = await fetch('/v1/viewer/traffic/simulation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(planBody(4)) });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.status);
+    if (sim.stopped) { closeSession(data.session); return; }
+    sim.key = data.session;
+    sim.queue.push(...data.frames);
+    setStatus('Simulating. Give it a minute or two for the effects to spread.', true);
+    requestAnimationFrame(play);
+    pump();
+  } catch (err) {
+    setStatus('The simulation could not start: ' + err.message, false);
+    state.sim = null; renderChanges();
+  }
+}
+async function pump() {
+  const sim = state.sim;
+  if (!sim || sim.stopped || sim.fetching || sim.queue.length > 6) return;
+  sim.fetching = true;
+  try {
+    const r = await fetch('/v1/viewer/traffic/simulation/' + sim.key, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(planBody(4)) });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.status);
+    if (!sim.stopped) sim.queue.push(...data.frames);
+  } catch (err) {
+    if (!sim.stopped) { setStatus('The simulation stopped: ' + err.message, false); stopSim(true); }
+  } finally {
+    sim.fetching = false;
+    if (!sim.stopped) setTimeout(pump, 30);
+  }
+}
+// Plays one-second SUMO samples in real time, gliding the cars between them.
+function play(now) {
+  const sim = state.sim;
+  if (!sim || sim.stopped) return;
+  if (!sim.frame || now - sim.shownAt >= 1000) {
+    if (sim.queue.length) {
+      sim.prev = sim.frame; sim.frame = sim.queue.shift(); sim.shownAt = now;
+      showMetrics(sim.frame);
+      if (!sim.shown) { sim.shown = true; $('sim').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+      pump();
+    }
+  }
+  if (sim.frame && now - (sim.drawnAt || 0) > 33) { sim.drawnAt = now; drawCars(sim.prev, sim.frame, Math.min(1, (now - sim.shownAt) / 1000)); }
+  requestAnimationFrame(play);
+}
+function drawCars(prev, cur, t) {
+  const before = new Map();
+  if (prev) for (const v of prev.vehicles) before.set(v[0], v);
+  const features = cur.vehicles.map((v) => {
+    const p = before.get(v[0]);
+    const x = p ? p[1] + (v[1] - p[1]) * t : v[1], y = p ? p[2] + (v[2] - p[2]) * t : v[2];
+    return { type: 'Feature', properties: { s: v[4] }, geometry: { type: 'Point', coordinates: [x, y] } };
+  });
+  map.getSource('cars').setData({ type: 'FeatureCollection', features });
+}
+function showMetrics(frame) {
+  const m = frame.metrics, s = Math.round(frame.time_s);
+  const hh = String(state.hour + Math.floor(s / 3600)).padStart(2, '0'), mm = String(Math.floor(s / 60) % 60).padStart(2, '0'), ss = String(s % 60).padStart(2, '0');
+  $('clock').textContent = `${hh}:${mm}:${ss}`;
+  $('clockNote').textContent = s < 60 ? 'just started' : `${Math.floor(s / 60)} min simulated`;
+  const b = m.baseline || {};
+  const rows = [];
+  const fewer = (b.arrived ?? m.arrived) - m.arrived;
+  rows.push({ k: 'Trips completed', v: fmt(m.arrived), cls: fewer > 5 ? 'bad' : '',
+    d: b.arrived != null ? (fewer > 0 ? `${fmt(fewer)} fewer than on a normal day (${fmt(b.arrived)})` : fewer < 0 ? `${fmt(-fewer)} more than on a normal day` : 'Same as a normal day') : '' });
+  if (m.mean_completed_delay_s != null && m.paired_arrivals > 20) {
+    const d = m.mean_completed_delay_s;
+    rows.push({ k: 'Extra time per trip', v: Math.abs(d) < 0.5 ? 'none' : (d > 0 ? '+' : '−') + Math.abs(d).toFixed(0) + ' s', cls: d > 10 ? 'bad' : d < -5 ? 'good' : '',
+      d: `Average over ${fmt(m.paired_arrivals)} trips finished in both versions` });
+  }
+  rows.push({ k: 'Cars that took a detour', v: fmt(m.rerouted), cls: '', d: 'They changed route because of your changes' });
+  const stuck = (m.no_detour || 0) + (m.stopped_on_closed || 0);
+  rows.push({ k: 'Cars with no way through', v: fmt(stuck), cls: stuck > 0 ? 'bad' : 'good', d: stuck ? 'Their destination is cut off; they wait' : 'Every car can still reach its destination' });
+  if (b.stopped != null) {
+    const more = m.stopped - b.stopped;
+    rows.push({ k: 'Cars standing still right now', v: fmt(m.stopped), cls: more > 50 ? 'bad' : more < -50 ? 'good' : '',
+      d: `Across the whole city; normal day: ${fmt(b.stopped)}. Includes cars at red lights.` });
+  }
+  $('results').innerHTML = rows.map((r) => `<div class="res ${r.cls}"><span class="k">${r.k}</span><span class="v">${r.v}</span>${r.d ? `<span class="d">${r.d}</span>` : ''}</div>`).join('');
+  const toLines = (pairs, scale) => ({ type: 'FeatureCollection', features: pairs.filter(([id]) => state.roads.features[id])
+    .map(([id, n]) => ({ type: 'Feature', properties: { w: Math.min(3, 0.6 + Math.sqrt(n) / scale) }, geometry: feature(id).geometry })) });
+  map.getSource('detours').setData(toLines(m.detour || [], 3));
+  map.getSource('queues').setData(toLines((m.stopped_roads || []).filter(([, n]) => n >= 4), 4));
+}
+function setStatus(text, busy) {
+  $('status').innerHTML = (busy ? '<svg class="quill" viewBox="0 0 24 24" fill="none" stroke="#5b4128" stroke-width="1.8" stroke-linecap="round"><path d="M20 4C11 5 6 11 4 20M20 4c-1 7-6 11-12 11"/></svg>' : '') + `<span>${esc(text)}</span>`;
+}
+function closeSession(key) { if (key) fetch('/v1/viewer/traffic/simulation/' + key, { method: 'DELETE' }).catch(() => {}); }
+function stopSim(keepStatus) {
+  const sim = state.sim; if (!sim) return;
+  sim.stopped = true; closeSession(sim.key); state.sim = null;
+  if (!keepStatus) setStatus('Stopped. Change something and press the seal again.', false);
+  map.getSource('cars').setData(empty());
+  renderChanges();
+}
+addEventListener('pagehide', () => { if (state.sim?.key) navigator.sendBeacon && fetch('/v1/viewer/traffic/simulation/' + state.sim.key, { method: 'DELETE', keepalive: true }); });
+
+// ---------------------------------------------------------------- start
+// Handles for browser checks and screenshots.
+window.planner = { map, state, select, applyAction, fitTo, to3d };
+drawFrame();
+let resizeTimer;
+addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(drawFrame, 80); });
+document.fonts && document.fonts.ready.then(drawFrame);
+})();
+</script>
+</body>
+</html>
