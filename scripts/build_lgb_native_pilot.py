@@ -14,7 +14,7 @@ Optional ESTIMATED stepped-top diagnostic (defaults 0 = single-tier envelope, id
 Default export remains unchanged. Lower-annex interface faces are retained; both volumes are independently closed.
 These numbers are NOT observed or fitted. Observed only: in photo 1288771293 the glazed volume ends below a taller cream upper mass.
 """
-import argparse,json,hashlib
+import argparse,json,hashlib,math
 from pathlib import Path
 import numpy as np
 from shapely.geometry import Polygon, box
@@ -97,7 +97,7 @@ def closed_and_outward(v,f):
     vol=float(sum(np.dot(v[t[0]],np.cross(v[t[1]],v[t[2]])) for t in f)/6)
     return bool(manifold),vol
 
-def build(out,height,drop=0.0,setback_x=0.0,setback_y=0.0,terrace_rim=None,frame_zone=None,frontage_wall=None,frontage_extension=0.0,annex_height=None):
+def build(out,height,drop=0.0,setback_x=0.0,setback_y=0.0,terrace_rim=None,frame_zone=None,frontage_wall=None,frontage_extension=0.0,annex_height=None,corner_slab_projection_m=0.0):
     root=Path('C:/private/dynacity-data/engine/facade-reference-20261030')
     source=json.loads((root/'source-building.json').read_text())
     raw=np.load(root/'source-batch.npz');vp=raw['vertices'];v=np.stack([vp[:,0],-vp[:,2],vp[:,1]],axis=1);rec=source['record'];f=raw['faces'][rec['first_triangle']:rec['first_triangle']+rec['triangle_count']]
@@ -126,7 +126,11 @@ def build(out,height,drop=0.0,setback_x=0.0,setback_y=0.0,terrace_rim=None,frame
         footprint=set_precision(Polygon(q),1e-4)
         annex=footprint.difference(set_precision(box(0,0,width,depth),1e-4))
     diag={'glass_top_drop_m':float(drop),'upper_setback_x_m':float(setback_x),'upper_setback_y_m':float(setback_y)}
-    params=dict(diag) if drop>0 else {}
+    if not math.isfinite(corner_slab_projection_m) or corner_slab_projection_m < 0.0 or corner_slab_projection_m > 0.6:
+        raise ValueError('--corner-slab-projection must be finite and in [0, 0.6] m')
+    if corner_slab_projection_m > 0:
+        diag['corner_slab_projection_m']=float(corner_slab_projection_m)
+    params=dict(diag) if drop>0 or corner_slab_projection_m>0 else {}
     if terrace_rim is not None:
         if drop<=0:raise ValueError('--terrace-parapet-h only applies together with --glass-top-drop > 0')
         params['terrace_parapet_h_m']=float(terrace_rim)
@@ -199,6 +203,7 @@ def build(out,height,drop=0.0,setback_x=0.0,setback_y=0.0,terrace_rim=None,frame
     if frontage_wall is not None:tag+='-frontwall%d'%frontage_wall
     if frontage_extension:tag+='-ext%g'%frontage_extension
     if annex_height is not None:tag+='-annex%g'%annex_height
+    if corner_slab_projection_m > 0:tag+='-cornerproj%g'%corner_slab_projection_m
     glb=out/f'lgb-height-{height:g}{tag}.glb';export=C.write_glb(glb,parts,materials,mesh_name='LGB_estimated_pilot')
     report={'source_id':rec['source_id'],'source_height_m':rec['metadata']['height_m'],'candidate_height_m':height,'height_status':'sensitivity hypothesis, NOT measured or fitted','height_native_collision':'original source collision retained; visual candidate not collision acceptance','source_footprint_area_m2':footprint.area,'clipped_core_area_m2':core.area,'placement_matrix':M.tolist(),'width_m':width,'depth_m':depth,'source_unchanged':True,'source_geometry_sha256':hashlib.sha256((root/'source-batch.npz').read_bytes()).hexdigest(),'geometry':str(glb.resolve()),'sha256':hashlib.sha256(glb.read_bytes()).hexdigest(),'materials':materials,'export':export,'producer_provenance':m.provenance,'part_summary':m.part_summary(),
             'diagnostic_parameters':{**diag,'optional_estimated_overrides':{k:{'requested':v,'effective':m.provenance['parameters'][k]['value'],'bounds':[m.provenance['parameters'][k]['lo'],m.provenance['parameters'][k]['hi']],'basis':'ESTIMATED, not observed or fitted; default %s'%d} for k,v,d in (('terrace_parapet_h_m',terrace_rim,1.0),('frame_zone_frac',frame_zone,0.55)) if v is not None},'status':'ESTIMATED diagnostics, not observed or fitted; observed only that the glazed volume ends below a taller cream upper mass (photo 1288771293)','effective':stepped,'whole_height_fixed_m':height},
@@ -220,4 +225,5 @@ if __name__=='__main__':
     a.add_argument('--frontage-wall',type=int,default=None,help='Diagnostic source-wall anchored frontage; preserves source annex in core/cap tiers, unaccepted placement')
     a.add_argument('--frontage-extension',type=float,default=0.,help='Estimated extension of chosen frontage toward source annex, in metres')
     a.add_argument('--annex-height',type=float,default=None,help='Estimated separate lower-annex visual height; retains source footprint, original collision untouched')
-    args=a.parse_args();print(build(args.output,args.height,args.glass_top_drop,args.upper_setback_x,args.upper_setback_y,args.terrace_parapet_h,args.frame_zone_frac,args.frontage_wall,args.frontage_extension,args.annex_height))
+    a.add_argument('--corner-slab-projection',type=float,default=0.0,help='Optional corner floor-band projection beyond curved glass (0..0.6 m, default 0 disables); estimates only')
+    args=a.parse_args();print(build(args.output,args.height,args.glass_top_drop,args.upper_setback_x,args.upper_setback_y,args.terrace_parapet_h,args.frame_zone_frac,args.frontage_wall,args.frontage_extension,args.annex_height,args.corner_slab_projection))

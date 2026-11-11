@@ -21,7 +21,10 @@ namespace DynaDrive
         // Opposite throttle brakes before reversing, rather than changing sign instantly.
         if (speed * throttle < 0.0) return MoveToward(speed, 0.0, 650.0 * dt);
         const double acceleration = throttle * 250.0 - 981.0 * uphill;
-        return std::clamp(speed + acceleration * dt, -555.5556, 1388.8889);
+        // Free exploration must not impose a citywide 50 km/h governor.
+        // SUMO vehicles retain their authoritative road/time-specific speeds.
+        // Keep the reverse manoeuvring bound; forward speed follows input/slope.
+        return std::max(speed + acceleration * dt, -555.5556);
     }
 
     inline double YawStepDegrees(double speed, double steering, double dt)

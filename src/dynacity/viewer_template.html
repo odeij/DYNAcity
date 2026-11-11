@@ -62,6 +62,22 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 #scene { position: absolute; inset: 0; z-index: 0; will-change: transform; }
+/* The 2D street planner (viewer_plan2d.js): a same-origin frame over the flattened city. */
+#plan2d { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; z-index: 60; background: transparent;
+  opacity: 0; pointer-events: none; transition: opacity .7s cubic-bezier(.4,0,.2,1); }
+#plan2d.on { opacity: 1; pointer-events: auto; }
+body.plan2d-going > :not(#scene):not(#plan2d):not(script) { opacity: 0 !important; pointer-events: none !important; transition: opacity .35s ease; }
+body.plan2d-going #scene { pointer-events: none; }
+body.plan2d-going #scene * { pointer-events: none !important; }
+.rail .plan2d-glyph { font: 700 11.5px/1 Inter, system-ui, sans-serif; letter-spacing: .02em; }
+/* Bare view (H): only the city, the required credits line and one button to bring the rest back. */
+body.bare .chrome::before { opacity: 0; }
+body.bare .chrome > :not(.bottom), body.bare .bottom > :not(.attrib) { opacity: 0 !important; visibility: hidden; pointer-events: none !important; transition: opacity .25s ease, visibility 0s linear .25s; }
+#unbare { position: fixed; z-index: 20; top: var(--edge); left: var(--edge); width: 40px; height: 40px; border-radius: 50%; display: none; place-items: center;
+  border: 1px solid var(--rim); background: var(--glass-solid); color: var(--ink-2); box-shadow: var(--glass-shadow); opacity: .82; }
+#unbare:hover { opacity: 1; color: var(--accent); }
+#unbare svg { width: 19px; height: 19px; }
+body.bare #unbare { display: grid; }
 button, input, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
 button { cursor: pointer; touch-action: manipulation; }
 :focus-visible { outline: 2px solid #d8f0ff; outline-offset: 2px; }
@@ -123,6 +139,20 @@ button { cursor: pointer; touch-action: manipulation; }
 .side { position: absolute; top: calc(var(--edge) + 54px); right: var(--edge); bottom: 190px; width: min(320px, calc(100vw - 2 * var(--edge))); display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
 .side > .panel { pointer-events: auto; }
 .panel { padding: 14px 16px; max-height: 100%; overflow: auto; scrollbar-width: thin; }
+#p-canopy select { width: 100%; margin: 6px 0 12px; padding: 8px; color: inherit; background: var(--control); border: 1px solid var(--rim); border-radius: 8px; font: inherit; }
+#p-canopy select option { color: #1d2b36; }
+#p-canopy .canopy-counts { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 10px 0; font-weight: 600; }
+#p-canopy .canopy-pending { color: #82540a; }
+#p-canopy .canopy-held { color: #a72c3e; }
+:root[data-theme="dark"] #p-canopy .canopy-pending { color: #ffd58b; }
+:root[data-theme="dark"] #p-canopy .canopy-held { color: #ff9ca5; }
+#p-canopy .canopy-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+#p-canopy .canopy-actions button { padding: 7px 10px; border: 1px solid var(--rim); border-radius: 8px; background: var(--control); }
+#p-canopy .canopy-actions button:hover { background: var(--control-hover); }
+#p-granite .estimate-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+#p-granite .estimate-actions button { padding: 7px 10px; border: 1px solid var(--rim); border-radius: 8px; background: var(--control); }
+#p-granite .estimate-actions button:hover { background: var(--control-hover); }
+#p-granite a { color: inherit; text-underline-offset: 3px; }
 .panel[hidden] { display: none; }
 .panel h2 { margin: 0 0 2px; font-size: 13px; font-weight: 600; }
 .stop { display: block; width: 100%; text-align: left; border: 0; border-radius: 10px; padding: 7px 9px; margin: 0 0 4px; background: rgba(255, 255, 255, 0.08); }
@@ -354,6 +384,13 @@ button, summary, select { transition: color 140ms cubic-bezier(.22,1,.36,1), bac
 #beirut-map-controls label { gap: 8px; }
 #beirut-map-controls select { padding: 4px 8px; min-height: 32px; border-radius: 8px; background: #fff; }
 #beirut-map-note { font-size: 12px; }
+#p-legend #beirut-map-controls { position: static; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; max-width: none;
+  padding: 0 0 12px; margin: 0 0 12px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: none; box-shadow: none; font-size: 12px; }
+#p-legend #beirut-map-controls[hidden] { display: none; }
+#p-legend #beirut-map-controls h2 { flex: 1 0 100%; margin: 0; }
+#p-legend #beirut-map-controls label { flex-wrap: wrap; }
+#p-legend #beirut-map-controls select { max-width: 100%; }
+#p-legend #beirut-map-note { flex: 1 0 100%; margin: 0; }
 .side { top: 80px; right: 16px; bottom: 116px; width: 352px; gap: 12px; }
 .panel { padding: 20px; border-radius: 16px; }
 .panel h2 { font-size: 18px; font-weight: 500; line-height: 24px; margin: 0 0 4px; }
@@ -428,6 +465,33 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
   #beirut-map-controls { top: 128px; max-width: 320px; }
   .side { width: 304px; }
 }
+/* Granite compact inspection bar: base styles (always loaded) */
+.granite-compact-bar { display: none; flex-direction: row; gap: 8px; padding: 6px 0 2px; flex-wrap: wrap; }
+.granite-compact-bar[hidden] { display: none; }
+.granite-compact-label { font-size: 11px; font-weight: 600; color: var(--ink-2); flex: 1 1 auto; min-width: 140px; }
+.granite-compact-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.granite-compact-actions button { padding: 5px 8px; font-size: 11px; border: 1px solid var(--rim); border-radius: 6px; background: var(--control); min-width: 0; white-space: nowrap; }
+.granite-compact-actions button:hover { background: var(--control-hover); }
+.granite-compact-actions button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.9); color: var(--tab-on-ink); }
+
+/* Granite street-level inspection bar */
+.granite-street-bar { display: none; flex-direction: row; gap: 8px; padding: 6px 0 2px; flex-wrap: wrap; background: rgba(255, 200, 0, 0.1); border: 1px solid rgba(255, 200, 0, 0.3); border-radius: 6px; margin-bottom: 8px; }
+.granite-street-bar[hidden] { display: none; }
+/* Visible when street view is active (both desktop and mobile) */
+#p-granite.granite-street-active .granite-street-bar { display: flex; }
+.granite-street-label { font-size: 11px; font-weight: 600; color: var(--ink-2); flex: 1 1 auto; min-width: 140px; }
+.granite-street-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.granite-street-actions button { padding: 5px 8px; font-size: 11px; border: 1px solid var(--rim); border-radius: 6px; background: var(--control); min-width: 0; white-space: nowrap; }
+.granite-street-actions button:hover { background: var(--control-hover); }
+
+/* Granite mobile compact street bar */
+.granite-street-compact-bar { display: none; flex-direction: row; gap: 8px; padding: 6px 0 2px; flex-wrap: wrap; background: rgba(255, 200, 0, 0.1); border: 1px solid rgba(255, 200, 0, 0.3); border-radius: 6px; margin-bottom: 8px; }
+.granite-street-compact-bar[hidden] { display: none; }
+.granite-street-compact-label { font-size: 11px; font-weight: 600; color: var(--ink-2); flex: 1 1 auto; min-width: 120px; }
+.granite-street-compact-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.granite-street-compact-actions button { padding: 5px 8px; font-size: 11px; border: 1px solid var(--rim); border-radius: 6px; background: var(--control); min-width: 0; white-space: nowrap; }
+.granite-street-compact-actions button:hover { background: var(--control-hover); }
+
 @media (max-width: 760px) {
   :root { --edge: 12px; }
   .brand { top: 12px; left: 12px; gap: 8px; }
@@ -451,6 +515,19 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
   .attrib { font-size: 11px; max-height: 36px; overflow: auto; pointer-events: auto; }
   .tool-options { left: 56px; width: min(216px,calc(100vw - 96px)); }
   .dock .tiles { gap: 12px; }
+  /* Granite mobile inspection: compact panel to reveal facade */
+  #p-granite.granite-compact { max-height: 80px; overflow: hidden; }
+  #p-granite.granite-compact h2,
+  #p-granite.granite-compact > .note:not(.granite-compact-label),
+  #p-granite.granite-compact #granite-status,
+  #p-granite.granite-compact .estimate-actions,
+  #p-granite.granite-compact details { display: none; }
+  #p-granite.granite-compact .granite-compact-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  /* Granite street-level inspection: compact bar stays visible on mobile */
+  #p-granite.granite-street-active .granite-street-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  #p-granite.granite-street-active .estimate-actions { display: none; }
+  /* Mobile compact street bar visible when street active and compact */
+  #p-granite.granite-street-active.granite-compact .granite-street-compact-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 }
 @media (max-height: 560px) {
   .side { top: 80px; bottom: 88px; }
@@ -488,9 +565,12 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 
   <div class="leftcol">
   <nav class="rail glass" aria-label="View tools">
-    <button id="t-legend" title="Legend" aria-label="Legend" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg></button>
+    <button id="t-legend" title="Legend and building model" aria-label="Legend and building model" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></svg></button>
     <button id="t-corridor" title="Corridor" aria-label="Corridor" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3c0 5 12 5 12 9s-12 4-12 9"/><circle cx="6" cy="3" r=".9"/><circle cx="6" cy="21" r=".9"/></svg></button>
     <button id="t-traffic" title="Traffic" aria-label="Traffic" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17h14M5 17v2M19 17v2M4 13l2-6h12l2 6zM4 13h16v4H4z"/><circle cx="7.5" cy="15" r=".6"/><circle cx="16.5" cy="15" r=".6"/></svg></button>
+    <button id="t-people" title="People walking on the pavements (modelled PM flows)" aria-label="Pedestrians" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4.5" r="1.8"/><path d="m9 21 2.5-6.5L14 17v4M11.5 14.5 12.5 9l-3 2v3M12.5 9l3 3.5 2.5 1"/></svg></button>
+    <button id="t-plan" title="2D street map: plan streets and run traffic (from this spot)" aria-label="2D street map" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z" opacity=".55"/><text class="plan2d-glyph" x="12" y="15.6" text-anchor="middle" fill="currentColor" stroke="none">2D</text></svg></button>
+    <button id="t-bare" title="Hide the interface (H)" aria-label="Hide the interface" aria-keyshortcuts="h"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18"/><path d="M10.6 5.1A9.8 9.8 0 0 1 12 5c5 0 8.7 4.3 9.8 7-.4 1-1.2 2.3-2.4 3.6M6.2 6.3C4.3 7.6 2.9 9.5 2.2 12c1.1 2.7 4.8 7 9.8 7 1.7 0 3.2-.5 4.6-1.2"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg></button>
     <details class="tool-menu" id="tool-menu">
       <summary aria-label="More tools" title="More tools">•••</summary>
       <div class="tool-options glass">
@@ -498,6 +578,8 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
     <button id="t-library" aria-label="Saved scenarios" aria-pressed="false"><span>Saved scenarios</span></button>
     <button id="t-shadows" aria-label="Sun shadows" aria-pressed="true"><span>Sun shadows</span></button>
     <button id="t-status" aria-label="Status colours" aria-pressed="false" title="Colour buildings by their recorded BBED state"><span>Status colours</span></button>
+    <button id="t-canopy" aria-label="Canopy evidence" aria-pressed="false" aria-controls="p-canopy" hidden><span>Canopy evidence</span></button>
+    <button id="t-granite" aria-label="Facade estimate" aria-pressed="false" aria-controls="p-granite" hidden><span>Facade estimate</span></button>
     <button id="t-reset" title="Reset view" aria-label="Reset view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg><span>Reset view</span></button>
     <button id="t-2d" title="Top-down view" aria-label="Top-down view" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg><span>Top-down view</span></button>
     <button id="t-sat" title="Satellite view" aria-label="Satellite view" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m3 16 5-5 4 4 3-3 6 6"/><circle cx="15.5" cy="9" r="1.5"/></svg><span>Satellite view</span></button>
@@ -509,7 +591,6 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
   </nav>
   </div>
 
-  <div id="beirut-map-controls" class="glass" hidden><label>Buildings <select id="beirut-mode" aria-label="Building geometry"><option value="model">Beirut 001 + BBED</option><option value="bbed">Original BBED</option></select></label><label>Info <select id="beirut-source" aria-label="Building information source"><option value="both">Both sources</option><option value="bbed">BBED record</option><option value="model">Beirut 001</option></select></label><div id="beirut-map-note" role="status"></div></div>
   <aside class="side" aria-label="Map details">
     <section id="p-beirut-record" class="panel glass" aria-label="Building source details" hidden><button id="beirut-close" class="close" aria-label="Close building details">✕</button><button id="beirut-pin" type="button">Pin</button><div id="beirut-record-content"></div></section>
     <section class="panel glass" id="p-buildings" hidden aria-label="Find a building">
@@ -534,8 +615,13 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
     <section class="panel glass" id="p-kpis" hidden></section>
     <section class="panel glass" id="p-info" hidden></section>
     <section class="panel glass" id="p-traffic" hidden></section>
-    <section class="panel glass" id="p-legend" hidden></section>
+    <section class="panel glass" id="p-legend" hidden>
+      <div id="beirut-map-controls" hidden><h2>Building model</h2><label>Buildings <select id="beirut-mode" aria-label="Building geometry"><option value="model">Beirut 001 + BBED</option><option value="bbed">Original BBED</option></select></label><label>Info <select id="beirut-source" aria-label="Building information source"><option value="both">Both sources</option><option value="bbed">BBED record</option><option value="model">Beirut 001</option></select></label><div id="beirut-map-note" class="note" role="status"></div></div>
+      <div id="legend-body"></div>
+    </section>
     <section class="panel glass" id="p-corridor" hidden></section>
+    <section class="panel glass" id="p-canopy" aria-label="Canopy evidence review" hidden></section>
+    <section class="panel glass" id="p-granite" aria-label="Historical facade estimate" hidden></section>
   </aside>
 
   <div class="bottom">
@@ -554,6 +640,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
   </div>
 </div>
 <div class="tip" id="tip" hidden></div>
+<button id="unbare" type="button" title="Show the interface (H)" aria-label="Show the interface" aria-keyshortcuts="h"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 12C3.3 9.3 7 5 12 5s8.7 4.3 9.8 7c-1.1 2.7-4.8 7-9.8 7s-8.7-4.3-9.8-7z"/><circle cx="12" cy="12" r="3"/></svg></button>
 <dialog class="sources glass" id="sources" aria-labelledby="sources-title">
   <div class="sources-head"><h2 id="sources-title">Sources &amp; credits</h2><button type="button" class="sources-close" id="sources-close">Close</button></div>
   <p class="sources-sub">Every dataset this page draws on, what it is used for, and its credit and licence.</p>
@@ -615,6 +702,7 @@ const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scen
   shadows: !/(^|&)shadows=off/.test(location.hash.slice(1)),
   // Observed view: tint BBED-linked buildings by their recorded state. Off by default (plain stone); `#status=on`.
   statusColours: /(^|&)status=on/.test(location.hash.slice(1)),
+  canopyReview: false, canopyCandidate: null, graniteOverlay: false, granitePanel: false,
   roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map(), planning: new Map(), selectedRoad: null, planSearch: '' };
 
 function rampColor(t, stops = RAMP) {
@@ -914,7 +1002,7 @@ function shadowTerrainMesh(maxVertices = SHADOW_MESH_VERTICES) {
 function shadowTerrainLayers() {
   const m = shadowTerrainMesh();
   if (!m.vertices) return [];
-  const common = { data: [m], mesh: m.mesh, _instanced: false, getPosition: (d) => d.origin, getColor: [0, 0, 0, 0], material: false, pickable: false };
+  const common = { data: (m.data ??= [m]), mesh: m.mesh, _instanced: false, getPosition: (d) => d.origin, getColor: [0, 0, 0, 0], material: false, pickable: false };
   return [
     new deck.SimpleMeshLayer({ ...common, id: 'shadow-terrain-depth', getTranslation: [0, 0, -SHADOW_MESH_DEPTH_DROP_M] }),
     new deck.SimpleMeshLayer({ ...common, id: 'shadow-terrain', parameters: SOFT }),
@@ -932,7 +1020,7 @@ function lighting(night = 0) {
   if (effect._calculateMatrices) {
     const matrices = effect._calculateMatrices.bind(effect), setup = effect.setup.bind(effect);
     effect._calculateMatrices = () => matrices().slice(0, 1);
-    effect.setup = (context) => { setup(context); effect.shadowPasses.splice(1).forEach((pass) => pass.delete()); };
+    effect.setup = (context) => { setup(context); effect.shadowPasses.splice(1).forEach((pass) => pass.delete()); stabiliseShadowModule(context, effect); };
     const shaderProps = effect.getShaderModuleProps.bind(effect);
     effect.getShaderModuleProps = (layer, ...rest) => {
       const props = shaderProps(layer, ...rest);
@@ -940,6 +1028,60 @@ function lighting(night = 0) {
     };
   }
   return effect;
+}
+// deck fits the sun's shadow map to the screen's ground footprint on every frame and centres it on the
+// camera, so its texel grid slides with each pixel of pan (and its size changes as the target moves over
+// hills): every shadow edge is re-rasterised against a moving grid and crawls and shimmers while panning.
+// Here the fitted map is (1) grown to the next quarter-octave size, so panning keeps one size, and (2) shifted
+// by under one texel so the texel grid stays fixed to the ground. Coverage only grows, so nothing that was
+// shadowed loses its shadow. Light clip position = viewProjectionMatrix0 · (common − commonOrigin) +
+// projectCenter0 (checked against the deck.gl 9.4.0 shadow module; matrix rows 0 and 1 are clip x and y).
+let shadowStableEffect = null;
+function stabiliseShadowMatrix(matrix, centre, origin, size) {
+  for (const row of [0, 1]) {
+    const scale = Math.hypot(matrix[row], matrix[row + 4], matrix[row + 8]);
+    if (!scale || !size[row]) continue;
+    const shrink = 2 ** (Math.floor(Math.log2(scale) * 4) / 4) / scale; // <= 1: coverage grows
+    for (let col = 0; col < 4; col++) matrix[col * 4 + row] *= shrink;
+    centre[row] *= shrink;
+    // Clip coordinate of the common-space zero point: snap it to whole texels.
+    const offset = centre[row] - (matrix[row] * origin[0] + matrix[row + 4] * origin[1] + matrix[row + 8] * (origin[2] || 0));
+    const texel = 2 / size[row];
+    centre[row] += Math.round(offset / texel) * texel - offset;
+  }
+}
+function stabiliseShadowModule(context, effect) {
+  shadowStableEffect = effect;
+  const shadow = context?.deck?.layerManager?.context?.defaultShaderModules?.find((m) => m.name === 'shadow');
+  const project = shadow?.dependencies?.find((m) => m.name === 'project');
+  if (!shadow || !project || shadow.dynacityStable) return;
+  const original = shadow.getUniforms;
+  shadow.dynacityStable = true;
+  // Ground beyond the fitted shadow map (the far city and the horizon at a steep tilt) read a clamped edge
+  // texel or a depth past the far plane, so deck shaded it: a dark slab with streaks along the horizon that
+  // changed with every pan. Outside the map nothing is known, so leave it lit. The layers' shaders are
+  // rebuilt after this module is added, so the patched source is the one compiled.
+  const lookup = 'vec4 rgbaDepth = texture(shadowMap, position.xy);';
+  if (typeof shadow.fs === 'string' && shadow.fs.includes(lookup))
+    shadow.fs = shadow.fs.replace(lookup, `if (any(lessThan(position, vec3(0.0))) || any(greaterThan(position, vec3(1.0)))) return 0.0;\n  ${lookup}`);
+  else console.warn('Sun shadows: deck shadow shader changed; out-of-map ground may show false shade');
+  shadow.getUniforms = (opts, ...rest) => {
+    const uniforms = original(opts, ...rest);
+    const fbo = shadowStableEffect?.shadowPasses?.[0]?.fbo;
+    if (!uniforms.viewProjectionMatrix0 || !uniforms.projectCenter0 || !opts?.project || !fbo) return uniforms;
+    // deck packs each depth into the four bytes of an rgba8 texel but samples that map with linear
+    // filtering: between a building's depth and empty ground the blended bytes decode to arbitrary depths,
+    // so every shadow outline grew speckles of false shade and light that changed with each camera move.
+    // Packed depth must be read texel by texel. Rechecked per draw: resizing the map recreates the texture.
+    const map0 = fbo.colorAttachments?.[0]?.texture ?? fbo.colorAttachments?.[0];
+    if (map0?.setSampler && map0.sampler?.props?.minFilter !== 'nearest')
+      map0.setSampler({ addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge', minFilter: 'nearest', magFilter: 'nearest' });
+    const origin = project.getUniforms(opts.project).commonOrigin;
+    if (!origin) return uniforms;
+    const matrix = Array.from(uniforms.viewProjectionMatrix0), centre = Array.from(uniforms.projectCenter0);
+    stabiliseShadowMatrix(matrix, centre, origin, [fbo.width, fbo.height]);
+    return { ...uniforms, viewProjectionMatrix0: matrix, projectCenter0: centre };
+  };
 }
 // Cache effects between camera/animation frames, including changes of daytime hour.
 let appliedNight = 0, appliedNightKey = '0';
@@ -1021,13 +1163,13 @@ function beirutBuildingLayers(){
   ...nightWindowProps((p)=>{const o=d.buildings[p.beirutModel],b=o.objectid==null?null:beirutOverlay.snapshotById.get(String(o.objectid));
     return nightInfo(b?b.state:'unknown',`m${p.beirutModel}`);},[HAZE_EXT]),
   pickable:!ui.roadTool,autoHighlight:true,highlightColor:[80,161,220,130],
-  updateTriggers:{getFillColor:[ui.lens,ui.statusColours,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey()]},
+  updateTriggers:{getFillColor:[ui.lens,ui.statusColours,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),occlusion.signature]},
  }),
   new deck.SolidPolygonLayer({
    id:'beirut-001-roofs',data:beirutOverlay.polygons,getPolygon:(p)=>(p.rg??=groundedPolygon(p.rings,d.buildings[p.beirutModel].height_m+ROOF_LIFT_M)),extruded:false,
    getFillColor:roofColour,
    pickable:false,extensions:[HAZE_EXT],
-   updateTriggers:{getFillColor:[ui.lens,ui.statusColours,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),sceneCameraKey(),appliedNight]},
+   updateTriggers:{getFillColor:[ui.lens,ui.statusColours,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),occlusion.signature,appliedNight]},
   })];
 }
 function beirutBridgeLayers(){
@@ -1224,6 +1366,7 @@ function layers() {
   out.push(...landscapeLayers());
   out.push(...corridorLayers());
   out.push(...osmContextLayers());
+  out.push(...canopyReviewLayers());
   if (ui.traffic) out.push(...roadLayers());
   out.push(...streetEdgeDetailLayers());
   if (!beirutOverlay.active) {
@@ -1237,7 +1380,7 @@ function layers() {
       ...nightWindowProps((d) => nightInfo(d.b.state, d.b.id), [HAZE_EXT]),
       // No colour transition: an interrupted fade can leave a lens showing the
       // previous lens's colours, and a data view must never show stale values.
-      updateTriggers: { getFillColor: [ui.lens, ui.statusColours, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey()], getElevation: [ui.lens] },
+      updateTriggers: { getFillColor: [ui.lens, ui.statusColours, ui.selected, ui.highlight, ui.answerIds, ui.scenario, occlusion.signature], getElevation: [ui.lens] },
     }));
     out.push(new deck.SolidPolygonLayer({
       id: 'buildings-roofs',
@@ -1245,10 +1388,11 @@ function layers() {
       getPolygon: (d) => groundedRing(d.ring, elevation(d.b) + ROOF_LIFT_M), extruded: false,
       getFillColor: (d) => cameraSafeColour(shade(mix(fill(d.b), [255, 255, 255], 0.25), appliedNight, ROOF_NIGHT_DIM), 'bbed', d.b.id, occlusion),
       pickable: false, extensions: [HAZE_EXT],
-      updateTriggers: { getFillColor: [ui.lens, ui.statusColours, ui.selected, ui.highlight, ui.answerIds, ui.scenario, sceneCameraKey(), appliedNight], getPolygon: [ui.lens] },
+      updateTriggers: { getFillColor: [ui.lens, ui.statusColours, ui.selected, ui.highlight, ui.answerIds, ui.scenario, occlusion.signature, appliedNight], getPolygon: [ui.lens] },
     }));
   }
   out.push(...beirutBuildingLayers());
+  out.push(...graniteOverlayLayers());
   out.push(...buildingDetailLayers());
   out.push(...beirutBridgeLayers());
   out.push(...pointCloudLayers());
@@ -1280,6 +1424,10 @@ function dataSources() {
   add('Terrain (ground heights)', 'Hills under buildings, roads and cars', DATA.terrain?.attribution);
   add('Context buildings', 'Buildings outside the city model', DATA.landscape?.context_buildings?.attribution);
   if (DATA.landscape) add('OpenStreetMap context', 'Trees, paths, street furniture, place names', `${DATA.landscape.source || 'OpenStreetMap contributors'}, ODbL.`);
+  if (DATA.canopy_review) add('Canopy evidence · review only', 'Modelled crown centres and canopy heights; trunk positions and clearance unverified',
+    `${DATA.canopy_review.source.attribution} ${DATA.canopy_review.source.license}. Capture date ${DATA.canopy_review.source.capture_date || 'unknown'}. ${DATA.canopy_review.source.url}`);
+  if (DATA.granite_overlay) add('Historical facade estimate', 'Optional balcony panels on one candidate building; geometry estimated, not surveyed',
+    `${DATA.granite_overlay.source.attribution}. ${DATA.granite_overlay.source.license}. Photo ${DATA.granite_overlay.source.date}. ${DATA.granite_overlay.source.uri}`);
   add('Traffic speeds and roads', 'Traffic simulation', DATA.traffic?.source);
   if (DATA.traffic?.stations?.length) add('Traffic counts', 'Peak-hour volumes for the simulation', DATA.traffic.volume_source);
   if (cloudActive()) add('Point cloud', '3D survey points', `${pointCloud.metadata.name}; source RGB; display Z offset, datum unverified.`);
@@ -1375,12 +1523,13 @@ const GLOW = { ...SOFT, blend: true, blendColorOperation: 'add', blendColorSrcFa
 // past the asphalt onto the basemap brightens it rather than painting an
 // opaque dark patch over it.
 const BEAM = { ...GLOW, blendAlphaSrcFactor: 'zero', blendAlphaDstFactor: 'one' };
-function render() { if (!deckgl) return; applyNight(); baseLayers = layers(); viewGeometryKey=sceneCameraKey(); viewGeometryTime=performance.now(); drawFx(); }
+function render() { if (!deckgl) return; applyNight(); baseLayers = layers(); viewGeometryKey=sceneCameraKey(); viewGeometryTime=performance.now(); drawFx(); renderGranitePanel(); }
 function drawFx() {
-  if (!deckgl) return;
+  // While the 2D planner covers the page there is nothing to draw.
+  if (!deckgl || plan2d.hidden) return;
   const now = performance.now();
   refreshCameraGeometry(now);
-  deckgl.setProps({ layers: [...baseLayers, ...streetDetailLayers(), ...intersectionDetailLayers(), ...planningLayers(), ...carLayers(now), ...pedestrianLayers(now), ...mobilityLayers(), ...osmPlaceLayers()] });
+  deckgl.setProps({ layers: plan2dFlatten([...baseLayers, ...streetDetailLayers(), ...intersectionDetailLayers(), ...planningLayers(), ...carLayers(now), ...pedestrianLayers(now), ...mobilityLayers(), ...osmPlaceLayers()]) });
 }
 function animate() {
   cancelAnimationFrame(fxRaf);
@@ -1397,7 +1546,7 @@ function animate() {
         frames = 0; drawMs = 0; measuredAt = performance.now();
       }
     }
-    if (!calm.matches && ui.traffic) fxRaf = requestAnimationFrame(frame);
+    if (!calm.matches && (ui.traffic || (mobilityLab.people && DATA.pedestrians))) fxRaf = requestAnimationFrame(frame);
   };
   frame();
 }
@@ -2343,6 +2492,269 @@ function playCorridorTour() {
   corridorTour = -1;
   next(0);
 }
+function setGranitePreview(open) {
+  ui.granitePanel = !!open && !!DATA.granite_overlay;
+  ui.graniteOverlay = ui.granitePanel;
+  $('p-granite').hidden = !ui.granitePanel;
+  $('t-granite').setAttribute('aria-pressed', String(ui.granitePanel));
+  render();
+}
+function renderGranitePanel() {
+  const source = DATA.granite_overlay, panel = $('p-granite');
+  if (!source || panel.hidden) return;
+  if (!panel.dataset.ready) {
+    panel.innerHTML = `<h2>Historical facade estimate</h2><p class="note">${source.panel_count} balcony panels · one candidate building</p>
+      <p class="note">${esc(source.source.claim)} This adds a reversible visual layer; the mapped building stays unchanged.</p>
+      <div id="granite-status" class="note" role="status"></div>
+      <div class="estimate-actions"><button id="granite-inspect" type="button">Inspect facade</button><button id="granite-street" type="button">Street-level inspection</button><button id="granite-compare" type="button" aria-pressed="true">Hide estimated panels</button><button id="granite-close" type="button">Close preview</button></div>
+      <div class="granite-street-bar" hidden
+        data-street-status="inactive"
+        data-eye-agl-requested="1.6"
+        data-eye-agl-actual=""
+        data-eye-xy-requested=""
+        data-eye-xy-actual=""
+        data-centre-elevation=""
+        data-zoom-requested=""
+        data-zoom-actual=""
+        data-pitch-requested=""
+        data-pitch-actual=""
+        data-max-zoom=""
+        data-max-pitch=""
+        data-validation-reason="">
+        <span class="granite-street-label">Street-level inspection — modelled view, not surveyed</span>
+        <div class="granite-street-actions">
+          <button id="granite-street-return" type="button">Return to overview</button>
+          <button id="granite-street-source" type="button">Source & license</button>
+        </div>
+      </div>
+      <!-- Mobile compact street bar (visible when street-active on mobile) -->
+      <div class="granite-street-compact-bar" hidden>
+        <span class="granite-street-compact-label">Street-level — modelled, not surveyed</span>
+        <div class="granite-street-compact-actions">
+          <button id="granite-street-compact-return" type="button">Return</button>
+          <button id="granite-street-compact-source" type="button">Source</button>
+          <button id="granite-street-compact-close" type="button">Close</button>
+        </div>
+      </div>
+      <details id="granite-details"><summary>Historical source and limits</summary>
+      <p class="note">Photo: ${esc(source.source.date)} · ${esc(source.source.attribution)} · ${esc(source.source.license)}. <a href="${esc(source.source.uri)}" target="_blank" rel="noopener noreferrer">Open historical source</a>.</p>
+      <p class="note">${source.limits.map(esc).join(' ')}</p></details>
+      <div class="granite-compact-bar" hidden>
+        <span class="granite-compact-label">Historical estimate — not surveyed</span>
+        <div class="granite-compact-actions">
+          <button id="granite-compact-compare" type="button" aria-pressed="true">Hide</button>
+          <button id="granite-compact-details" type="button">Show details</button>
+          <button id="granite-compact-close" type="button">Close</button>
+        </div>
+      </div>`;
+    panel.dataset.ready = '1';
+    $('granite-inspect').onclick = () => {
+      const isMobile = innerWidth < 600;
+      const zoom = isMobile ? 18.0 : 18.8;
+      const pitch = isMobile ? 45 : 50;
+      const bearing = 135;
+      const duration = calm.matches ? 0 : 1000;
+      // Mobile: positive Y offset moves target DOWN on screen (away from top controls).
+      // Target is tall balcony tower; center horizontally (~195px), place in y~390..720 clear zone.
+      const offset = isMobile ? [-40, 60] : [0, -60];
+      if (map) map.easeTo({center: source.anchor, zoom, pitch, bearing, duration, offset});
+      else flyTo({longitude: source.anchor[0], latitude: source.anchor[1], zoom, pitch, bearing});
+      // Always reset compact state for current viewport
+      panel.classList.remove('granite-compact');
+      const compactBar = panel.querySelector('.granite-compact-bar');
+      if (compactBar) compactBar.hidden = true;
+      if (isMobile) {
+        panel.classList.add('granite-compact');
+        const details = $('granite-details');
+        if (details) details.open = false;
+        if (compactBar) compactBar.hidden = false;
+      }
+    };
+    $('granite-street').onclick = () => {
+      if (!enterStreetView(source)) {
+        // Show unavailable status
+        const status = $('granite-status');
+        status.textContent = 'Street-level inspection unavailable: terrain or camera API not ready, or no safe pose outside building footprints.';
+        // Re-render to restore proper status after a moment
+        setTimeout(() => renderGranitePanel(), 3000);
+      } else {
+        // Update UI to show street view active
+        panel.classList.add('granite-street-active');
+        renderGranitePanel();
+      }
+    };
+    $('granite-street-return').onclick = () => {
+      exitStreetView();
+      panel.classList.remove('granite-street-active');
+      renderGranitePanel();
+      // Focus the street button for keyboard access
+      const streetBtn = $('granite-street');
+      streetBtn?.focus();
+    };
+    $('granite-compare').onclick = () => { ui.graniteOverlay = !ui.graniteOverlay; render(); };
+    $('granite-close').onclick = () => {
+      if (isStreetViewActive()) {
+        exitStreetView();
+      }
+      setGranitePreview(false);
+      panel.classList.remove('granite-compact');
+      panel.classList.remove('granite-street-active');
+      const trigger=$('t-granite'), menu=trigger.closest('details');
+      (menu && !menu.open ? menu.querySelector('summary') : trigger)?.focus();
+    };
+    // Compact bar controls
+    $('granite-compact-compare').onclick = () => { ui.graniteOverlay = !ui.graniteOverlay; render(); };
+    $('granite-compact-details').onclick = () => {
+      panel.classList.remove('granite-compact');
+      const compactBar = panel.querySelector('.granite-compact-bar');
+      if (compactBar) compactBar.hidden = true;
+      const details = $('granite-details');
+      if (details) details.open = true;
+      // Focus the summary for keyboard access
+      details?.querySelector('summary')?.focus();
+    };
+    $('granite-compact-close').onclick = () => {
+      if (isStreetViewActive()) {
+        exitStreetView();
+      }
+      setGranitePreview(false);
+      panel.classList.remove('granite-compact');
+      panel.classList.remove('granite-street-active');
+      const trigger=$('t-granite'), menu=trigger.closest('details');
+      (menu && !menu.open ? menu.querySelector('summary') : trigger)?.focus();
+    };
+    // Compact street bar controls
+    $('granite-street-compact-return').onclick = () => {
+      exitStreetView();
+      panel.classList.remove('granite-street-active');
+      renderGranitePanel();
+      const streetBtn = $('granite-street');
+      streetBtn?.focus();
+    };
+    $('granite-street-compact-source').onclick = () => {
+      const details = $('granite-details');
+      if (details) details.open = true;
+      details?.querySelector('summary')?.focus();
+    };
+    $('granite-street-compact-close').onclick = () => {
+      if (isStreetViewActive()) {
+        exitStreetView();
+      }
+      setGranitePreview(false);
+      panel.classList.remove('granite-compact');
+      panel.classList.remove('granite-street-active');
+      const trigger=$('t-granite'), menu=trigger.closest('details');
+      (menu && !menu.open ? menu.querySelector('summary') : trigger)?.focus();
+    };
+    $('granite-street-source').onclick = () => {
+      const details = $('granite-details');
+      if (details) details.open = true;
+      details?.querySelector('summary')?.focus();
+    };
+  }
+  const blocked = graniteOverlayStatus();
+  const isStreet = isStreetViewActive();
+  let statusText;
+  if (blocked) {
+    statusText = blocked;
+  } else if (isStreet) {
+    statusText = 'Street-level inspection active — modelled view, not surveyed. Click "Return to overview" to exit.';
+  } else {
+    statusText = ui.graniteOverlay ? 'Estimated panels shown. Compare with the original model below.' : 'Original mapped building shown; estimated panels hidden.';
+  }
+  $('granite-status').textContent = statusText;
+  $('granite-compare').disabled = !!blocked || isStreet;
+  $('granite-compare').textContent = ui.graniteOverlay ? 'Hide estimated panels' : 'Show estimated panels';
+  $('granite-compare').setAttribute('aria-pressed', String(ui.graniteOverlay && !blocked && !isStreet));
+  // Show/hide street button and street bar based on state
+  const streetBtn = $('granite-street');
+  const streetBar = panel.querySelector('.granite-street-bar');
+  const streetCompactBar = panel.querySelector('.granite-street-compact-bar');
+  if (streetBtn) {
+    streetBtn.hidden = isStreet;
+    streetBtn.disabled = blocked;
+    streetBtn.textContent = 'Street-level inspection';
+  }
+  if (streetBar) {
+    streetBar.hidden = !isStreet;
+    if (isStreet) {
+      // Update QA data attributes on street bar
+      const centreElevation = map?.getCenterElevation?.() ?? map?.getCameraTargetElevation?.() ?? 0;
+      const isCompact = panel.classList.contains('granite-compact');
+      if (streetBar.dataset) {
+        streetBar.dataset.streetStatus = 'active';
+        streetBar.dataset.eyeAglRequested = '1.6';
+        streetBar.dataset.eyeXyRequested = `${source.anchor[0].toFixed(6)},${source.anchor[1].toFixed(6)}`; // target, not eye
+        streetBar.dataset.centreElevation = Number.isFinite(centreElevation) ? centreElevation.toFixed(2) : '';
+        streetBar.dataset.zoomActual = map ? map.getZoom().toFixed(2) : '';
+        streetBar.dataset.pitchActual = map ? map.getPitch().toFixed(1) : '';
+        streetBar.dataset.maxZoom = map ? map.getMaxZoom().toString() : '';
+        streetBar.dataset.maxPitch = map ? map.getMaxPitch().toString() : '';
+        streetBar.dataset.validationReason = 'validated'; // computeStreetViewCamera validated the pose
+      }
+      // Show/hide compact street bar on mobile
+      if (streetCompactBar) {
+        streetCompactBar.hidden = !isCompact;
+      }
+    } else if (streetBar.dataset) {
+      streetBar.dataset.streetStatus = 'inactive';
+    }
+  }
+  // Sync compact bar compare button
+  const compactCompare = $('granite-compact-compare');
+  if (compactCompare) {
+    compactCompare.disabled = !!blocked || isStreet;
+    compactCompare.textContent = ui.graniteOverlay ? 'Hide' : 'Show';
+    compactCompare.setAttribute('aria-pressed', String(ui.graniteOverlay && !blocked && !isStreet));
+  }
+}
+function setCanopyReview(on) {
+  ui.canopyReview = !!on && !!DATA.canopy_review?.candidates?.length;
+  $('t-canopy').setAttribute('aria-pressed', String(ui.canopyReview));
+  $('p-canopy').hidden = !ui.canopyReview;
+  if (ui.canopyReview) renderCanopyReviewPanel();
+  else $('tip').hidden = true;
+  render();
+}
+function selectedCanopyCandidate() {
+  const candidates = DATA.canopy_review?.candidates ?? [];
+  return candidates.find((d) => d.id === ui.canopyCandidate) || candidates[0];
+}
+function renderCanopyCandidateDetail() {
+  const d = selectedCanopyCandidate(), el = $('canopy-detail');
+  if (!d || !el) return;
+  el.innerHTML = `<div class="note" style="overflow-wrap:anywhere">${esc(d.id)}<br>${d.review_status === 'held' ? 'Held · mapped geometry conflict' : 'Awaiting ground and clearance checks'}<br>
+    Modelled peak height: ${esc(d.height_m)} m. Approximate crown centre; trunk position unverified.
+    ${d.conflicts.map((c) => `<br>${esc(c.kind)} · ${esc(c.source_id)}`).join('')}</div>`;
+}
+function renderCanopyReviewPanel() {
+  const review = DATA.canopy_review, panel = $('p-canopy');
+  if (!review || panel.hidden) return;
+  const selected = selectedCanopyCandidate();
+  ui.canopyCandidate = selected?.id ?? null;
+  panel.innerHTML = `<h2>Canopy evidence</h2><p class="note">Modelled crown centres · review only</p>
+    <div class="canopy-counts"><span class="canopy-pending">${review.counts.pending} awaiting checks</span><span class="canopy-held">${review.counts.held} held</span></div>
+    <p class="note">The rings mark locations to inspect. They do not confirm trees or show crown size. Existing mapped trees are unchanged.</p>
+    <label for="canopy-candidate">Review location</label><select id="canopy-candidate">${review.candidates.map((d, i) => `<option value="${esc(d.id)}" ${d.id === ui.canopyCandidate ? 'selected' : ''}>${i + 1} · ${d.review_status === 'held' ? 'Held' : 'Awaiting checks'} · ${esc(d.height_m)} m peak</option>`).join('')}</select>
+    <div id="canopy-detail" aria-live="polite"></div>
+    <div class="canopy-actions"><button id="canopy-focus" type="button">Inspect location</button><button id="canopy-close" type="button">Hide evidence</button></div>
+    <p class="note">Source: ${esc(review.source.name)} · ${esc(review.source.license)}. Capture date ${esc(review.source.capture_date || 'unknown')}. Source and credits are available in the Sources panel.</p>
+    <p class="note">${review.limits.map(esc).join(' ')}</p>`;
+  renderCanopyCandidateDetail();
+  $('canopy-candidate').onchange = (e) => { ui.canopyCandidate = e.target.value; renderCanopyCandidateDetail(); };
+  $('canopy-focus').onclick = () => {
+    const d = selectedCanopyCandidate();
+    if (!d) return;
+    if (map) map.easeTo({ center: d.position, zoom: 19, pitch: 55, duration: calm.matches ? 0 : 900 });
+    else flyTo({ longitude: d.position[0], latitude: d.position[1], zoom: 19, pitch: 55 });
+  };
+  $('canopy-close').onclick = () => {
+    setCanopyReview(false);
+    const trigger = $('t-canopy'), menu = trigger.closest('details');
+    // The evidence button lives inside the collapsed More tools menu.
+    (menu && !menu.open ? menu.querySelector('summary') : trigger)?.focus();
+  };
+}
 function renderCorridorPanel() {
   const el = $('p-corridor'), c = DATA.corridor;
   if (!c || el.hidden) return;
@@ -2389,9 +2801,13 @@ function landscapeLayers() {
   if(zoom>=16.5&&centre) {
     // Show every mapped tree in view, without silently truncating dense parks.
     // Row-derived instances carry explicit position provenance in their tooltip.
-    const bounds=map?.getBounds?.().toArray(),pad=.001;
-    const trees=landscapeLayers.trees.filter(f=>{const p=f.geometry.coordinates;
-      return bounds?p[0]>=bounds[0][0]-pad&&p[0]<=bounds[1][0]+pad&&p[1]>=bounds[0][1]-pad&&p[1]<=bounds[1][1]+pad:metresBetween(p,centre)<650;});
+    // Culled to the snapped view box, so the array (and deck's instance buffers) stays put while panning.
+    const box=snappedViewBox(map?.getBounds?.().toArray(),centre),treeKey=box.join(':');
+    if(landscapeLayers.treeKey!==treeKey||landscapeLayers.treeSource!==landscapeLayers.trees) {
+      landscapeLayers.treeKey=treeKey;landscapeLayers.treeSource=landscapeLayers.trees;
+      landscapeLayers.visibleTrees=landscapeLayers.trees.filter(f=>{const p=f.geometry.coordinates;return p[0]>=box[0]&&p[0]<=box[2]&&p[1]>=box[1]&&p[1]<=box[3];});
+    }
+    const trees=landscapeLayers.visibleTrees;
     if(trees.length)out.push(new deck.SimpleMeshLayer({id:'mapped-tree-canopies',data:trees,
       mesh:mesh('mapped-tree',mappedTreeMesh),getPosition:f=>onGround(f.geometry.coordinates,.05),
       getScale:f=>[f.properties.height_m/6,f.properties.height_m/6,f.properties.height_m/6],
@@ -2965,7 +3381,7 @@ const deckProps = () => ({
   onHover: showTip,
   // Roads are thin; a few pixels of slack makes them clickable.
   pickingRadius: 6,
-  onClick: ({ object, coordinate }) => { if (object?.beirutModel != null || (beirutOverlay.data && object?.b)) { showBeirutRecord(object,true); return; } if (object?.bus || object?.survey || object?.feature || object?.signal || object?.signalJunction || object?.properties?.kind || object?.bridgeStructure) return; if (object?.r) { if (ui.roadTool) toggleRoadEvent(object.i, coordinate); else selectRoad(object.i); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
+  onClick: ({ object, coordinate }) => { if (object?.canopyCandidate) { ui.canopyCandidate = object.id; renderCanopyReviewPanel(); return; } if (object?.beirutModel != null || (beirutOverlay.data && object?.b)) { showBeirutRecord(object,true); return; } if (object?.bus || object?.survey || object?.feature || object?.signal || object?.signalJunction || object?.properties?.kind || object?.bridgeStructure) return; if (object?.r) { if (ui.roadTool) toggleRoadEvent(object.i, coordinate); else selectRoad(object.i); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
 });
 
 function linkedMapCamera() {
@@ -3036,7 +3452,7 @@ function initScene() {
     map.once('load', () => { home = { center: map.getCenter(), zoom: map.getZoom(), pitch: homePitch(), bearing: -20 }; });
     deckgl = new deck.MapboxOverlay({ interleaved: false, ...deckProps() });
     map.addControl(deckgl);
-    map.on('move',cameraChanged);map.on('moveend',cameraMoveFinished);
+    map.on('move',cameraChanged);map.on('moveend',() => { cameraMoveFinished(); if (typeof onStreetViewMoveEnd === 'function') onStreetViewMoveEnd(); });
     const imagery = DATA.basemap.imagery || [];
     $('t-sat').hidden = !imagery.length;
     $('sat-source').hidden = imagery.length < 2;
@@ -3109,6 +3525,13 @@ function roadTip(tip, { r, i }, x, y) {
 function showTip({ object, x, y }) {
   const tip = $('tip');
   if (!object) { tip.hidden = true; return; }
+  if (object.canopyCandidate) {
+    tip.innerHTML = `<div class="h">Canopy evidence · ${object.review_status === 'held' ? 'held' : 'awaiting checks'}</div><div class="s">${esc(object.id)}<br>Modelled peak height: ${esc(object.height_m)} m.<br>Approximate crown centre; trunk and ground clearance unverified. ${object.review_status === 'held' ? 'Mapped geometry conflict.' : ''}</div>`;
+    tip.hidden = false;
+    tip.style.left = `${Math.max(8, Math.min(x + 16, innerWidth - tip.offsetWidth - 10))}px`;
+    tip.style.top = `${Math.max(8, Math.min(y + 16, innerHeight - tip.offsetHeight - 10))}px`;
+    return;
+  }
   if(object.signalJunction) {
     tip.innerHTML=`<div class="h">Simulated signal junction ${esc(object.signalJunction.id)}</div><div class="s">${object.signalJunction.signals.length} controlled movements. Zoom in for individual arrows and states.</div>`;
     tip.hidden=false;tip.style.left=`${Math.max(8,Math.min(x+16,innerWidth-tip.offsetWidth-10))}px`;
@@ -3207,8 +3630,9 @@ function counts(fn) {
   return c;
 }
 function renderLegend() {
-  const el = $('p-legend');
-  if (el.hidden) return;
+  if ($('p-legend').hidden) return;
+  // The building-model controls above it are static; only the legend is redrawn.
+  const el = $('legend-body');
   let body = '';
   if (ui.lens === 'observed' || ui.lens === 'forecast') {
     const c = ui.lens === 'observed' ? counts((b) => b.state) : counts((b) => { const p = activeP(b); return p ? argmax(p) : null; });
@@ -3631,6 +4055,8 @@ function wire() {
   $('t-shadows').setAttribute('aria-pressed', String(ui.shadows));
   $('t-status').setAttribute('aria-pressed', String(ui.statusColours));
   $('t-status').onclick = () => { ui.statusColours = !ui.statusColours; $('t-status').setAttribute('aria-pressed', String(ui.statusColours)); renderLegend(); render(); };
+  $('t-canopy').onclick = () => setCanopyReview(!ui.canopyReview);
+  $('t-granite').onclick = () => setGranitePreview(!ui.granitePanel);
   $('t-shadows').onclick = () => { shadowAuto = false; ui.shadows = !ui.shadows; $('t-shadows').setAttribute('aria-pressed', String(ui.shadows)); $('t-shadows').title = ''; render(); };
   watchShadowFrames();
   $('t-2d').onclick = () => { ui.topDown = !ui.topDown; $('t-2d').setAttribute('aria-pressed', String(ui.topDown)); flyTo(ui.topDown ? { pitch: 0, bearing: 0 } : {}); };
@@ -3651,6 +4077,7 @@ function wire() {
   $('sources-close').onclick = () => $('sources').close();
   $('sources').addEventListener('click', (e) => { if (e.target === e.currentTarget) e.currentTarget.close(); });
   $('t-info').onclick = (e) => togglePanel('p-info', e.currentTarget);
+  $('t-people').onclick = () => setPeople(!mobilityLab.people);
   $('t-traffic').onclick = () => {
     if (ui.traffic && $('p-traffic').hidden) {
       $('p-traffic').hidden = false;
@@ -3752,7 +4179,10 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
   if (!DATA.forecast) document.querySelectorAll('[data-lens="forecast"],[data-lens="change"]').forEach((t) => (t.hidden = true));
   // Detail panels start collapsed so the city stays visible.
   $('t-traffic').hidden = !DATA.traffic;
+  $('t-people').hidden = !DATA.pedestrians;
   $('t-corridor').hidden = !DATA.corridor;
+  $('t-canopy').hidden = !DATA.canopy_review?.candidates?.length;
+  $('t-granite').hidden = !DATA.granite_overlay;
   if (corridorMode()) {
     // The building-state forecast, its KPI table and free-text scenarios are city-wide tools.
     document.querySelectorAll('[data-lens="forecast"],[data-lens="change"]').forEach((t) => (t.hidden = true));
@@ -3761,7 +4191,7 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
   // The ground grid loads first: every layer's z reads it when it is built.
   loadGround().then(() => {
     if (Array.isArray(DATA?.traffic?.roads)) elevateRoads();
-    wire(); syncPrompt(); initScene(); renderAll(); wirePointCloud(); wireBeirutOverlay();
+    wire(); syncPrompt(); initScene(); renderAll(); wirePointCloud(); wireBeirutOverlay(); wirePlan2d();
     const hashLens = new URLSearchParams(location.hash.slice(1)).get('lens');
     const tab = hashLens && document.querySelector(`.tab[data-lens="${CSS.escape(hashLens)}"]:not([hidden])`);
     setLens(tab ? hashLens : ui.lens);

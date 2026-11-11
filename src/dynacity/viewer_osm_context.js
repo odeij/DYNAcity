@@ -1,5 +1,13 @@
 /* Public mapped context. Locations/lines are OSM; furniture forms and missing
  * dimensions are illustrative. These layers never supply simulation inputs. */
+// The view box snapped outward to a coarse grid, plus one cell of margin. Layers culled to it keep the
+// same data array while the camera pans within a cell, so deck does not re-tessellate them every frame
+// and nothing pops in or out at the screen edge. bounds: [[w,s],[e,n]]; without bounds, a box round centre.
+const VIEW_CELL_DEG=.003;
+function snappedViewBox(bounds,centre,cell=VIEW_CELL_DEG) {
+  const [w,s,e,n]=bounds?[bounds[0][0],bounds[0][1],bounds[1][0],bounds[1][1]]:[centre[0]-.008,centre[1]-.006,centre[0]+.008,centre[1]+.006];
+  return [Math.floor(w/cell)-1,Math.floor(s/cell)-1,Math.ceil(e/cell)+1,Math.ceil(n/cell)+1].map(v=>v*cell);
+}
 let osmContextCache=null,osmVisibleCache=null,osmModelIndex=null,osmModelSource=null;
 function osmContextEntries() {
   const source=DATA.landscape?.features;
@@ -42,9 +50,9 @@ function osmBuildingSet() {
   return data;
 }
 function osmVisibleEntries(centre,zoom,bounds) {
-  const entries=osmContextEntries(),pad=.001;
-  const box=bounds?[bounds[0][0]-pad,bounds[0][1]-pad,bounds[1][0]+pad,bounds[1][1]+pad]:
-    [centre[0]-.008,centre[1]-.006,centre[0]+.008,centre[1]+.006];
+  // Snapped to coarse cells: an exact view box changed with every pan frame, rebuilding every path,
+  // wall and bench layer and popping items at the screen edge.
+  const entries=osmContextEntries(),box=snappedViewBox(bounds,centre);
   const key=box.map(v=>v.toFixed(4)).join(':')+':'+Math.floor(zoom*2)+':'+beirutOverlay.active;
   if(osmVisibleCache?.key===key&&osmVisibleCache.model===beirutOverlay.polygons)return osmVisibleCache;
   const visible=entries.filter(f=>{const b=f.contextBox;return b[0]<=box[2]&&b[2]>=box[0]&&b[1]<=box[3]&&b[3]>=box[1];});
@@ -137,8 +145,8 @@ function osmGapBuildingLayers() {
     const occlusion=cameraOcclusion();
     out.push(new deck.SolidPolygonLayer({id:'osm-gap-buildings',data:buildings,getPolygon:f=>(f.g??=groundedPolygon(f.geometry.coordinates)),
       extruded:true,getElevation:f=>f.properties.height_m??6,getFillColor:f=>cameraSafeColour([192,196,190],'osm',f.properties.id,occlusion),
-      // Recolour only while something blocks the camera; per-pan recolouring of the whole set stalls panning.
-      material:MATERIAL,pickable:true,...nightWindowProps(f=>nightInfo('unknown',`o${f.properties.id}`),[HAZE_EXT]),updateTriggers:{getFillColor:occlusion.osm.size?sceneCameraKey():''}}));
+      // Recolour only when the set of buildings blocking the camera changes; per-pan recolouring stalls panning.
+      material:MATERIAL,pickable:true,...nightWindowProps(f=>nightInfo('unknown',`o${f.properties.id}`),[HAZE_EXT]),updateTriggers:{getFillColor:occlusion.signature}}));
   }
   return out;
 }
@@ -150,33 +158,35 @@ function osmContextLayers() {
   const gap=osmGapBuildingLayers();
   if(!centre||zoom<14)return gap;
   const d=osmVisibleEntries(centre,zoom,map?.getBounds?.().toArray()),night=nightLevel(),out=[];
-  const paths=(d.grouped.paths??[]).filter(f=>f.geometry.type==='LineString'&&f.properties.tags?.footway!=='crossing'&&f.properties.tags?.tunnel!=='yes'&&(!f.properties.tags?.bridge||f.properties.tags.bridge==='no'));
+  // Derived arrays are kept on the cached view, so a layer's data only changes when the view cell does.
+  const keep=(name,make)=>((d.derived??={})[name]??=make());
+  const paths=keep('paths',()=>(d.grouped.paths??[]).filter(f=>f.geometry.type==='LineString'&&f.properties.tags?.footway!=='crossing'&&f.properties.tags?.tunnel!=='yes'&&(!f.properties.tags?.bridge||f.properties.tags.bridge==='no')));
   const paved=f=>['asphalt','concrete','paved','paving_stones'].includes(f.properties.surface);
   if(paths.length)out.push(new deck.PathLayer({id:'osm-pedestrian-paths',data:paths,getPath:f=>groundPath(f.geometry.coordinates,.085),
     getWidth:f=>Math.min(12,f.properties.width_m??(f.properties.kind==='pedestrian'?4:2)),widthUnits:'meters',widthMinPixels:.7,
     getColor:f=>shade(f.properties.kind==='cycleway'?[144,162,151,230]:paved(f)?[202,194,176,245]:[190,178,150,235],night,.5),
     capRounded:true,jointRounded:true,pickable:true,updateTriggers:{getColor:night}}));
-  const plazas=(d.grouped.paths??[]).filter(f=>f.geometry.type==='Polygon');
+  const plazas=keep('plazas',()=>(d.grouped.paths??[]).filter(f=>f.geometry.type==='Polygon'));
   if(plazas.length)out.push(new deck.SolidPolygonLayer({id:'osm-pedestrian-plazas',data:plazas,getPolygon:f=>f.geometry.coordinates.map(r=>r.map(p=>onGround(p,.07))),
     getFillColor:shade([202,194,176,225],night,.5),material:false,pickable:true,updateTriggers:{getFillColor:night}}));
   if(zoom>=17&&d.treads.length)out.push(new deck.PathLayer({id:'osm-stair-treads',data:d.treads,getPath:d=>d.path,getColor:shade([119,115,105,220],night,.5),
     getWidth:.08,widthUnits:'meters',widthMinPixels:.5,pickable:false,updateTriggers:{getColor:night}}));
-  const rails=(d.grouped.transport??[]).filter(f=>f.geometry.type==='LineString'&&!['abandoned','razed','subway'].includes(f.properties.tags?.railway));
+  const rails=keep('rails',()=>(d.grouped.transport??[]).filter(f=>f.geometry.type==='LineString'&&!['abandoned','razed','subway'].includes(f.properties.tags?.railway)));
   if(rails.length)out.push(new deck.PathLayer({id:'osm-rail-alignments',data:rails,getPath:f=>groundPath(f.geometry.coordinates,.06),getWidth:1.2,widthUnits:'meters',
     getColor:shade([118,111,98,210],night,.5),pickable:true,updateTriggers:{getColor:night}}));
-  const water=(d.grouped.water??[]).filter(f=>f.geometry.type==='LineString'&&f.properties.tags?.tunnel!=='yes');
+  const water=keep('water',()=>(d.grouped.water??[]).filter(f=>f.geometry.type==='LineString'&&f.properties.tags?.tunnel!=='yes'));
   if(water.length)out.push(new deck.PathLayer({id:'osm-waterways',data:water,getPath:f=>groundPath(f.geometry.coordinates,.075),
     getWidth:f=>f.properties.width_m??(f.properties.tags?.waterway==='river'?8:2),widthUnits:'meters',getColor:shade([109,156,165,210],night,.5),pickable:true,updateTriggers:{getColor:night}}));
   out.push(...gap);
   if(zoom>=17.5&&d.segments.length)for(const kind of new Set(d.segments.map(s=>s.feature.properties.kind))) {
-    const items=d.segments.filter(s=>s.feature.properties.kind===kind);
+    const items=keep(`segments-${kind}`,()=>d.segments.filter(s=>s.feature.properties.kind===kind));
     if(items.length)out.push(new deck.SimpleMeshLayer({id:`osm-boundary-${kind}`,data:items,
       mesh:kind==='fence'||kind==='guard_rail'?mesh('osm-boundary-fence',osmFenceMesh):mesh('osm-boundary-box',blockMesh),
       getPosition:d=>d.position,getScale:d=>d.scale,getOrientation:d=>d.orientation,
       getColor:kind==='hedge'?[101,130,81]:[162,158,144],material:MATERIAL,pickable:true}));
   }
   if(zoom>=18)for(const kind of new Set(d.furniture.map(f=>f.properties.kind))) {
-    const items=d.furniture.filter(f=>f.properties.kind===kind);
+    const items=keep(`furniture-${kind}`,()=>d.furniture.filter(f=>f.properties.kind===kind));
     out.push(new deck.SimpleMeshLayer({id:`osm-furniture-${kind}`,data:items,mesh:mesh(`osm-furniture-${kind}`,()=>osmFurnitureMesh(kind)),
       getPosition:f=>onGround(f.contextAnchor,.06),getOrientation:f=>[0,Number(f.properties.tags?.direction)||0,0],
       getScale:f=>kind==='street_lamp'&&f.properties.height_m?[1,1,f.properties.height_m/5.62]:[1,1,1],
@@ -184,18 +194,18 @@ function osmContextLayers() {
   }
   // Source references, not physical models: do not invent fixture dimensions.
   const infrastructure=d.grouped.infrastructure??[];
-  const infrastructureLines=infrastructure.filter(f=>f.geometry.type==='LineString');
+  const infrastructureLines=keep('infraLines',()=>infrastructure.filter(f=>f.geometry.type==='LineString'));
   if(zoom>=17&&infrastructureLines.length)out.push(new deck.PathLayer({id:'osm-infrastructure-lines',data:infrastructureLines,
     getPath:f=>groundPath(f.geometry.coordinates,.12),getWidth:1,widthUnits:'pixels',widthMinPixels:1,
     getColor:[155,112,69,220],pickable:true}));
   // Show mapped area boundaries, including holes, as references rather than
   // implying a measured 3D structure or filling the entire mapped area.
-  const infrastructureAreas=infrastructure.filter(f=>f.geometry.type==='Polygon')
-    .flatMap(f=>f.geometry.coordinates.map(path=>({feature:f,path})));
+  const infrastructureAreas=keep('infraAreas',()=>infrastructure.filter(f=>f.geometry.type==='Polygon')
+    .flatMap(f=>f.geometry.coordinates.map(path=>({feature:f,path}))));
   if(zoom>=17&&infrastructureAreas.length)out.push(new deck.PathLayer({id:'osm-infrastructure-areas',data:infrastructureAreas,
     getPath:d=>groundPath(d.path,.12),getWidth:1,widthUnits:'pixels',widthMinPixels:1,
     getColor:[155,112,69,220],pickable:true}));
-  const infrastructurePoints=infrastructure.filter(f=>f.geometry.type==='Point');
+  const infrastructurePoints=keep('infraPoints',()=>infrastructure.filter(f=>f.geometry.type==='Point'));
   if(zoom>=18&&infrastructurePoints.length)out.push(new deck.ScatterplotLayer({id:'osm-infrastructure-points',data:infrastructurePoints,
     getPosition:f=>onGround(f.geometry.coordinates,.2),getRadius:2,radiusUnits:'pixels',radiusMinPixels:2,radiusMaxPixels:3,
     getFillColor:[155,112,69,230],billboard:true,pickable:true}));
@@ -210,7 +220,9 @@ function osmPlaceLayers() {
   if(!centre||zoom<18.5||ui.roadTool)return [];
   const d=osmVisibleEntries(centre,zoom,map?.getBounds?.().toArray()),night=nightLevel(),out=[];
   const labelKey=`${centre.map(v=>v.toFixed(6))}:${zoom.toFixed(3)}:${map?.getBearing?.()??0}:${map?.getPitch?.()??0}`;
-  if(d.labelKey!==labelKey) {
+  // Re-run the overlap selection only once the camera settles (moveend redraws): rerunning it every
+  // pan frame made labels flicker on and off. While moving, the last selection rides with the map.
+  if(d.labelKey!==labelKey&&!(d.visibleLabels&&map?.isMoving?.())) {
     const mpp=78271.51696*Math.cos(centre[1]*Math.PI/180)/2**zoom;
     const project=p=>map?.project?map.project(p):{x:(p[0]-centre[0])*111320*Math.cos(centre[1]*Math.PI/180)/mpp,y:-(p[1]-centre[1])*111320/mpp};
     d.visibleLabels=osmLabelSelection(d.labels,project);d.labelKey=labelKey;

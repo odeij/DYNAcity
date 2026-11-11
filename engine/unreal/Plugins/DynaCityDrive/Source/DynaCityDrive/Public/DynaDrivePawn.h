@@ -73,6 +73,10 @@ public:
     UFUNCTION(BlueprintCallable, Category="Beirut|Driving") void ToggleCursor();
     UFUNCTION(BlueprintCallable, Category="Beirut|Driving") void OpenLocationSearch();
     UFUNCTION(BlueprintCallable, Category="Beirut|Driving") void OpenControls();
+    /** Google Street View link for where the car is and the way the camera looks; empty without geography. */
+    UFUNCTION(BlueprintPure, Category="Beirut|Driving") FString StreetViewUrl() const;
+    /** G: stop the car and open StreetViewUrl() in the default browser. */
+    UFUNCTION(BlueprintCallable, Category="Beirut|Driving") void OpenStreetView();
     UFUNCTION(BlueprintCallable, Category="Beirut|Driving") void ResumeDriving();
     UFUNCTION(BlueprintCallable, Category="Beirut|Driving") bool TryLocation(const FVector& SourcePosition, float Yaw, const FString& PlaceName);
     // Also usable by a gamepad/touch interface and deterministic verification.

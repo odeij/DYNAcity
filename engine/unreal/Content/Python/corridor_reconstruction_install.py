@@ -523,3 +523,83 @@ def lgb_preview_apply():
 def lgb_preview_rollback():
     import lgb_native_pilot
     return lgb_native_pilot.rollback()
+
+
+def tower_infill_stage(action, *args):
+    import importlib, tower_infill_native_pilot
+    importlib.reload(tower_infill_native_pilot)
+    if action not in ('preflight', 'prepare', 'apply', 'rollback', 'verify_assets'):
+        raise ValueError('Unsupported tower preview stage')
+    return getattr(tower_infill_native_pilot, action)(*args)
+
+
+def lgb_mask_test(action):
+    import importlib, lgb_mask_diagnostic
+    importlib.reload(lgb_mask_diagnostic)
+    return lgb_mask_diagnostic.stage(action)
+
+
+def facade_identification_stage(action):
+    import importlib, facade_identification
+    importlib.reload(facade_identification)
+    return facade_identification.stage(action)
+
+
+def corridor_canopy_stage(action):
+    import importlib, corridor_canopy_preview
+    importlib.reload(corridor_canopy_preview)
+    return corridor_canopy_preview.stage(action)
+
+
+def corridor_canopy_ahead_stage(action):
+    """Separate estimated placement test; retain the rejected pilot's evidence."""
+    import importlib, corridor_canopy_preview
+    importlib.reload(corridor_canopy_preview)
+    corridor_canopy_preview.R = Path('D:/private/dynacity-data/engine/resemblance-20261101-2355/reconstruction/native/iteration23-canopy-ahead')
+    corridor_canopy_preview.POINTS = [(2513.,1504.),(2533.,1505.)]
+    return corridor_canopy_preview.stage(action)
+
+
+def corridor_canopy_distance_stage(action):
+    import importlib, corridor_canopy_preview
+    importlib.reload(corridor_canopy_preview)
+    corridor_canopy_preview.R = Path('D:/private/dynacity-data/engine/resemblance-20261101-2355/reconstruction/native/iteration24-foliage-distance')
+    corridor_canopy_preview.POINTS = [(2513.,1504.),(2533.,1505.)]
+    return corridor_canopy_preview.stage(action)
+
+
+def corridor_canopy_preserve_stage(action):
+    import importlib, corridor_canopy_preview
+    importlib.reload(corridor_canopy_preview)
+    corridor_canopy_preview.R = Path('D:/private/dynacity-data/engine/resemblance-20261101-2355/reconstruction/native/iteration25-preserve-area')
+    corridor_canopy_preview.POINTS = [(2513.,1504.),(2533.,1505.)]
+    return corridor_canopy_preview.stage(action)
+
+
+def corridor_canopy_reload_stage(action):
+    import importlib, corridor_canopy_preview
+    importlib.reload(corridor_canopy_preview)
+    corridor_canopy_preview.R = Path('D:/private/dynacity-data/engine/resemblance-20261101-2355/reconstruction/native/iteration26-canopy-reload')
+    corridor_canopy_preview.POINTS = [(2513.,1504.),(2533.,1505.)]
+    corridor_canopy_preview.MESH_OVERRIDE = '/Game/DynaCity/CanopyPilot/tree_small_02_preserve_area_v1.tree_small_02_preserve_area_v1'
+    return corridor_canopy_preview.stage(action)
+
+
+def granite_parapet_stage(action):
+    import importlib, granite_parapet_native_pilot
+    importlib.reload(granite_parapet_native_pilot)
+    return granite_parapet_native_pilot.stage(action)
+
+
+def corridor_feature_bundle_stage(action):
+    import importlib, corridor_feature_bundle_pilot
+    importlib.reload(corridor_feature_bundle_pilot)
+    return corridor_feature_bundle_pilot.stage(action)
+
+
+def corridor_stone_material_stage(action):
+    """Root-only estimated cladding material pilot; no scene save."""
+    import importlib
+    import corridor_stone_material_pilot as pilot
+    importlib.reload(pilot)
+    return pilot.stage(action)

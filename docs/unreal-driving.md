@@ -25,8 +25,16 @@ See [mobility preview and coverage](unreal-mobility-preview.md). Multiplayer is 
 Controls in Play: W/S or arrows for acceleration/reverse, A/D or arrows
 to steer, Space to brake, R to reset, C for chase/hood/high/cockpit camera,
 L for day/night, N to jump
-to the next source area, right mouse to look, Tab for cursor and Esc to end
-editor Play. Open Tools > Explore Beirut > Start driving, or use Play in the
+to the next source area, G for Google Street View, right mouse to look, Tab for cursor and Esc to end
+editor Play.
+
+**G — Google Street View here.** Converts the car's position to WGS84 through
+the map's EPSG:32636 origin (the same path the minimap uses) and opens
+`google.com/maps/@?api=1&map_action=pano` in the default browser, facing the
+camera's compass heading. The car stops first, since the browser takes focus.
+Google snaps to its nearest panorama, which can be a few metres away or a
+user photo sphere where it has no street imagery. No API key is used. Without
+a georeferenced map the HUD says Street View is unavailable. Open Tools > Explore Beirut > Start driving, or use Play in the
 configured city map, then click the game viewport. Keyboard focus itself is
 not covered by the automated MCP checks.
 
