@@ -175,7 +175,8 @@ def run_seed(model: TrafficModel, plan: StreetPlan, settings: RunSettings, seed:
                 'waiting_to_enter_growth_per_min': (end['pending'] - q1 - start['pending'] + q0) / window_min,
                 'vehicle_hours': totals[run].get('vehicle_hours', 0.0),
                 'stopped_vehicle_hours': totals[run].get('stopped_vehicle_hours', 0.0),
-                'unstuck': end['unstuck'],
+                # Always 0 now: no car is ever moved past a gridlock (docs/traffic-sumo.md).
+                'unstuck': end.get('unstuck', 0),
                 'road_vehicle_seconds': sampler.vehicles,
                 'road_speed_kmh': np.divide(sampler.speed_sum, sampler.vehicles, out=np.full(len(model), np.nan),
                                             where=sampler.vehicles > 0),

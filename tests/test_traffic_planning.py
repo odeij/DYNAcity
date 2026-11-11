@@ -141,6 +141,30 @@ def test_planning_forks_the_unplanned_baseline_before_any_change(wide):
         sim.close()
 
 
+def test_lane_removed_under_a_car_waiting_to_enter_does_not_abort_sumo(wide):
+    # The planning table sends its plan with the very first request, before
+    # the initial fleet is on the road. A car due to enter on the curb lane of
+    # a road that loses that lane used to abort SUMO ("Invalid departlane").
+    try:
+        runtime()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+    # Ten cars due at the same spot of the curb lane: one fits, nine wait to enter.
+    sim = Simulation(wide, trips=[Trip(f'c{i}', ROUTE, 0, 20) for i in range(10)])
+    try:
+        assert sim.connections[0].simulation.getPendingVehicles()
+        plan = [{'road': 0, 'lanes_removed': 1}]
+        frame = None
+        for _ in range(60):
+            frame = sim.advance(road_events(wide), 2, planning=plan)['frames'][-1]
+        metrics = frame['metrics']
+        assert metrics['total'] == metrics['active'] + metrics['pending'] + metrics['arrived'] == 10
+        assert metrics['arrived'] == 10
+        assert 'passenger' not in sim.connections[0].lane.getAllowed('0:1_0')
+    finally:
+        sim.close()
+
+
 def test_cars_leave_a_removed_lane_and_still_arrive(sim):
     sim.advance(road_events(sim.model), 1, planning=[{'road': 1, 'lanes_removed': 1}])
     on_removed, frame = 0, None
@@ -193,6 +217,78 @@ def test_planned_closure_reroutes_like_a_manual_one(network):
             result = sim.advance(road_events(network), 2, planning=[{'road': 1, 'lanes_removed': 1}])
         frame = result['frames'][-1]
         assert frame['metrics']['rerouted'] == 1 and frame['metrics']['arrived'] == 1
+    finally:
+        sim.close()
+
+
+def test_fork_after_a_trip_ended_does_not_drive_it_again_in_the_copy(network):
+    # SUMO used to re-read the trip file when the copy loaded the saved state,
+    # so starting cars that had already arrived drove again, in the copy only.
+    try:
+        runtime()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+    sim = Simulation(network, trips=[Trip('a', ROUTE, 0, 0)])
+    try:
+        for _ in range(30):
+            frame = sim.advance(road_events(network), 2)['frames'][-1]
+        assert frame['metrics']['arrived'] == 1 and not sim.forked
+        for _ in range(5):
+            frame = sim.advance(road_events(network), 2, planning=[{'road': 1, 'speed_limit_kmh': 20}])['frames'][-1]
+        assert sim.forked
+        baseline = sim.connections[1]
+        assert baseline.vehicle.getIDCount() == 0 and not baseline.simulation.getPendingVehicles()
+        assert frame['metrics']['baseline'] == {'active': 0, 'pending': 0, 'arrived': 1, 'stopped': 0}
+    finally:
+        sim.close()
+
+
+def _replanning_sim(network, monkeypatch, period):
+    """One car on ROUTE, drivers re-planning every `period` s from current speeds."""
+    import dynacity.traffic_sumo as adapter
+    try:
+        runtime()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+    monkeypatch.setattr(adapter, 'REROUTE_PERIOD_S', period)
+    monkeypatch.setattr(adapter, 'REROUTE_MEMORY_S', 1)
+    return Simulation(network, trips=[Trip('a', ROUTE, 0, 0)])
+
+
+@pytest.mark.parametrize('period', [0, 2])
+def test_drivers_replan_around_a_slowed_street_only_when_rerouting_is_on(network, monkeypatch, period):
+    # Road 1 slowed to 5 km/h takes 72 s; the three-road detour (2, 3, 4) takes 30 s.
+    sim = _replanning_sim(network, monkeypatch, period)
+    try:
+        slow = [{'road': 1, 'speed_limit_kmh': 5}]
+        for _ in range(3):
+            sim.advance(road_events(network), 2, planning=slow)
+        scenario, baseline = sim.connections
+        took_detour = '2:1' in scenario.vehicle.getRoute('a')
+        assert took_detour == bool(period)
+        # The unchanged run has no reason to leave the direct road.
+        assert '2:1' not in baseline.vehicle.getRoute('a')
+        for _ in range(90):
+            frame = sim.advance(road_events(network), 2, planning=slow)['frames'][-1]
+        assert frame['metrics']['arrived'] == frame['metrics']['baseline']['arrived'] == 1
+    finally:
+        sim.close()
+
+
+def test_closure_on_a_replanned_route_is_noticed(network, monkeypatch):
+    # The car re-plans onto the detour inside SUMO; closing the detour must
+    # still count it as rerouted (the adapter reads its new route, not the
+    # route it entered with).
+    sim = _replanning_sim(network, monkeypatch, 2)
+    try:
+        slow = [{'road': 1, 'speed_limit_kmh': 5}]
+        for _ in range(3):
+            sim.advance(road_events(network), 2, planning=slow)
+        scenario = sim.connections[0]
+        assert '3:1' in scenario.vehicle.getRoute('a') and scenario.vehicle.getRoadID('a') == '0:1'
+        result = sim.advance(road_events(network), 1, planning=slow + [{'road': 3, 'lanes_removed': 1}])
+        assert 'a' in sim.rerouted and '3:1' not in scenario.vehicle.getRoute('a')
+        assert result['frames'][-1]['metrics']['no_detour'] == 0
     finally:
         sim.close()
 

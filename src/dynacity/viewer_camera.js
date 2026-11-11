@@ -1,7 +1,7 @@
 /* Camera-dependent detail and near-camera occlusion; source geometry is intact. */
 let viewGeometryKey='',viewGeometryTime=-Infinity,viewRefreshFrame=0;
 let occlusionCache=null,occlusionModelSource=null,occlusionModelIndex=new Map();
-const EMPTY_CAMERA_OCCLUSION={model:new Set(),bbed:new Set(),osm:new Set()};
+const EMPTY_CAMERA_OCCLUSION={model:new Set(),bbed:new Set(),osm:new Set(),signature:''};
 function currentSceneCamera() {
   if(map)return {centre:map.getCenter().toArray(),zoom:map.getZoom(),pitch:map.getPitch?.()??0,bearing:map.getBearing?.()??0,
     height:map.getCanvas?.().clientHeight||600};
@@ -83,6 +83,10 @@ function cameraOcclusion() {
     for(const b of DATA.buildings??[])if(b.rings.some(r=>crosses(ringBox(r))&&buildingBlocksCamera([r],elevation(b)+rise([r]),eye,target)))result.bbed.add(b.id);
   }
   for(const f of osmContextEntries())if(f.properties.kind==='osm_building'&&crosses(f.contextBox)&&buildingBlocksCamera(f.geometry.coordinates,(f.properties.height_m??6)+rise(f.geometry.coordinates),eye,target))result.osm.add(f.properties.id);
+  // Colour update triggers use this, not the camera key: recolouring every building on each pan frame
+  // stalls the pan, so colours are only recomputed when the set of see-through buildings changes.
+  result.signature=['model','bbed','osm'].map(g=>[...result[g]].sort().join(',')).join('|');
+  if(result.signature==='||')result.signature='';
   return occlusionCache=result;
 }
 function cameraSafeColour(rgb,group,id,state=cameraOcclusion()) {

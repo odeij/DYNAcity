@@ -1,0 +1,61 @@
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[a4paper,margin=2cm]{geometry}
+\usepackage[default]{sourcesanspro}
+\usepackage[table]{xcolor}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{microtype}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{ink}{HTML}{1C2B36}
+\definecolor{accent}{HTML}{176783}
+\hypersetup{colorlinks=true,urlcolor=accent,linkcolor=accent}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\setlist{nosep,leftmargin=12pt,topsep=2pt,itemsep=2pt}
+\titleformat{\section}{\large\bfseries\color{ink}}{\thesection}{8pt}{}
+\titlespacing*{\section}{0pt}{10pt}{3pt}
+
+\begin{document}
+
+{\color{ink}\Large\bfseries DynaCITY Web Simulator: Limitations}\par\vspace{2pt}
+{\color{accent}Private notes to accompany \emph{DynaCITY Web Simulator} (John Kofdarelli, 3 November 2026)}\par\vspace{2pt}
+{\small November 2026 · not for circulation}\par
+\vspace{4pt}\textcolor{accent}{\rule{\linewidth}{0.6pt}}
+
+\section{Map layers}
+\begin{itemize}
+\item \textbf{Beirut 001 placement is inferred, not surveyed.} The model has no coordinates. It was aligned to BBED by matching building-centre patterns (a $+1.344^\circ$ turn and a fixed shift). The 687 links between Beirut 001 buildings and BBED records are provisional.
+\item \textbf{Heights outside Beirut 001 are estimates.} Only 159 Overture footprints have a mapped height. The rest take the median Beirut 001 height for their footprint size.
+\item \textbf{BBED covers 3,349 buildings, not the whole city.}
+\end{itemize}
+
+\section{Traffic simulation}
+\begin{itemize}
+\item \textbf{Traffic is not yet calibrated.} After ten simulated minutes, the median ratio of simulated to observed speed is 1.14 at 08:00, 0.96 at 13:00 and 0.87 at 17:00. The number of cars on the road is still rising at that point, so the steady state has not been established.
+\item \textbf{Trips are generated, not measured.} No origin--destination matrix is available. The 1\,km minimum trip distance is a modelling assumption.
+\item \textbf{The data is old.} Speeds (2014--2019) and counts (2016--17) predate the 2019 crisis and the 2020 port blast. They describe typical pre-2020 traffic, not today's.
+\item \textbf{Road geometry is assumed.} Lane widths (3.2\,m), pavement widths (1.6\,m or 2.4\,m by road type) and signal timings are assumptions, not surveys.
+\item \textbf{Closures are not validated.} The detours and delays have not been checked against any observed road closure.
+\end{itemize}
+
+\section{Pedestrians and the street planner}
+\begin{itemize}
+\item \textbf{Pedestrian flows use proxy inputs.} Homes come from building volumes, and jobs come from a proxy built from OSM offices, shops, schools and hospitals. The model is checked against one published count (Gouraud Street) and has not been calibrated against the 90 counts requested from the authors.
+\item \textbf{The model's constant overstates quiet streets.} Every street gets at least about 71 pedestrians per hour from the formula's constant.
+\item \textbf{Walkers are illustrative.} They do not reroute, add new trips or react to cars.
+\item \textbf{Planner indicators measure space, not outcomes.} Walking area and walkers per 100\,m$^2$ use assumed widths, and the number of walkers stays fixed before and after. They say nothing about safety, comfort or new demand.
+\item \textbf{Speed caps do not cause rerouting.} Only closures and removed lanes make cars change route.
+\end{itemize}
+
+\section{About the report itself}
+\begin{itemize}
+\item \textbf{Screenshots come from the last commit (\texttt{22b4c6c}),} because the current working tree does not start the server: \texttt{service.py} still imports from the deleted \texttt{hazards.py}. The web viewer file is identical in both.
+\item \textbf{The Hamra close-up (Figure~2b) uses 3$\times$ pedestrian demand.} At the default setting Hamra has too few walkers to show in one frame. The caption does not say this.
+\item \textbf{The DOI link for Sevtsuk et al.\ (2024) is unconfirmed.} The paper and its MIT handle (\href{https://hdl.handle.net/1721.1/156355}{1721.1/156355}) were confirmed; the DOI follows the journal's usual format.
+\item \textbf{The closure figures were captured 45--60 seconds after the closure.} The comparison counts were still settling at that point.
+\end{itemize}
+
+\end{document}

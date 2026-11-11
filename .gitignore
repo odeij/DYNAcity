@@ -35,3 +35,8 @@ DynaCITY-T5.1-Data-Acquisition-and-Results/
 !.env.sample
 config.local.json
 
+
+# Generated decks and PDFs
+output/
+node_modules/
+.DS_Store

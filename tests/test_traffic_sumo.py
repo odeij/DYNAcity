@@ -33,7 +33,7 @@ def test_comparison_counts_include_unfinished_trips_and_ignore_internal_roads():
     frame = sim.frame()
     assert_accounting(frame)
     m = frame['metrics']
-    assert m['baseline'] == {'active':2, 'pending':1, 'arrived':2, 'stopped':1, 'unstuck':0}
+    assert m['baseline'] == {'active':2, 'pending':1, 'arrived':2, 'stopped':1}
     assert m['stopped_roads'] == [(1,1), (2,1)]
     assert m['detour'] == [(2,1)]
     assert m['overdue'] == 1
@@ -113,11 +113,20 @@ def assert_accounting(frame):
 
 
 def test_replay_samples_each_step_and_keeps_junction_safety(simulation, network):
-    from dynacity.traffic_sumo import JUNCTION_BLOCKER_S, IMPATIENCE_S, STEP_S, UNSTICK_AFTER_S
-    # Knots resolve only after a car has stood a minute in a junction, or five
-    # minutes at the head of a queue: nothing moves a car in normal flow.
-    assert JUNCTION_BLOCKER_S == 60 and UNSTICK_AFTER_S == 300
-    assert IMPATIENCE_S == 0
+    from dynacity.traffic_sumo import JUNCTION_BLOCKER_S, IMPATIENCE_S, STEP_S
+    # Held drivers eventually push past junction blockers and grow impatient
+    # (citywide junctions otherwise lock for good), but never before waiting,
+    # and no car is ever teleported.
+    assert JUNCTION_BLOCKER_S >= 10
+    assert IMPATIENCE_S >= 60
+    assert '-1' == simulation._sumo_command[simulation._sumo_command.index('--time-to-teleport') + 1]
+    # Every driver re-plans from current speeds, in both runs (same command).
+    from dynacity.traffic_sumo import REROUTE_PERIOD_S
+    command = simulation._sumo_command
+    assert command[command.index('--device.rerouting.probability') + 1] == '1'
+    assert command[command.index('--device.rerouting.period') + 1] == str(REROUTE_PERIOD_S) and REROUTE_PERIOD_S > 0
+    # Any old gridlock relocation call would turn this into an immediate failure.
+    simulation.unstick = lambda *args: pytest.fail('Replay must not relocate cars')
     original_frame = simulation.frame
     def checked_frame():
         assert simulation.connections[0].simulation.getCollidingVehiclesNumber() == 0
@@ -235,7 +244,7 @@ def test_identical_baseline_has_zero_delay(simulation,network):
         for frame in result['frames']:
             assert_accounting(frame)
             m = frame['metrics']
-            assert m['baseline'] == {key:m[key] for key in ('active','pending','arrived','stopped','unstuck')}
+            assert m['baseline'] == {key:m[key] for key in ('active','pending','arrived','stopped')}
     m=result['frames'][-1]['metrics']
     assert m['arrived']==2 and m['mean_completed_delay_s']==0
 
@@ -335,7 +344,7 @@ def test_continuous_entries_keep_arriving_with_identical_paired_demand(network):
             for frame in result['frames']:
                 assert_accounting(frame)
                 m=frame['metrics']
-                assert m['baseline']=={k:m[k] for k in ('active','pending','arrived','stopped','unstuck')}
+                assert m['baseline']=={k:m[k] for k in ('active','pending','arrived','stopped')}
                 assert m['mean_completed_delay_s'] in (None,0)
             if i==5:
                 early=result['frames'][-1]['metrics']['total']
@@ -422,6 +431,24 @@ def test_closing_a_road_with_cars_waiting_to_enter_on_it_does_not_abort_sumo(net
             assert_accounting(result['frames'][-1])
         m=result['frames'][-1]['metrics']
         assert not sim.entry_queue and m['arrived']>0 and m['total']==40
+    finally: sim.close()
+
+
+def test_closing_a_road_that_waiting_cars_will_cross_does_not_abort_sumo(network):
+    """Cars waiting to enter whose route crosses a road that closes (not just starts on it) wait instead of crashing SUMO."""
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    trips=[Trip(f'later-{i}',('6:1','0:1','1:1','5:1'),0,20+i) for i in range(30)]
+    sim=Simulation(network,trips=trips)
+    try:
+        sim.advance(road_events(network),2)
+        for _ in range(8):
+            for frame in sim.advance(road_events(network,closed=[1]),5)['frames']:
+                assert_accounting(frame)
+        assert sim.entry_queue or sim.rerouted, 'cars due to cross road 1 wait or go round'
+        for _ in range(20):
+            result=sim.advance(road_events(network),5)
+        assert result['frames'][-1]['metrics']['arrived']>0
     finally: sim.close()
 
 
@@ -574,7 +601,7 @@ def test_forked_copy_without_changes_matches_the_scenario_exactly(network):
             result=sim.advance(road_events(network),5)
             for frame in result['frames']:
                 m=frame['metrics']
-                assert m['baseline']=={key:m[key] for key in ('active','pending','arrived','stopped','unstuck')}
+                assert m['baseline']=={key:m[key] for key in ('active','pending','arrived','stopped')}
         assert m['paired_arrivals']>0 and m['mean_completed_delay_s']==0
     finally: sim.close()
 
@@ -798,23 +825,6 @@ def test_gridlock_breaker_never_moves_cars_a_closure_holds_or_blocks(network, mo
         assert sim.held | sim.blocked
         assert sim.unstuck[0] == 0
         assert not any(c.vehicle.getRoadID(v) == f'{closed_road}:1' for v in sim.blocked if v in c.vehicle.getIDList())
-    finally:
-        sim.close()
-
-
-def test_gridlock_breaker_moves_a_stuck_front_car_ahead(network, monkeypatch):
-    try: runtime()
-    except RuntimeError as exc: pytest.skip(str(exc))
-    import dynacity.traffic_sumo as ts
-    monkeypatch.setattr(ts, 'UNSTICK_AFTER_S', 20)
-    sim = Simulation(network, trips=[Trip('knot', ('0:1', '1:1', '5:1'), 0, 50), Trip('behind', ('0:1', '1:1', '5:1'), 0, 20)])
-    try:
-        c = sim.connections[0]
-        c.vehicle.setSpeed('knot', 0)  # stands as if knotted at a junction
-        for _ in range(8):
-            sim.advance(road_events(network), 5, include_initial=False)
-        assert sim.unstuck[0] >= 1
-        assert c.vehicle.getRoadID('knot') != '0:1'
     finally:
         sim.close()
 

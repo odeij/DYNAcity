@@ -8,7 +8,10 @@ int main()
     using namespace DynaDrive;
     double speed = 0;
     for (int i = 0; i < 3600; ++i) speed = SpeedStep(speed, 1, false, 1.0 / 60, 0);
-    assert(std::abs(speed * .036 - 50) < .001);
+    assert(speed * .036 > 100); // No artificial 50 km/h forward governor.
+    speed = 1388.8889;
+    assert(SpeedStep(speed, 1, false, 1.0 / 60, 0) > speed);
+    speed = 0;
     for (int i = 0; i < 3600; ++i) speed = SpeedStep(speed, -1, false, 1.0 / 60, 0);
     assert(std::abs(speed * .036 + 20) < .001);
 
@@ -37,5 +40,5 @@ int main()
     assert(std::abs(simulate(30) - simulate(60)) < 1e-6);
     assert(std::abs(simulate(144) - simulate(60)) < 1e-6);
     assert(SpeedStep(100, 1, false, 1.0 / 60, .1) < SpeedStep(100, 1, false, 1.0 / 60, 0));
-    std::cout << "Drive dynamics: speed limits, braking, reverse, steering, slope and timestep checks passed\n";
+    std::cout << "Drive dynamics: uncapped forward speed, braking, reverse, steering, slope and timestep checks passed\n";
 }

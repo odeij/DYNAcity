@@ -136,7 +136,7 @@ def test_export_viewer_cli(tmp_path, bbed_collection):
     output = tmp_path / "out" / "viewer.html"
     main(["export-viewer", "--bbed", str(bbed), "--snapshot", str(snapshot), "--output", str(output)])
     page = output.read_text()
-    assert "deck.gl@9.4.0" in page and "maplibre-gl@5.24.0" in page
+    assert "deck.gl@9.3.1" in page and "maplibre-gl@5.24.0" in page
 
 
 def test_imported_car_geometry_and_export_are_self_contained():

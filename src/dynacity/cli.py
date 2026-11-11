@@ -411,6 +411,27 @@ def _landscape_view(path: str | None, traffic: TrafficModel | None = None, conte
     return apply_context_buildings(payload, companion) if companion else payload
 
 
+def _attach_granite_overlay(payload: dict, args: argparse.Namespace) -> None:
+    manifest = getattr(args, 'granite_overlay', None)
+    parent = getattr(args, 'granite_parent', None)
+    if bool(manifest) != bool(parent):
+        raise SystemExit('--granite-overlay and --granite-parent must be supplied together')
+    if manifest:
+        from .granite_overlay import load_granite_overlay
+        payload['granite_overlay'] = load_granite_overlay(manifest, parent)
+
+
+def _attach_canopy_review(payload: dict, args: argparse.Namespace) -> None:
+    """An explicitly loaded evidence overlay; existing mapped trees stay untouched."""
+    candidates = getattr(args, 'canopy_review', None)
+    screening = getattr(args, 'canopy_screening', None)
+    if bool(candidates) != bool(screening):
+        raise SystemExit('--canopy-review and --canopy-screening must be supplied together')
+    if candidates:
+        from .canopy_review import load_canopy_review
+        payload['canopy_review'] = load_canopy_review(candidates, screening)
+
+
 def command_export_viewer(args: argparse.Namespace) -> None:
     snapshot = UrbanStateSnapshot.model_validate(_json(args.snapshot))
     forecast = ForecastResult.model_validate(_json(args.forecast)) if args.forecast else None
@@ -418,6 +439,8 @@ def command_export_viewer(args: argparse.Namespace) -> None:
     landscape = _landscape_view(getattr(args, 'landscape', None), model, getattr(args, 'context_buildings', None), overlays=getattr(args, 'context_overlay', None))
     traffic = traffic_payload(model) if model is not None else None
     payload = build_viewer_payload(_json(args.bbed), snapshot, forecast, basemap=args.basemap, traffic=traffic, landscape=landscape)
+    _attach_canopy_review(payload, args)
+    _attach_granite_overlay(payload, args)
     if getattr(args, "pedestrians", None):
         from .viewer_pedestrians import pedestrian_payload
         payload["pedestrians"] = pedestrian_payload(_json(args.pedestrians), payload.get("traffic"))
@@ -646,6 +669,8 @@ def command_serve(args: argparse.Namespace) -> None:
         )
         if viewer_terrain is not None:
             payload["terrain"] = viewer_terrain.meta("/v1/viewer/terrain.bin", "/v1/viewer/terrain/{z}/{x}/{y}.png")
+        _attach_canopy_review(payload, args)
+        _attach_granite_overlay(payload, args)
         if getattr(args, "pedestrians", None):
             from .viewer_pedestrians import pedestrian_payload
             payload["pedestrians"] = pedestrian_payload(_json(args.pedestrians), payload.get("traffic"))
@@ -916,6 +941,10 @@ def build_parser() -> argparse.ArgumentParser:
     viewer.add_argument("--context-overlay", action="append", help="additional private OSM inventory used by Unreal; repeatable, merged by source ID")
     viewer.add_argument("--landscape", help="private OSM context JSON: surfaces, trees, paths, places and structures")
     viewer.add_argument("--context-buildings", help="Overture companion from engine_context_buildings --web-output: estimated heights and extra footprints")
+    viewer.add_argument("--canopy-review", help="private canopy candidate GeoJSON; optional review markers, not confirmed trees")
+    viewer.add_argument("--canopy-screening", help="matching canopy screening JSON; required with --canopy-review")
+    viewer.add_argument("--granite-overlay", help="private corridor bundle manifest; estimated panels, off by default")
+    viewer.add_argument("--granite-parent", help="matching parent snapshot; required with --granite-overlay")
     viewer.set_defaults(func=command_export_viewer)
 
     serve = subparsers.add_parser("serve")
@@ -935,6 +964,10 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--context-overlay", action="append", help="additional private OSM inventory used by Unreal; repeatable, merged by source ID")
     serve.add_argument("--landscape", help="private OSM context JSON: surfaces, trees, paths, places and structures")
     serve.add_argument("--context-buildings", help="Overture companion from engine_context_buildings --web-output: estimated heights and extra footprints")
+    serve.add_argument("--canopy-review", help="private canopy candidate GeoJSON; optional review markers, not confirmed trees")
+    serve.add_argument("--canopy-screening", help="matching canopy screening JSON; required with --canopy-review")
+    serve.add_argument("--granite-overlay", help="private corridor bundle manifest; estimated panels, off by default")
+    serve.add_argument("--granite-parent", help="matching parent snapshot; required with --granite-overlay")
     serve.add_argument("--corridor", help="GeoJSON line to focus on (e.g. Al Masar al Akhdar); every input is cut to its buffer")
     serve.add_argument("--corridor-buffer-m", type=float, default=250.0, help="buffer around --corridor, metres")
     serve.add_argument("--basemap", choices=["carto", "none"], default="carto")

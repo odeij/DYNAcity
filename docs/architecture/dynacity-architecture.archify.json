@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "architecture",
   "meta": {
-    "title": "DynaCITY Forecasting Engine Architecture",
+    "title": "DynaCITY Forecasting Engine and Mobility Twin Architecture",
     "output": "docs/architecture/dynacity-architecture.html",
     "quality_profile": "showcase",
     "locale": "en",
@@ -10,144 +10,927 @@
       "url": "https://github.com/odeij/DYNAcity.git",
       "provider": "github",
       "link_mode": "web",
-      "revision": "85a52b91f48b8cf55b64effd5be0df04c6cd24e4"
+      "revision": "ee8e90d02fdbb356bb63ec424147443b00a7f1a3"
     }
   },
   "components": [
-    { "id": "features", "type": "backend", "label": "Morphology features", "sublabel": "points inside BBED polygons", "pos": [540, 40], "size": [160, 64],
+    {
+      "id": "features",
+      "type": "backend",
+      "label": "Morphology features",
+      "sublabel": "points inside BBED polygons",
+      "pos": [
+        540,
+        40
+      ],
+      "size": [
+        160,
+        64
+      ],
       "sources": [
-        { "path": "src/dynacity/features.py", "line": 147, "label": "extract_building_features" },
-        { "path": "src/dynacity/features.py", "line": 182, "label": "Shapely contains_xy join" },
-        { "path": "src/dynacity/cli.py", "line": 128, "label": "extract-features command" }
-      ] },
-    { "id": "clouds", "type": "external", "label": "AUB point clouds", "sublabel": "photogrammetric LAS", "pos": [790, 40], "size": [160, 64], "tag": "PDAL → COPC",
+        {
+          "path": "src/dynacity/features.py",
+          "line": 148,
+          "label": "extract_building_features"
+        },
+        {
+          "path": "src/dynacity/features.py",
+          "line": 183,
+          "label": "Shapely contains_xy join"
+        },
+        {
+          "path": "src/dynacity/cli.py",
+          "line": 214,
+          "label": "extract-features command"
+        }
+      ]
+    },
+    {
+      "id": "clouds",
+      "type": "external",
+      "label": "AUB point clouds",
+      "sublabel": "photogrammetric LAS",
+      "pos": [
+        790,
+        40
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "PDAL → COPC",
       "sources": [
-        { "path": "src/dynacity/las.py", "line": 172, "label": "Chunked LAS point reader" },
-        { "path": "src/dynacity/las.py", "line": 258, "end_line": 294, "label": "PDAL COPC pipeline, EPSG:32636" }
-      ] },
-
-    { "id": "bbed", "type": "external", "label": "BBED", "sublabel": "ArcGIS FeatureServer", "pos": [40, 220], "size": [160, 64], "tag": "ODbL",
+        {
+          "path": "src/dynacity/las.py",
+          "line": 172,
+          "label": "Chunked LAS point reader"
+        },
+        {
+          "path": "src/dynacity/las.py",
+          "line": 258,
+          "label": "PDAL COPC pipeline, EPSG:32636",
+          "end_line": 270
+        }
+      ]
+    },
+    {
+      "id": "bbed",
+      "type": "external",
+      "label": "BBED",
+      "sublabel": "ArcGIS FeatureServer",
+      "pos": [
+        40,
+        220
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "ODbL",
       "sources": [
-        { "path": "src/dynacity/config.py", "line": 24, "end_line": 27, "label": "Default BBED layer URL" },
-        { "path": "src/dynacity/bbed.py", "line": 107, "end_line": 146, "label": "Paged REST query" }
-      ] },
-    { "id": "fetch", "type": "backend", "label": "BBED fetch", "sublabel": "allowlisted fields only", "pos": [290, 220], "size": [160, 64],
+        {
+          "path": "src/dynacity/config.py",
+          "line": 24,
+          "label": "Default BBED layer URL",
+          "end_line": 27
+        },
+        {
+          "path": "src/dynacity/bbed.py",
+          "line": 138,
+          "label": "Paged REST query",
+          "end_line": 144
+        }
+      ]
+    },
+    {
+      "id": "fetch",
+      "type": "backend",
+      "label": "BBED fetch",
+      "sublabel": "allowlisted fields only",
+      "pos": [
+        290,
+        220
+      ],
+      "size": [
+        160,
+        64
+      ],
       "sources": [
-        { "path": "src/dynacity/bbed.py", "line": 34, "end_line": 49, "label": "BBED_FIELDS allowlist" },
-        { "path": "src/dynacity/bbed.py", "line": 98, "label": "BBEDClient" },
-        { "path": "src/dynacity/cli.py", "line": 89, "label": "fetch-bbed command" }
-      ] },
-    { "id": "panel", "type": "backend", "label": "PanelBuilder", "sublabel": "transition panel + leak checks", "pos": [540, 220], "size": [160, 64],
+        {
+          "path": "src/dynacity/bbed.py",
+          "line": 34,
+          "label": "BBED_FIELDS allowlist",
+          "end_line": 49
+        },
+        {
+          "path": "src/dynacity/bbed.py",
+          "line": 99,
+          "label": "BBEDClient"
+        },
+        {
+          "path": "src/dynacity/cli.py",
+          "line": 175,
+          "label": "fetch-bbed command"
+        }
+      ]
+    },
+    {
+      "id": "panel",
+      "type": "backend",
+      "label": "PanelBuilder",
+      "sublabel": "transition panel + leak checks",
+      "pos": [
+        540,
+        220
+      ],
+      "size": [
+        160,
+        64
+      ],
       "sources": [
-        { "path": "src/dynacity/panel.py", "line": 58, "end_line": 80, "label": "Three intervals, lidar year" },
-        { "path": "src/dynacity/panel.py", "line": 191, "label": "assert_no_temporal_leakage" },
-        { "path": "src/dynacity/cli.py", "line": 142, "label": "build-panel command" }
-      ] },
-    { "id": "bench", "type": "backend", "label": "Temporal benchmark", "sublabel": "no-change · Markov · HGB", "pos": [790, 220], "size": [160, 64], "tag": "F1 + Brier gate",
+        {
+          "path": "src/dynacity/panel.py",
+          "line": 60,
+          "label": "Three intervals, lidar year"
+        },
+        {
+          "path": "src/dynacity/panel.py",
+          "line": 185,
+          "label": "assert_no_temporal_leakage"
+        },
+        {
+          "path": "src/dynacity/cli.py",
+          "line": 231,
+          "label": "build-panel command"
+        }
+      ]
+    },
+    {
+      "id": "bench",
+      "type": "backend",
+      "label": "Temporal benchmark",
+      "sublabel": "no-change · Markov · HGB",
+      "pos": [
+        790,
+        220
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "F1 + Brier gate",
       "sources": [
-        { "path": "src/dynacity/models.py", "line": 453, "label": "temporal_benchmark" },
-        { "path": "src/dynacity/models.py", "line": 480, "end_line": 484, "label": "Three candidates" },
-        { "path": "src/dynacity/models.py", "line": 499, "end_line": 505, "label": "Selection gate" }
-      ] },
-    { "id": "bundle", "type": "database", "label": "ModelBundle", "sublabel": "joblib + .metrics.json", "pos": [1040, 220], "size": [160, 64],
+        {
+          "path": "src/dynacity/models.py",
+          "line": 453,
+          "label": "temporal_benchmark"
+        },
+        {
+          "path": "src/dynacity/models.py",
+          "line": 480,
+          "label": "Three candidates",
+          "end_line": 484
+        },
+        {
+          "path": "src/dynacity/models.py",
+          "line": 499,
+          "label": "Selection gate",
+          "end_line": 505
+        }
+      ]
+    },
+    {
+      "id": "bundle",
+      "type": "database",
+      "label": "ModelBundle",
+      "sublabel": "joblib + .metrics.json",
+      "pos": [
+        1040,
+        220
+      ],
+      "size": [
+        160,
+        64
+      ],
       "sources": [
-        { "path": "src/dynacity/models.py", "line": 439, "end_line": 447, "label": "joblib save / load" },
-        { "path": "src/dynacity/cli.py", "line": 198, "end_line": 204, "label": "train writes bundle + metrics" }
-      ] },
-
-    { "id": "snapshot", "type": "backend", "label": "Snapshot builder", "sublabel": "current building states", "pos": [290, 400], "size": [160, 64],
+        {
+          "path": "src/dynacity/models.py",
+          "line": 439,
+          "label": "joblib save / load"
+        },
+        {
+          "path": "src/dynacity/cli.py",
+          "line": 283,
+          "label": "train writes bundle + metrics"
+        }
+      ]
+    },
+    {
+      "id": "snapshot",
+      "type": "backend",
+      "label": "Snapshot builder",
+      "sublabel": "current building states",
+      "pos": [
+        290,
+        400
+      ],
+      "size": [
+        160,
+        64
+      ],
       "sources": [
-        { "path": "src/dynacity/snapshot.py", "line": 44, "label": "snapshot_from_bbed" },
-        { "path": "src/dynacity/cli.py", "line": 153, "label": "build-snapshot command" }
-      ] },
-    { "id": "engine", "type": "backend", "label": "ForecastEngine", "sublabel": "Monte Carlo p05/p50/p95", "pos": [1040, 400], "size": [160, 64],
+        {
+          "path": "src/dynacity/snapshot.py",
+          "line": 45,
+          "label": "snapshot_from_bbed"
+        },
+        {
+          "path": "src/dynacity/cli.py",
+          "line": 248,
+          "label": "build-snapshot command"
+        }
+      ]
+    },
+    {
+      "id": "engine",
+      "type": "backend",
+      "label": "ForecastEngine",
+      "sublabel": "Monte Carlo p05/p50/p95",
+      "pos": [
+        1040,
+        400
+      ],
+      "size": [
+        160,
+        64
+      ],
       "sources": [
-        { "path": "src/dynacity/engine.py", "line": 163, "label": "forecast()" },
-        { "path": "src/dynacity/engine.py", "line": 245, "end_line": 264, "label": "Sample states, compute KPIs" }
-      ] },
-
-    { "id": "evidence", "type": "database", "label": "Evidence bundle", "sublabel": "content-hashed sources", "pos": [540, 580], "size": [160, 64],
+        {
+          "path": "src/dynacity/engine.py",
+          "line": 156,
+          "label": "forecast()"
+        },
+        {
+          "path": "src/dynacity/engine.py",
+          "line": 245,
+          "label": "Sample states, compute KPIs",
+          "end_line": 264
+        }
+      ]
+    },
+    {
+      "id": "evidence",
+      "type": "database",
+      "label": "Evidence bundle",
+      "sublabel": "content-hashed sources",
+      "pos": [
+        540,
+        580
+      ],
+      "size": [
+        160,
+        64
+      ],
       "sources": [
-        { "path": "src/dynacity/evidence.py", "line": 122, "label": "freeze_bundle" },
-        { "path": "src/dynacity/cli.py", "line": 219, "label": "freeze-evidence command" }
-      ] },
-    { "id": "compiler", "type": "security", "label": "NL front end", "sublabel": "scenario compiler · map query", "pos": [790, 580], "size": [160, 64], "tag": "code checks drafts",
+        {
+          "path": "src/dynacity/evidence.py",
+          "line": 122,
+          "label": "freeze_bundle"
+        },
+        {
+          "path": "src/dynacity/cli.py",
+          "line": 325,
+          "label": "freeze-evidence command"
+        }
+      ]
+    },
+    {
+      "id": "compiler",
+      "type": "security",
+      "label": "NL front end",
+      "sublabel": "scenario compiler · map query",
+      "pos": [
+        790,
+        580
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "code checks drafts",
       "sources": [
-        { "path": "src/dynacity/scenario_compiler.py", "line": 770, "end_line": 781, "label": "Draft, check, resolve" },
-        { "path": "src/dynacity/map_query.py", "line": 442, "end_line": 463, "label": "Query checked, answered by code" }
-      ] },
-    { "id": "api", "type": "backend", "label": "FastAPI service", "sublabel": "dynacity serve · uvicorn", "pos": [1040, 580], "size": [160, 64],
+        {
+          "path": "src/dynacity/scenario_compiler.py",
+          "line": 688,
+          "label": "Draft, check, resolve"
+        },
+        {
+          "path": "src/dynacity/map_query.py",
+          "line": 442,
+          "label": "Query checked, answered by code",
+          "end_line": 463
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "FastAPI service",
+      "sublabel": "dynacity serve · uvicorn",
+      "pos": [
+        1040,
+        580
+      ],
+      "size": [
+        160,
+        64
+      ],
       "sources": [
-        { "path": "src/dynacity/service.py", "line": 52, "label": "create_app" },
-        { "path": "src/dynacity/service.py", "line": 111, "end_line": 127, "label": "/v1/forecast and /v1/plan" },
-        { "path": "src/dynacity/cli.py", "line": 290, "end_line": 292, "label": "serve command" }
-      ] },
-    { "id": "planning", "type": "backend", "label": "Planning search", "sublabel": "backcast + Pareto front", "pos": [1290, 400], "size": [160, 64],
+        {
+          "path": "src/dynacity/service.py",
+          "line": 71,
+          "label": "create_app"
+        },
+        {
+          "path": "src/dynacity/service.py",
+          "line": 157,
+          "label": "/v1/forecast and /v1/plan"
+        },
+        {
+          "path": "src/dynacity/cli.py",
+          "line": 502,
+          "label": "serve command"
+        }
+      ]
+    },
+    {
+      "id": "planning",
+      "type": "backend",
+      "label": "Planning search",
+      "sublabel": "backcast + Pareto front",
+      "pos": [
+        1290,
+        400
+      ],
+      "size": [
+        160,
+        64
+      ],
       "sources": [
-        { "path": "src/dynacity/planning.py", "line": 234, "label": "plan()" },
-        { "path": "src/dynacity/planning.py", "line": 265, "label": "Forecast per lever combination" },
-        { "path": "src/dynacity/planning.py", "line": 305, "label": "Pareto mask" }
-      ] },
-
-    { "id": "llm", "type": "external", "label": "LLM provider", "sublabel": "Claude or Gemini", "pos": [790, 760], "size": [160, 64], "tag": "aggregates only",
+        {
+          "path": "src/dynacity/planning.py",
+          "line": 227,
+          "label": "plan()"
+        },
+        {
+          "path": "src/dynacity/planning.py",
+          "line": 153,
+          "label": "Pareto mask"
+        }
+      ]
+    },
+    {
+      "id": "llm",
+      "type": "external",
+      "label": "LLM provider",
+      "sublabel": "Claude or Gemini",
+      "pos": [
+        790,
+        760
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "aggregates only",
       "sources": [
-        { "path": "src/dynacity/providers.py", "line": 67, "label": "AnthropicProvider" },
-        { "path": "src/dynacity/providers.py", "line": 139, "label": "GeminiProvider" },
-        { "path": "src/dynacity/providers.py", "line": 221, "label": "resolve_provider" }
-      ] },
-    { "id": "viewer", "type": "frontend", "label": "3D viewer", "sublabel": "deck.gl + MapLibre", "pos": [1040, 760], "size": [160, 64],
+        {
+          "path": "src/dynacity/providers.py",
+          "line": 67,
+          "label": "AnthropicProvider"
+        },
+        {
+          "path": "src/dynacity/providers.py",
+          "line": 148,
+          "label": "GeminiProvider"
+        },
+        {
+          "path": "src/dynacity/providers.py",
+          "line": 231,
+          "label": "resolve_provider"
+        }
+      ]
+    },
+    {
+      "id": "viewer",
+      "type": "frontend",
+      "label": "3D viewer",
+      "sublabel": "deck.gl + MapLibre",
+      "pos": [
+        1040,
+        760
+      ],
+      "size": [
+        160,
+        64
+      ],
       "sources": [
-        { "path": "src/dynacity/viewer.py", "line": 253, "label": "render_viewer" },
-        { "path": "src/dynacity/viewer_template.html", "line": 10, "end_line": 12, "label": "MapLibre and deck.gl" },
-        { "path": "src/dynacity/viewer_template.html", "line": 826, "label": "POST /v1/viewer/scenario" }
-      ] },
-    { "id": "planner", "type": "external", "label": "Planner", "sublabel": "browser user", "pos": [1290, 760], "size": [160, 64],
+        {
+          "path": "src/dynacity/viewer.py",
+          "line": 352,
+          "label": "render_viewer"
+        },
+        {
+          "path": "src/dynacity/viewer_template.html",
+          "line": 11,
+          "label": "MapLibre and deck.gl",
+          "end_line": 13
+        },
+        {
+          "path": "src/dynacity/viewer_template.html",
+          "line": 2933,
+          "label": "POST /v1/viewer/scenario"
+        }
+      ]
+    },
+    {
+      "id": "planner",
+      "type": "external",
+      "label": "Planner",
+      "sublabel": "browser user",
+      "pos": [
+        1290,
+        760
+      ],
+      "size": [
+        160,
+        64
+      ],
       "sources": [
-        { "path": "src/dynacity/viewer_template.html", "line": 845, "label": "Questions sent from the page" }
-      ] }
+        {
+          "path": "src/dynacity/viewer_template.html",
+          "line": 2983,
+          "label": "Questions sent from the page"
+        }
+      ]
+    },
+    {
+      "id": "model001",
+      "type": "external",
+      "label": "Beirut 001 model",
+      "sublabel": "Rhino file, January 2020",
+      "pos": [
+        290,
+        760
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "private",
+      "sources": [
+        {
+          "path": "src/dynacity/beirut001_pack.py",
+          "line": 22,
+          "label": "Reads the Rhino model"
+        }
+      ]
+    },
+    {
+      "id": "pack",
+      "type": "backend",
+      "label": "Beirut 001 pack",
+      "sublabel": "outlines, heights, ground grid",
+      "pos": [
+        540,
+        760
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "loopback only",
+      "sources": [
+        {
+          "path": "src/dynacity/beirut001_pack.py",
+          "line": 128,
+          "label": "build_pack"
+        },
+        {
+          "path": "src/dynacity/beirut001_pack.py",
+          "line": 266,
+          "label": "viewer_payload"
+        },
+        {
+          "path": "src/dynacity/cli.py",
+          "line": 439,
+          "label": "pack-beirut001 command"
+        },
+        {
+          "path": "src/dynacity/service.py",
+          "line": 216,
+          "label": "/v1/beirut001 route"
+        }
+      ]
+    },
+    {
+      "id": "corridor",
+      "type": "backend",
+      "label": "Corridor cut",
+      "sublabel": "buffer around Al Masar al Akhdar",
+      "pos": [
+        540,
+        400
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "--corridor",
+      "sources": [
+        {
+          "path": "src/dynacity/corridor.py",
+          "line": 25,
+          "label": "Corridor line and buffer"
+        },
+        {
+          "path": "src/dynacity/corridor.py",
+          "line": 74,
+          "label": "crop_snapshot"
+        },
+        {
+          "path": "src/dynacity/corridor.py",
+          "line": 124,
+          "label": "crop_beirut001"
+        },
+        {
+          "path": "src/dynacity/cli.py",
+          "line": 523,
+          "label": "Applied at serve start-up"
+        }
+      ]
+    },
+    {
+      "id": "osm",
+      "type": "external",
+      "label": "OSM · Tari'ak · CDR",
+      "sublabel": "roads, hourly speeds, peak counts",
+      "pos": [
+        290,
+        940
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "ODbL",
+      "sources": [
+        {
+          "path": "src/dynacity/traffic.py",
+          "line": 327,
+          "label": "Overpass road download"
+        },
+        {
+          "path": "src/dynacity/traffic.py",
+          "line": 595,
+          "label": "Tari'ak hourly median speeds"
+        },
+        {
+          "path": "src/dynacity/traffic.py",
+          "line": 798,
+          "label": "CDR peak counts by road class"
+        }
+      ]
+    },
+    {
+      "id": "traffic",
+      "type": "backend",
+      "label": "Road model",
+      "sublabel": "graph, lanes, speeds, closures",
+      "pos": [
+        540,
+        940
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "uncalibrated rules",
+      "sources": [
+        {
+          "path": "src/dynacity/traffic.py",
+          "line": 639,
+          "label": "build_traffic_model"
+        },
+        {
+          "path": "src/dynacity/traffic.py",
+          "line": 1004,
+          "label": "road_events"
+        },
+        {
+          "path": "src/dynacity/traffic.py",
+          "line": 1133,
+          "label": "traffic_impact"
+        },
+        {
+          "path": "src/dynacity/cli.py",
+          "line": 478,
+          "label": "build-traffic command"
+        }
+      ]
+    },
+    {
+      "id": "sumo",
+      "type": "backend",
+      "label": "SUMO replay",
+      "sublabel": "TraCI, forked baseline",
+      "pos": [
+        790,
+        940
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "tag": "optional",
+      "sources": [
+        {
+          "path": "src/dynacity/traffic_sumo.py",
+          "line": 122,
+          "label": "export_network"
+        },
+        {
+          "path": "src/dynacity/traffic_sumo.py",
+          "line": 479,
+          "label": "Simulation"
+        },
+        {
+          "path": "src/dynacity/traffic_sumo.py",
+          "line": 986,
+          "label": "Baseline copy before the first closure"
+        },
+        {
+          "path": "src/dynacity/traffic_sumo.py",
+          "line": 1304,
+          "label": "Simulation routes"
+        }
+      ]
+    },
+    {
+      "id": "unreal",
+      "type": "frontend",
+      "label": "Unreal street twin",
+      "sublabel": "DynaCityDrive plugin",
+      "pos": [
+        1540,
+        580
+      ],
+      "size": [
+        160,
+        64
+      ],
+      "sources": [
+        {
+          "path": "engine/unreal/Content/Python/traffic_client.py",
+          "line": 9,
+          "label": "Polls the simulation API"
+        },
+        {
+          "path": "engine/unreal/Plugins/DynaCityDrive/Source/DynaCityDrive/Private/DynaMobilityWorld.cpp",
+          "line": 26,
+          "label": "Mobility world actor"
+        }
+      ]
+    }
   ],
   "boundaries": [
-    { "kind": "region", "label": "dynacity serve process", "wraps": ["evidence", "compiler", "api", "planning", "engine"] }
+    {
+      "kind": "region",
+      "label": "dynacity serve process",
+      "wraps": [
+        "evidence",
+        "compiler",
+        "api",
+        "planning",
+        "engine",
+        "corridor"
+      ]
+    }
   ],
   "connections": [
-    { "id": "bbed-query", "from": "bbed", "to": "fetch", "label": "REST query", "variant": "emphasis" },
-    { "id": "fetch-panel", "from": "fetch", "to": "panel", "label": "GeoJSON", "variant": "emphasis" },
-    { "id": "panel-bench", "from": "panel", "to": "bench", "label": "panel CSV", "variant": "emphasis" },
-    { "id": "bench-bundle", "from": "bench", "to": "bundle", "label": "joblib", "variant": "emphasis" },
-    { "id": "bundle-engine", "from": "bundle", "to": "engine", "label": "load", "variant": "emphasis" },
-    { "id": "clouds-features", "from": "clouds", "to": "features", "label": "points" },
-    { "id": "fetch-features", "from": "fetch", "to": "features", "label": "footprints", "variant": "dashed" },
-    { "id": "features-panel", "from": "features", "to": "panel", "label": "2022→24 only", "variant": "dashed" },
-    { "id": "fetch-snapshot", "from": "fetch", "to": "snapshot", "label": "GeoJSON" },
-    { "id": "snapshot-engine", "from": "snapshot", "to": "engine", "label": "UrbanStateSnapshot" },
-    { "id": "api-engine", "from": "api", "to": "engine", "label": "forecast()" },
-    { "id": "api-planning", "from": "api", "to": "planning", "label": "plan()" },
-    { "id": "planning-engine", "from": "planning", "to": "engine", "label": "per lever combo" },
-    { "id": "api-compiler", "from": "api", "to": "compiler", "label": "prose" },
-    { "id": "evidence-compiler", "from": "evidence", "to": "compiler", "label": "citations", "variant": "dashed" },
-    { "id": "compiler-llm", "from": "compiler", "to": "llm", "label": "draft request", "variant": "security" },
-    { "id": "viewer-api", "from": "viewer", "to": "api", "label": "POST /v1/viewer" },
-    { "id": "planner-viewer", "from": "planner", "to": "viewer", "label": "prose" }
+    {
+      "id": "bbed-query",
+      "from": "bbed",
+      "to": "fetch",
+      "label": "REST query",
+      "variant": "emphasis"
+    },
+    {
+      "id": "fetch-panel",
+      "from": "fetch",
+      "to": "panel",
+      "label": "GeoJSON",
+      "variant": "emphasis"
+    },
+    {
+      "id": "panel-bench",
+      "from": "panel",
+      "to": "bench",
+      "label": "panel CSV",
+      "variant": "emphasis"
+    },
+    {
+      "id": "bench-bundle",
+      "from": "bench",
+      "to": "bundle",
+      "label": "joblib",
+      "variant": "emphasis"
+    },
+    {
+      "id": "bundle-engine",
+      "from": "bundle",
+      "to": "engine",
+      "label": "load",
+      "variant": "emphasis"
+    },
+    {
+      "id": "clouds-features",
+      "from": "clouds",
+      "to": "features",
+      "label": "points"
+    },
+    {
+      "id": "fetch-features",
+      "from": "fetch",
+      "to": "features",
+      "label": "footprints",
+      "variant": "dashed"
+    },
+    {
+      "id": "features-panel",
+      "from": "features",
+      "to": "panel",
+      "label": "2022→24 only",
+      "variant": "dashed"
+    },
+    {
+      "id": "fetch-snapshot",
+      "from": "fetch",
+      "to": "snapshot",
+      "label": "GeoJSON"
+    },
+    {
+      "id": "snapshot-engine",
+      "from": "snapshot",
+      "to": "engine",
+      "label": "UrbanStateSnapshot"
+    },
+    {
+      "id": "api-engine",
+      "from": "api",
+      "to": "engine",
+      "label": "forecast()"
+    },
+    {
+      "id": "api-planning",
+      "from": "api",
+      "to": "planning",
+      "label": "plan()"
+    },
+    {
+      "id": "planning-engine",
+      "from": "planning",
+      "to": "engine",
+      "label": "per lever combo"
+    },
+    {
+      "id": "api-compiler",
+      "from": "api",
+      "to": "compiler",
+      "label": "prose"
+    },
+    {
+      "id": "evidence-compiler",
+      "from": "evidence",
+      "to": "compiler",
+      "label": "citations",
+      "variant": "dashed"
+    },
+    {
+      "id": "compiler-llm",
+      "from": "compiler",
+      "to": "llm",
+      "label": "draft request",
+      "variant": "security"
+    },
+    {
+      "id": "viewer-api",
+      "from": "viewer",
+      "to": "api",
+      "label": "POST /v1/viewer"
+    },
+    {
+      "id": "planner-viewer",
+      "from": "planner",
+      "to": "viewer",
+      "label": "prose"
+    },
+    {
+      "id": "model001-pack",
+      "from": "model001",
+      "to": "pack",
+      "label": "Rhino model"
+    },
+    {
+      "id": "pack-api",
+      "from": "pack",
+      "to": "api",
+      "label": "/v1/beirut001",
+      "variant": "dashed"
+    },
+    {
+      "id": "corridor-api",
+      "from": "corridor",
+      "to": "api",
+      "label": "cut inputs",
+      "variant": "dashed"
+    },
+    {
+      "id": "osm-traffic",
+      "from": "osm",
+      "to": "traffic",
+      "label": "roads · speeds · counts"
+    },
+    {
+      "id": "traffic-sumo",
+      "from": "traffic",
+      "to": "sumo",
+      "label": "road graph"
+    },
+    {
+      "id": "traffic-api",
+      "from": "traffic",
+      "to": "api",
+      "label": "TrafficModel",
+      "variant": "dashed"
+    },
+    {
+      "id": "sumo-api",
+      "from": "sumo",
+      "to": "api",
+      "label": "TraCI frames"
+    },
+    {
+      "id": "unreal-api",
+      "from": "unreal",
+      "to": "api",
+      "label": "POST /v1/viewer/traffic"
+    }
   ],
   "cards": [
-    { "dot": "emerald", "title": "Time-forward validation", "items": [
-      "Train on 2018→2022, test on 2022→2024",
-      "2018→2024 is descriptive only and never reaches train or test",
-      "The gradient-boosting model ships only if it beats both baselines on macro-F1 and Brier; otherwise the best baseline ships"
-    ] },
-    { "dot": "cyan", "title": "Forecast engine", "items": [
-      "8 canonical building states, one 2-year step at a time",
-      "Monte Carlo draws give p05/p50/p95 KPI bands at 2, 4 and 6 years"
-    ] },
-    { "dot": "rose", "title": "LLM guardrails", "items": [
-      "The LLM drafts structure; code checks scope and sets every number",
-      "Only aggregate allowlisted attributes are sent, never per-building rows",
-      "Map answers are computed and phrased by code"
-    ] },
-    { "dot": "slate", "title": "Optional and offline", "items": [
-      "Every step also runs from the dynacity CLI",
-      "Point-cloud features are banned from 2018→2022 rows (captured after the 2020 blast)",
-      "Google Photorealistic 3D Tiles go through a same-origin proxy that keeps the key server-side"
-    ] }
+    {
+      "dot": "emerald",
+      "title": "Time-forward validation",
+      "items": [
+        "Train on 2018→2022, test on 2022→2024",
+        "2018→2024 is descriptive only and never reaches train or test",
+        "The gradient-boosting model ships only if it beats both baselines on macro-F1 and Brier; otherwise the best baseline ships"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Forecast engine",
+      "items": [
+        "8 canonical building states, one 2-year step at a time",
+        "Monte Carlo draws give p05/p50/p95 KPI bands at 2, 4 and 6 years"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "LLM guardrails",
+      "items": [
+        "The LLM drafts structure; code checks scope and sets every number",
+        "Only aggregate allowlisted attributes are sent, never per-building rows",
+        "Map answers are computed and phrased by code"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "Optional and offline",
+      "items": [
+        "Every step also runs from the dynacity CLI",
+        "Point-cloud features are banned from 2018→2022 rows (captured after the 2020 blast)",
+        "The Beirut 001 pack and the Unreal project stay in the private data root; the pack is served on loopback only"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Mobility twin",
+      "items": [
+        "Roads come from OpenStreetMap; speeds are Tari'ak 2014–2019 medians, counts are CDR 2016–17",
+        "SUMO replays generated trips; closures and crashes use uncalibrated rules",
+        "Traffic never feeds the transition model; the page only gets per-road aggregates"
+      ]
+    }
   ]
 }

@@ -18,13 +18,17 @@ def main():
     parser.add_argument('--output',required=True,help='Private build/cache directory')
     parser.add_argument('--keep-intermediates', action='store_true',
                         help='Keep compiler caches for deliberate incremental builds (default: remove after build)')
+    parser.add_argument('--max-parallel-actions', type=int, default=2,
+                        help='Bound compiler memory pressure while the editor is open (default: 2)')
     args=parser.parse_args()
     engine=Path(args.engine).resolve();output=Path(args.output).resolve()
     with output_lock(output):
-        build(engine, output, args.keep_intermediates)
+        build(engine, output, args.keep_intermediates, args.max_parallel_actions)
 
 
-def build(engine, output, keep_intermediates=False):
+def build(engine, output, keep_intermediates=False, max_parallel_actions=2):
+    if max_parallel_actions < 1:
+        raise ValueError('At least one parallel action is required')
     for path in (engine,output):
         if any(char in str(path) for char in '"&|<>^%!\r\n'):
             raise ValueError('Build paths contain unsupported command-shell characters')
@@ -47,6 +51,7 @@ def build(engine, output, keep_intermediates=False):
     project.write_text(json.dumps(expected,indent=2),encoding='utf-8')
     command=[str(batch),'UnrealEditor','Win64','Development','-Project='+str(project),
         '-Plugin='+str(target/'DynaCityDrive.uplugin'),'-NoHotReloadFromIDE',
+        '-MaxParallelActions='+str(max_parallel_actions),
         '-NoUBTMakefiles','-MaxParallelActions=2','-NoXGE']
     result=subprocess.run(command,check=False,capture_output=True,text=True,errors='replace')
     log=host.parent/'build.log';log.write_text(result.stdout+'\n'+result.stderr,encoding='utf-8')

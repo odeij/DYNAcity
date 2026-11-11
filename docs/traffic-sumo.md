@@ -63,7 +63,7 @@ cars from drawn cars. Real-time citywide throughput is still a measurement quest
 - `POST /v1/viewer/traffic/simulation/{key}`: apply current disruptions and advance this same fleet.
 - `DELETE /v1/viewer/traffic/simulation/{key}`: close both SUMO processes.
 
-Responses contain `frames`, an assumptions statement, and the session key on creation. Each frame contains `time_s`, vehicle rows `[id, longitude, latitude, SUMO_angle, speed_mps, edge_id, lane_index]`, and metrics. Internal junction positions are returned too; cars do not jump between street endpoints. The viewer fetches two-second buffers, pauses when exhausted, and never extrapolates beyond SUMO data. The viewer prefetches when fewer than four simulated seconds remain; closure commands take effect at the next server request, after already buffered traffic has played. Changing the hour starts a new fleet; toggling detail does not.
+Responses contain `frames`, an assumptions statement, and the session key on creation. Each frame contains `time_s`, vehicle rows `[id, longitude, latitude, SUMO_angle, speed_mps, edge_id, lane_index]`, and metrics. The network has no internal junction lanes (`--no-internal-links`, see Gridlock), so a car crosses a junction within one step and is drawn jumping from the stop line to the next street. The viewer fetches two-second buffers, pauses when exhausted, and never extrapolates beyond SUMO data. The viewer prefetches when fewer than four simulated seconds remain; closure commands take effect at the next server request, after already buffered traffic has played. Changing the hour starts a new fleet; toggling detail does not.
 
 Sessions are limited to four per server worker and expire after two idle minutes when the next session is created. Shutdown closes all sessions. Use a single API worker, since session storage is process-local. Closing Traffic releases the session. This is a local pilot API, not an authenticated multi-user simulation service.
 
@@ -109,6 +109,8 @@ cars stopped below 0.1 m/s. Stopped cars include signals and initial acceleratio
 these instantaneous counts are not measured queue lengths or sustained congestion.
 The viewer adds continuous boundary entries; no calibrated warm-up period is applied.
 
+The comparison run is copied from the scenario's saved state at the first change (`Simulation.fork`). Until 10 November 2026 the copy also re-read the trip file, so every starting car that had already arrived drove again in the copy only. One minute into an 08:00 citywide run that was 8,410 cars, and the "normal day" side carried up to 22,000 extra cars for several minutes, overstating every plan's benefit. Comparisons made before then are biased that way. Now a copy with no change stays within about 240 cars of the scenario (of about 9,700 active) over three minutes, with a mean completed-trip delay under 0.1 s. The same drift appears with fixed-time signals, so it does not come from actuated signals. Its source inside SUMO's saved state is not yet found. Differences of that size in active or stopped cars are noise.
+
 New entries reroute to their fixed destinations before insertion when a legal detour
 exists. If their origin/destination is closed or no legal route exists, they stay in
 the explicit entry queue; reopening retries these requests without losing them.
@@ -138,24 +140,77 @@ same full 3D endpoint vector with vertical thickness, avoiding shortened tilted
 boxes and surfaces protruding through asphalt. These display transitions are not
 surveyed longitudinal grades.
 
-An earlier version never relaxed junction blocking and never moved a car, so that gridlock would show up in the inputs rather than be hidden. On the Al Masar al Akhdar corridor (November 2026) that made every run collapse, whatever the demand. A trace of the front car of every queue stuck over two minutes showed:
+SUMO teleportation stays disabled and the adapter never relocates a car. The measured gridlock below was instead addressed in the inputs (`traffic_sumo.py`):
 
-- **Knots formed at single junctions while the network as a whole still ran at observed speeds.** Starting from an empty network at half the interior trip rate, simulated speeds were 1.0–1.1× observed at minutes 9–12, yet knots were already forming: two queues blocking each other, or a car stuck inside a junction behind a stopped one.
-- **Nothing could resolve a knot, so new trips queued into it.** "Next road full of stopped cars" became the main reason a front car could not move, and junctions with a stuck car grew by about 15 a minute.
-- **Lower demand and the starting fleet only changed when the collapse came.** Halving the interior trip rate delayed it from about minute 5 to minute 12. The initial fleet, with 111 of 2,001 directed roads seeded over 80% full, made it start at minute 2.
-- **Wrong lanes, missing turns, red lights and the map edge were rare causes.** Every first knot was at least 270 m inside the network.
-- **Driver impatience (SUMO's `--time-to-impatience` 180 s) barely helped:** 2,330 cars stuck at minute 15 against about 2,640.
+- **Junction geometry.** netconvert joins clusters of junctions closer than 10 m (`--junctions.join`), keeps junction shapes minimal (`--junctions.minimal-shape`), and builds no internal junction lanes (`--no-internal-links`). OSM splits roads at every node, and cutting junction areas out of short pieces left lanes of 0.2–7 m that no car fits on. Knots of dozens to 141 cars formed around them. Joining absorbs 486 such pieces into their junctions, listed in `network.excluded_roads`; a closure on one has no effect. The 138 OSM signals become 110 joined controls.
+- **Right of way** at unsignalled junctions follows the OSM road class (`ROAD_PRIORITY`, as in SUMO's own OSM import), not our speed limits.
+- **Signals are actuated** (`--tls.default-type actuated`). No Beirut timings exist.
+- **Drivers push in.** A car held 30 s by a vehicle blocking a junction passes it (`JUNCTION_BLOCKER_S`). Waiting drivers grow impatient over 120 s (`IMPATIENCE_S`) and merge with smaller gaps (`DRIVER_LANE_CHANGE`). Cars SUMO finds overlapping are counted once each in `metrics.junction_conflicts` (scenario) and `metrics.baseline_junction_conflicts`.
+- **Drivers re-plan.** Every car re-picks its route from current road speeds when it enters and then every 120 s (`REROUTE_PERIOD_S`), using speeds averaged over the last 180 s (`REROUTE_MEMORY_S`). This is SUMO's rerouting device, as if every driver used a live map app. Both runs re-plan by the same rule. A plan's effect therefore includes the detours drivers find around it, slowed streets included. Before this, a speed cap moved no one. Because cars now change route inside SUMO, the adapter reads a car's current route again when its route id has changed. Without that it would miss a closure on a route the car has switched to.
+- **Fleet cap.** Continuous demand holds the unchanged run's fleet, on the road plus waiting to enter, at `FLEET_SHARE` (0.4) of the CDR-based estimate. The cap reads only the unchanged run, so both runs keep identical trips. Trips not started are counted in `metrics.demand.held_back`, beside `fleet_target`.
 
-Knots are now resolved as drivers would resolve them, and every move is counted:
+Collision warnings remain diagnostic, not proof of collision-free traffic.
 
-- **A car may enter a junction past one that has stood in it for 60 s** (`JUNCTION_BLOCKER_S`, SUMO's `--ignore-junction-blocker`). SUMO has no counter for this; collision checking at junctions stays on as a diagnostic.
-- **The front car of a queue that has stood for 300 s moves ahead along its route** (`UNSTICK_AFTER_S`, `Simulation.unstick`). It moves to the start of the nearest of its next five roads with room and is counted in `unstuck`, separately for the comparison run. This is SUMO's default teleport time, but SUMO's own teleport is not used: in tests it moved cars that a closure held, or that had no detour, straight past the closure, and took them out of SUMO's vehicle list while in transit. `unstick` skips those cars, stops its search at a closed road, and keeps every car on the network.
-- **`unstick` runs every 10 simulated seconds** (`UNSTICK_EVERY_S`), with the whole fleet read on those steps, so its moves do not depend on request size or on whether cars are drawn (light mode).
+**Why this and not moving cars (12 November 2026).** The `T5.1_RL-sumo-plans` branch had instead moved
+the front car of a queue that had stood 300 s ahead along its route (`unstick`), with no fleet cap and no
+re-planning. Both were run on the Al Masar al Akhdar corridor (1,426 roads) at 08:00 and 17:00, two seeds,
+20 simulated minutes, then 10 with Armenia Street closed to cars.
 
-Impatience stays off. Collision warnings are diagnostic, not proof of collision-free traffic.
+| After 20 minutes | Moving cars (`unstick`) | This approach |
+|---|---|---|
+| Cars stopped | 81–83% | 27–39% |
+| Waiting to enter | 15,000–20,000 and growing | 260–620 |
+| Simulated / observed speed, median | 0.59–0.83 | 1.25–1.28 |
+| Mean speed error | 13.6–14.8 km/h | 8.4–9.2 km/h |
+| Cars moved ahead | 490–660 | none |
+| Wall time per simulated minute | 6.5–10 s | 2.7–3.9 s |
+
+Without the cap and the re-planning, entries kept arriving faster than the corridor could carry them,
+and moving cars ahead only delayed the jam. This approach runs about 25% faster than the Tari'ak
+medians, so the 0.4 cap may be on the low side for the corridor.
+
+**Closures.** The first version crashed SUMO when a road closed: a car already scheduled to enter,
+whose route crossed the newly closed road, failed SUMO's route check on entry ("has no valid route";
+every driver re-plans, so it is checked). `withhold` now takes back every waiting car whose route
+crosses a newly closed road, not only those starting on it; they re-enter around the closure, or wait
+until there is a way. With that, the corridor ran 10 minutes with Armenia Street closed at 22–24% stopped.
 
 
 Clipping the network at the map edge leaves stub entry roads, some only a few metres long, where a car cannot be inserted. Boundary inflow trips start on the first road of their route at least 60 m long (`MIN_ENTRY_M`). The boundary queue still grows: the busy entry trunks are congested back to the map edge, which stands for queues outside the modelled area.
+
+### Measured gridlock (10 November 2026)
+
+A citywide 08:00 run with no changes locks up. Each row is the share of active cars standing still (speed < 0.1 m/s), with how much traffic is added:
+
+| Simulated minute | Normal demand | Half of the added traffic | No added traffic |
+| --- | --- | --- | --- |
+| 1 | 39% of 24,100 | 39% | 38% of 20,400 |
+| 3 | 64% | 65% | 72% of 8,900 |
+| 5 | 78% | 78% | 85% of 6,900 |
+| 8 | 88% of 28,200 | 85% | 97% of 6,000 |
+| 12 | 95% of 35,600, plus 17,600 waiting to enter | | |
+
+Two separate faults show up:
+
+1. **Junction deadlock.** With no added traffic, about 6,000 cars of the starting fleet never finish. They are stuck across every road class: motorways, trunks and residential streets alike. Teleporting, junction-blocker relief and impatience are all off (`JUNCTION_BLOCKER_S = -1`, `IMPATIENCE_S = 0`), and signals run SUMO's default programs, so a locked junction never clears.
+2. **Added traffic far above what the network carries.** Interior trips (about 156,000 per hour) and boundary entries (about 78,000 per hour) are set from historical speeds. The simulation completes about 250 trips a minute by minute 10, roughly 15,000 per hour, so cars pile up and the entry queue grows without limit.
+
+Simulated speeds stay at 13–25% of the Tari'ak hourly medians (`speed_check.ratio_p50`) throughout. Plan-versus-baseline numbers after the first few minutes mostly compare two gridlocks.
+
+After these changes, in light traffic (40% fleet, 16 minutes), only 16 cars headed a queue for over two minutes, against 643 before. Junction overlaps fell from about 2,400 cars to 2. Simulated road speeds match the Tari'ak medians (ratio 1.0–1.1 over minutes 5–14, against 0.2–0.4 before).
+
+With the junction fixes alone, the stopped share still rose, now as ordinary queues rather than deadlock: stopped cars had waited a median 91 s. They queued at bottlenecks (Général de Gaulle Avenue, Corniche Pierre Gemayel, Saëb Salam Boulevard, Avenue de Paris) and at city-edge entries. Every trip kept the shortest route it chose at free-flow speed, so traffic piled onto the same avenues while parallel streets stayed empty. Re-planning drivers (above) end that rise.
+
+Default settings, 08:00, share of active cars standing still:
+
+| Simulated minute | Before | Junction fixes | Junction fixes and re-planning |
+| --- | --- | --- | --- |
+| 5 | 78% | 33% | 25% |
+| 8 | 88% | 45% | 33% |
+| 14 | about 93% | 61% | 34% |
+| 20 | | 79% | 33% |
+
+With re-planning, completed trips per minute settle at 560–690 over minutes 10–20, against 190–460 without it. The fleet stays near its cap (about 9,200–9,700 on the road, 2,000–2,600 waiting to enter), and the speed ratio is 1.08–1.13. A simulated minute takes about 12 s to compute citywide, against 7 s without re-planning. These are steady queues, not a calibrated level of congestion: calibrating demand against Tari'ak is the next step.
 
 ### Trips inside the area
 
@@ -240,6 +295,6 @@ On the citywide Beirut network (29,300 cars at 08:00) through the real API on on
 
 New trips are routed by `EdgeRouter`: Dijkstra over SUMO's edge graph (its connections, so turn bans hold) with free-flow travel times, one search per origin road serving every destination from it. The initial fleet uses one search per origin road, bounded by its longest walk.
 
-The converted network contains 14,898 directed edges and 1,269 assumed signal controls (from the road file built before OSM signals were kept). SUMO drops the two directed arcs of road index 10714, a 20.4-metre self-loop. The API reports this in `network.excluded_roads`; it is excluded from generated demand rather than silently inventing connectivity. Supporting this small ring requires explicitly splitting its geometry and validating lane connections. All trips generated on the converted network remain accounted for, including trips without detours. These counts are a synthetic fleet estimate, not observed traffic volume.
+The converted network contains 14,173 directed edges and 110 joined signal controls (138 OSM signals before joining). SUMO drops the two directed arcs of road index 10714, a 20.4-metre self-loop. The API reports this in `network.excluded_roads`; it is excluded from generated demand rather than silently inventing connectivity. Supporting this small ring requires explicitly splitting its geometry and validating lane connections. All trips generated on the converted network remain accounted for, including trips without detours. These counts are a synthetic fleet estimate, not observed traffic volume.
 
 A full-network closure/reopening run retained total accounting throughout: a closure on road 0 changed 11 vehicle routes and left 10 active vehicles without a permitted detour; reopening cleared the no-detour count. The finite run's baseline arrival comparison stayed coherent (zero delay before disruptions). This short run verifies mechanics and accounting, not calibrated incident impact or steady-state throughput.

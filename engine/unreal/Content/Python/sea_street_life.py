@@ -134,6 +134,7 @@ def install_sea(sea_z=None):
     z = data['sea_z'] if sea_z is None else sea_z
     material = _sea_material(_normal_texture())
     actor = _spawn(unreal.StaticMeshActor, 'DynaCity_Sea')
+    actor.tags = [TAG, 'DYNACITY_WATER_SURFACE']
     component = actor.static_mesh_component
     component.set_static_mesh(unreal.load_asset(PLANE))
     component.set_material(0, material)
@@ -213,6 +214,10 @@ def install_parked_cars():
     groups = {}
     for i, slot in enumerate(data['slots']):
         where = explore_city._world(slot['position'])
+        # A plausible source road elevation is insufficient at the coast. The
+        # loaded native surface must actually support this illustrative slot.
+        if not _parking_support(where):
+            continue
         if any((where - start).length() < 1500 for start in starts):
             continue
         u = ((i * 2654435761) % 2 ** 32) / 2 ** 32
@@ -225,6 +230,18 @@ def install_parked_cars():
     return {f'{m}_{p}': _instances(f'Parked_{m}_{p}', meshes[m], None, v, (9000, 16000),
                                    unreal.load_asset(f'/Game/Beirut/Prototype/M_VehiclePaint{p}'))
             for (m, p), v in groups.items()}
+
+
+def _parking_support(where):
+    world=unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world()
+    hit=unreal.SystemLibrary.line_trace_single(world,where+unreal.Vector(0,0,100),where-unreal.Vector(0,0,100),
+        unreal.TraceTypeQuery.TRACE_TYPE_QUERY1,False,[],unreal.DrawDebugTrace.NONE,True)
+    if hit is None:return False
+    values=hit.to_tuple() if hasattr(hit,'to_tuple') else hit
+    if not values[0]:return False
+    actor=values[9]
+    if actor and (actor.get_actor_label()=='DynaCity_Sea' or 'DYNACITY_WATER_SURFACE' in [str(t) for t in actor.tags]):return False
+    return abs(float(values[4].z)-where.z)<=45 and float(values[6].z)>=.7
 
 
 def install_all():

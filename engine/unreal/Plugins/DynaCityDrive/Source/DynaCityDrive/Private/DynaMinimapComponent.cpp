@@ -289,6 +289,19 @@ FString UDynaMinimapComponent::Status() const
     FJsonSerializer::Serialize(StatusObject(),TJsonWriterFactory<>::Create(&Json));
     return Json;
 }
+bool UDynaMinimapComponent::GeoPose(const FVector& WorldPosition,const FVector& Forward,double& Lon,double& Lat,double& HeadingDeg) const
+{
+    const ADynaMobilityWorld* Mobility=Cast<ADynaMobilityWorld>(GetOwner());
+    if(!Georeferenced || !Mobility)return false;
+    const FVector2D Local=Mobility->Local(WorldPosition);
+    const auto LL=DynaMapMath::Utm36ToLonLat(UtmOrigin.X+Local.X,UtmOrigin.Y+Local.Y);
+    // Mercator is conformal, so the bearing between two close points is the true compass heading
+    // (UTM grid convergence is removed by going through geographic coordinates).
+    const FVector2D A=Mercator(Local), B=Mercator(Mobility->Local(WorldPosition+Forward.GetSafeNormal2D()*100));
+    Lon=LL.X; Lat=LL.Y;
+    HeadingDeg=FMath::Fmod(FMath::RadiansToDegrees(FMath::Atan2(B.X-A.X,B.Y-A.Y))+360.0,360.0);
+    return FMath::IsFinite(Lon) && FMath::IsFinite(Lat) && FMath::IsFinite(HeadingDeg);
+}
 FVector2D UDynaMinimapComponent::Mercator(const FVector2D& Local) const
 {
     if(!Georeferenced)return Local;

@@ -1,6 +1,6 @@
 // Pavement playback shares Unreal's prepared UNA paths. This is not a crossing solver.
 // Walkers move at a fixed illustrative 1.3 m/s; that is not a planning control.
-const mobilityLab = {people: true, flows: false, demand: 1, speed: 1.3, incoming: 1,
+const mobilityLab = {people: false, flows: false, demand: 1, speed: 1.3, incoming: 1,
   paused: false, blocked: new Set(), time: 0, last: null};
 let pedestrianPaths = null;
 function preparePedestrianPaths() {
@@ -47,14 +47,15 @@ function pedestrianMesh() {
   return meshOf(v);
 }
 function pedestrianLayers(now) {
-  if(!ui.traffic||!DATA.pedestrians)return [];
+  // Walkers have their own rail button; the flow overlay and pavement tool stay with Traffic.
+  if(!DATA.pedestrians||!(mobilityLab.people||ui.traffic))return [];
   const lab=mobilityLab,dt=lab.last===null?0:Math.max(0,Math.min(.25,(now-lab.last)/1000));lab.last=now;
   if(!lab.paused&&!calm.matches) {
     lab.time+=dt;
     for(const s of preparePedestrianPaths())if(!lab.blocked.has(s.id))s.phase+=dt*lab.speed;
   }
   const out=[],paths=preparePedestrianPaths();
-  if(lab.flows)out.push(new deck.PathLayer({id:'pedestrian-flow',data:paths,getPath:s=>s.path.map(p=>[p[0],p[1],(roadHeightAt(s.road_index,p[0],p[1])??groundZ(p[0],p[1]))+.22]),
+  if(ui.traffic&&lab.flows)out.push(new deck.PathLayer({id:'pedestrian-flow',data:paths,getPath:s=>s.path.map(p=>[p[0],p[1],(roadHeightAt(s.road_index,p[0],p[1])??groundZ(p[0],p[1]))+.22]),
     getWidth:s=>2+Math.sqrt(Math.max(0,s.ped_per_hour_pm-(DATA.pedestrians.baseline_removed_per_hour??0))*lab.demand)/3,
     widthUnits:'meters',widthMinPixels:2,getColor:s=>lab.blocked.has(s.id)?[192,72,65,220]:[22,155,141,185],
     pickable:false,updateTriggers:{getWidth:lab.demand,getColor:[...lab.blocked].join(',')}}));
@@ -66,12 +67,19 @@ function pedestrianLayers(now) {
       material:MATERIAL,pickable:false,updateTriggers:{getPosition:lab.time,getOrientation:lab.time}}));
   }
   // Transparent picking paths only while the pavement tool is active.
-  if(ui.roadTool==='pavement')out.push(new deck.PathLayer({id:'pedestrian-edit',data:paths,
+  if(ui.traffic&&ui.roadTool==='pavement')out.push(new deck.PathLayer({id:'pedestrian-edit',data:paths,
     getPath:s=>s.path.map(p=>onGround(p,.3)),getWidth:10,widthUnits:'pixels',
     getColor:s=>lab.blocked.has(s.id)?[210,77,62,230]:[22,155,141,150],pickable:true,
     onClick:info=>{if(info.object){togglePavement(info.object.id);return true;}},
     updateTriggers:{getColor:[...lab.blocked].join(',')}}));
   return out;
+}
+// Rail button: walking people on the pavements, shown with or without the traffic panel.
+function setPeople(on) {
+  mobilityLab.people=!!on&&!!DATA.pedestrians;mobilityLab.last=null;
+  const b=$('t-people');if(b)b.setAttribute('aria-pressed',String(mobilityLab.people));
+  if($('mobility-lab')?.dataset.ready)renderMobilityLab();
+  render();if(typeof animate==='function')animate();
 }
 function togglePavement(id) {
   const blocked=mobilityLab.blocked;
@@ -260,7 +268,7 @@ function renderMobilityLab() {
       <details class="lever" id="lab-assumptions"><summary class="t">Optional assumptions and display</summary>
       <div class="note">Traffic uses SUMO. Walking uses the separate modelled PM demand. These multipliers are what-if assumptions, not planning interventions.</div>
       <div class="sev"><label for="lab-incoming">Incoming traffic multiplier <b id="lab-incoming-value"></b></label><input id="lab-incoming" type="range" min="0" max="2" step="0.25" value="1" ${DATA.api?'':'disabled'}></div>
-      ${DATA.pedestrians?`<label class="road-row"><input id="lab-people" type="checkbox" checked>People on pavements</label>
+      ${DATA.pedestrians?`<label class="road-row"><input id="lab-people" type="checkbox">People on pavements</label>
       <label class="road-row"><input id="lab-flows" type="checkbox">Walking flow overlay</label>
       <div class="sev"><label for="lab-demand">Pedestrian demand multiplier <b id="lab-demand-value"></b></label><input id="lab-demand" type="range" min="0" max="3" step="0.25" value="1"></div>
       <button type="button" class="more" data-lab-pavement aria-pressed="false">Mark pavement unavailable (limitation test)</button>
@@ -275,6 +283,7 @@ function renderMobilityLab() {
   renderPlanner();
   $('lab-incoming-value').textContent=`${lab.incoming.toFixed(2)}×`;
   if(DATA.pedestrians) {
+    $('lab-people').checked=lab.people;
     $('lab-demand-value').textContent=`${lab.demand.toFixed(2)}×`;
     $('lab-results').innerHTML=`<div class="note"><b>${Math.round(m.available).toLocaleString()} modelled walkers on open pavements</b><br>Baseline ${Math.round(m.baseline).toLocaleString()} · ${m.blocked} segments unavailable · ${Math.round(m.unavailable)} modelled walkers affected. Citywide totals; no pedestrian–vehicle interaction.</div>`;
     el.querySelector('[data-lab-pavement]').setAttribute('aria-pressed',String(ui.roadTool==='pavement'));
@@ -286,7 +295,7 @@ function mobilityLabInput(target) {
   if(target.id==='lab-incoming') {
     lab.incoming=Number(target.value);closeTrafficSession();cars=[];prepareCars();
   } else if(target.id==='lab-demand')lab.demand=Number(target.value);
-  else if(target.id==='lab-people')lab.people=target.checked;
+  else if(target.id==='lab-people'){setPeople(target.checked);return;}
   else if(target.id==='lab-flows')lab.flows=target.checked;
   else if(target.id==='plan-speed') {
     if(ui.selectedRoad!==null)setPlan(ui.selectedRoad,{speed_limit_kmh:target.value===''?undefined:Number(target.value)});
@@ -322,7 +331,7 @@ function mobilityLabClick(target) {
     setRoadTool('pavement');renderMobilityLab();return true;
   }
   if(target.closest('[data-lab-reset]')) {
-    Object.assign(mobilityLab,{people:true,flows:false,demand:1,speed:1.3,incoming:1,paused:false,time:0,last:null});
+    Object.assign(mobilityLab,{flows:false,demand:1,speed:1.3,incoming:1,paused:false,time:0,last:null});
     mobilityLab.blocked.clear();for(const s of preparePedestrianPaths())s.phase=0;
     ui.roadTool=null;ui.closedRoads.clear();ui.crashes.clear();ui.crashSites.clear();
     ui.planning.clear();ui.selectedRoad=null;ui.planSearch='';

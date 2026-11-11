@@ -10,6 +10,7 @@ import hashlib
 import json
 import heapq
 import math
+import os
 from pathlib import Path
 import random
 import shutil
@@ -63,22 +64,84 @@ WATCH_POI = 'dynacity-view'
 SPEED_CHECK_WARMUP_S = 60
 SPEED_CHECK_MIN_SAMPLES = 20
 
-# Knots: with right-of-way never relaxed and nothing ever moved, a single knot
-# at a junction (two queues blocking each other, a car stuck inside behind a
-# stopped one) never cleared, and new trips queued into it until the corridor
-# gridlocked at any demand level (docs/traffic-sumo.md#gridlock). Two standard
-# remedies resolve knots instead, both visible: a car may enter a junction past
-# one that has stood in it JUNCTION_BLOCKER_S (SUMO's own rule), and the front
-# car of a queue stuck UNSTICK_AFTER_S moves ahead along its route (`unstick`,
-# counted as `unstuck`; SUMO's teleport time, but closure-aware: SUMO's own
-# teleport moved cars a closure held or blocked straight past it). Impatience
-# stays off: it did not change the outcome.
-JUNCTION_BLOCKER_S = 60
-IMPATIENCE_S = 0
-UNSTICK_AFTER_S = 300
-# `unstick` runs on this simulated-time clock, so its moves do not depend on
-# request size or on whether cars are being drawn.
-UNSTICK_EVERY_S = 10
+# Gridlock relief. With every relief off, junctions on this assumed network
+# lock for good: a citywide 08:00 run with no added traffic left about 6,000
+# cars stopped for ever (docs/traffic-sumo.md, "Measured gridlock"). A car
+# held this long by a vehicle blocking the junction drives past it, and a
+# waiting driver's impatience (accepting ever smaller gaps, finally ignoring
+# right of way) grows over IMPATIENCE_S, as drivers push in on Beirut's
+# streets. Teleporting stays off: no car is ever moved. The overlaps this
+# causes are counted (`junction_conflicts`), not hidden.
+JUNCTION_BLOCKER_S = 30
+IMPATIENCE_S = 120
+UNSTICK_AFTER_S = 120
+
+# Share of the CDR-based fleet that continuous demand keeps on the road. At
+# 08:00 the full estimate (about 29,700 cars) jams the simulated network:
+# road speeds fell to 0.64 of the Tari'ak hourly medians and four in five
+# cars stood still within 14 minutes. At 0.3-0.5 simulated speeds match
+# the medians (ratio about 1.0-1.1 over minutes 5-14). A first, rough
+# calibration of one number, not a fitted demand model.
+FLEET_SHARE = 0.4
+
+# Drivers re-plan. Every car re-picks its route from current road speeds
+# when it enters and then every REROUTE_PERIOD_S (SUMO's rerouting device,
+# speeds averaged over the last REROUTE_MEMORY_S), as drivers with a live map
+# app would. With routes fixed at free-flow speeds every car kept heading
+# into the same few jams while parallel streets stayed empty
+# (docs/traffic-sumo.md). Both runs re-plan by the same rule, so a plan's
+# effect still includes the detours drivers would find around it.
+REROUTE_PERIOD_S = 120
+REROUTE_MEMORY_S = 180
+# Router for re-planning and detours. Contraction hierarchies (CH) rebuild
+# whenever road speeds change, which re-planning does every second: citywide
+# a simulated minute took 45 s with CH, 12 s with A* on four threads, with
+# identical results (10 November 2026).
+ROUTING_ALGORITHM = 'astar'
+REROUTE_THREADS = min(4, os.cpu_count() or 1)
+
+
+def reroute_options() -> tuple[str, ...]:
+    """SUMO options for periodic re-planning; none when REROUTE_PERIOD_S is 0."""
+    if not REROUTE_PERIOD_S:
+        return ()
+    return ('--device.rerouting.probability', '1',
+            '--device.rerouting.period', str(REROUTE_PERIOD_S),
+            '--device.rerouting.adaptation-interval', str(STEP_S),
+            '--device.rerouting.adaptation-steps', str(round(REROUTE_MEMORY_S / STEP_S)),
+            '--device.rerouting.threads', str(REROUTE_THREADS))
+
+# Lane changing. At the head of most citywide jams stood a car at the very end
+# of its lane, waiting to move into the lane its next turn needs and never let
+# in by SUMO's default, polite drivers (647 of the cars held a minute or more
+# after six minutes at 08:00; most of the other held cars queued behind such
+# heads). Drivers here accept smaller gaps, and the longer they wait the
+# smaller: SUMO's lcAssertive and lcImpatience. Assumed, not calibrated.
+DRIVER_LANE_CHANGE = {'lcAssertive': '2', 'lcImpatience': '1', 'lcTimeToImpatience': '30'}
+
+# Right of way at junctions without signals follows the OSM road class, as in
+# SUMO's own OSM import (osmNetconvert.typ.xml). Without it netconvert ranked
+# roads by our speed limits (each road's fastest Tari'ak hour), so a side
+# street could outrank a boulevard and main-road traffic stopped for it.
+ROAD_PRIORITY = {'motorway': 14, 'trunk': 13, 'primary': 12, 'secondary': 11, 'tertiary': 10,
+                 'motorway_link': 9, 'trunk_link': 8, 'primary_link': 7, 'secondary_link': 6,
+                 'tertiary_link': 5, 'unclassified': 5, 'residential': 4, 'living_street': 3,
+                 'service': 2}
+
+
+def road_priority(highway: str) -> int:
+    return ROAD_PRIORITY.get(str(highway), 3)
+
+# netconvert options for every network (also part of the network cache key).
+# Signals are actuated: they extend green while cars keep arriving instead of
+# running SUMO's fixed default cycle. No Beirut signal timings exist.
+NETCONVERT_OPTIONS = ('--no-turnarounds', 'true', '--junctions.corner-detail', '5',
+                      '--tls.default-type', 'actuated',
+                      '--junctions.join', 'true', '--junctions.minimal-shape', 'true',
+                      '--no-internal-links', 'true')
+# In light mode the whole fleet is read on this simulated-time clock, so the
+# figures do not depend on request size or on whether cars are drawn.
+FLEET_READ_EVERY_S = 10
 # Free road needed to place an unstuck car (SUMO's default car length plus
 # gap), searched at most UNSTICK_REACH roads ahead along its route.
 UNSTICK_ROOM_M = 7.5
@@ -117,16 +180,6 @@ EXIT_DETERRENCE_S = 60.0
 ENTRY_ROUTE_DRAWS = 32
 
 
-# Right of way at unsignalised junctions follows the road class, with SUMO's
-# own OSM import priorities (data/typemap/osmNetconvert.typ.xml). With every
-# edge at the same priority netconvert guessed the main road from angles, and
-# on the corridor 19 of 104 motorway and 26 of 160 trunk turns gave way, a
-# trunk to its own slip road among them.
-ROAD_PRIORITY = {
-    'motorway': 14, 'trunk': 13, 'primary': 12, 'secondary': 11, 'tertiary': 10,
-    'motorway_link': 9, 'trunk_link': 8, 'primary_link': 7, 'secondary_link': 6, 'tertiary_link': 5,
-    'unclassified': 4, 'residential': 3, 'living_street': 2,
-}
 
 
 # OSM draws one junction as several nodes a few metres apart (a dual
@@ -137,7 +190,7 @@ ROAD_PRIORITY = {
 # (docs/sumo-internals.md#joined-junctions-and-ramps-8-november-2026). The roads inside a
 # joined cluster, about 12 m each, disappear (`excluded_roads`); a ramp
 # lane splits its road into `<road>:<direction>` and a `-Added…RampEdge` piece.
-OSM_IMPORT_OPTIONS = ['--junctions.join', 'true', '--ramps.guess', 'true']
+OSM_IMPORT_OPTIONS = ['--ramps.guess', 'true']
 
 
 def trim_entry(route, length_of, min_length=MIN_ENTRY_M):
@@ -232,8 +285,8 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mix
                           **{'from': str(int(model.u[i] if direction == 1 else model.v[i])),
                              'to': str(int(model.v[i] if direction == 1 else model.u[i]))},
                           numLanes=str(int(lanes[i]) + (i in spare)), width=str(LANE_WIDTH_M),
+                          priority=str(road_priority(model.highway[i])),
                           speed=str(max(1, float(model.free_kmh[i]) / 3.6)),
-                          priority=str(ROAD_PRIORITY.get(model.highway[i], 1)),
                           shape=' '.join(f'{x},{y}' for x, y in shape), allow=' '.join(allowed),
                           # An undivided two-way way describes the shared centre
                           # line: each direction belongs on its right. A one-way
@@ -255,7 +308,7 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mix
     # Cut nodes and surveyed signals are looked up by their own node id, so
     # they stay out of joined clusters.
     keep = sorted(str(n) for n in set(model.boundary or ()) | {s.node for s in (mobility.signals if mobility else ())})
-    options = OSM_IMPORT_OPTIONS + (['--junctions.join-exclude', ','.join(keep)] if keep else [])
+    options = [*NETCONVERT_OPTIONS, *OSM_IMPORT_OPTIONS] + (['--junctions.join-exclude', ','.join(keep)] if keep else [])
     converter = Path(shutil.which(netconvert) or netconvert).resolve()
     converter_stat = converter.stat()
     digest = hashlib.sha256()
@@ -275,7 +328,7 @@ def export_network(model: TrafficModel, directory: Path, netconvert: str, *, mix
     result = subprocess.run([netconvert, '--node-files', str(directory / 'nodes.xml'),
                              '--edge-files', str(directory / 'edges.xml'),
                              '--connection-files', str(directory / 'connections.xml'), '-o', str(net),
-                             '--no-turnarounds', 'true', '--junctions.corner-detail', '5', *options],
+                             *options],
                             capture_output=True, text=True, timeout=120)
     if result.returncode:
         raise RuntimeError(f'SUMO network conversion failed: {result.stderr[-2000:]}')
@@ -696,6 +749,8 @@ class Simulation:
         self.retry = set()
         self.blocked = set()
         self.rerouted = set()
+        # SUMO route id behind each entry of `routes`, to notice re-planning.
+        self.route_ids = {}
         # The comparison run starts as a copy of this one at the first disruption
         # (`fork`); until then both runs are the same run and share arrivals.
         self.forked = False
@@ -705,6 +760,13 @@ class Simulation:
         self.view, self.limit = None, None
         # Cars moved past a gridlock, per run (`unstick`).
         self.unstuck = [0, 0]
+        # Distinct vehicles SUMO ever found overlapping another, per run: the
+        # cost of letting held drivers push past junction blockers.
+        self.conflicts = [set(), set()]
+        # New trips not started because the unchanged run already held its
+        # target fleet (`fleet_target`), and that target.
+        self.held_back = 0
+        self.fleet_target = None
         # Simulated speed per road (km/h sums and samples) while nothing is disrupted.
         self.speed_sum = np.zeros(len(model))
         self.speed_samples = np.zeros(len(model), dtype=np.int64)
@@ -756,6 +818,15 @@ class Simulation:
             router = EdgeRouter(original)
             self.trips = demand(model, original, hour, seed, router) if trips is None else list(trips)
             self.initial_trips = len(self.trips)
+            # Continuous demand keeps the unchanged run's fleet (on the road
+            # plus waiting to enter) at FLEET_SHARE of the CDR-based density
+            # the initial fleet stands for, times the demand multiplier.
+            # Without a cap new trips were scheduled at historical speeds
+            # while the simulated network carried a fraction of them, and the
+            # fleet grew until the city locked (docs/traffic-sumo.md).
+            # A fleet passed in by the caller stands for no density, so it sets no cap.
+            self.fleet_target = (round(self.initial_trips * FLEET_SHARE * demand_scale)
+                                 if continuous and trips is None else None)
             self.inflow = (BoundaryInflow(model, original, hour, seed, router=router, interior_scale=interior_scale,
                                           demand_scale=demand_scale)
                            if continuous else None)
@@ -763,9 +834,11 @@ class Simulation:
             self.routes = {t.id: t.route for t in self.trips}
             self.held = set()
             routes_xml = ET.Element('routes')
+            # Every car merges with the same assertiveness (see DRIVER_LANE_CHANGE).
+            ET.SubElement(routes_xml, 'vType', id='DEFAULT_VEHTYPE', **DRIVER_LANE_CHANGE)
             if mixed:
                 for t in self.mobility.types:
-                    ET.SubElement(routes_xml, 'vType', id=t.id, vClass=t.vclass)
+                    ET.SubElement(routes_xml, 'vType', id=t.id, vClass=t.vclass, **DRIVER_LANE_CHANGE)
             stops = self.mobility.stops if self.mobility else []
             if {s.vehicle for s in stops} - self.trip_ids:
                 raise ValueError('Observed stop references a vehicle absent from the initial fleet')
@@ -797,20 +870,21 @@ class Simulation:
             constants = self.traci.constants
             variables = (constants.VAR_POSITION, constants.VAR_ANGLE, constants.VAR_SPEED,
                          constants.VAR_ROAD_ID, constants.VAR_LANE_INDEX, constants.VAR_ROUTE_INDEX,
-                         constants.VAR_WAITING_TIME, constants.VAR_SIGNALS)
+                         constants.VAR_WAITING_TIME, constants.VAR_SIGNALS, constants.VAR_ROUTE_ID)
             self.variables = variables
             # With a view, the whole fleet reports only what the metrics need;
             # cars around the view report everything (`watch`).
             self.fleet_variables = (constants.VAR_SPEED, constants.VAR_ROAD_ID, constants.VAR_ROUTE_INDEX,
-                                    constants.VAR_WAITING_TIME)
+                                    constants.VAR_WAITING_TIME, constants.VAR_ROUTE_ID)
             self.watching = False
             self.subscribed = [True, False]
             self.baseline_variables = (constants.VAR_SPEED, constants.VAR_WAITING_TIME)
             self._sumo_command = [binary, '-n', str(path), '-r', str(routes_path), '--step-length', str(STEP_S), '--seed', str(seed),
-                                  '--save-state.rng', 'true', '--routing-algorithm', 'CH',
+                                  '--save-state.rng', 'true', '--routing-algorithm', ROUTING_ALGORITHM,
                                   '--time-to-teleport', '-1', '--time-to-teleport.disconnected', '-1',
                                   '--ignore-junction-blocker', str(JUNCTION_BLOCKER_S),
                                   '--time-to-impatience', str(IMPATIENCE_S),
+                                  *reroute_options(),
                                   '--collision.check-junctions', 'true',
                                   '--collision.action', 'warn', '--no-step-log', 'true',
                                   '--duration-log.disable', 'true', '--no-warnings', 'true']
@@ -923,7 +997,11 @@ class Simulation:
     def entry_route(self, trip):
         if trip.route[0] in self.closed or trip.route[-1] in self.closed:
             return None
-        if not self.closed.intersection(trip.route):
+        # A road that lost a lane may have lost the turn this route takes from
+        # it (SUMO then refuses the car: "no connection"), so route it afresh.
+        narrowed = getattr(self, 'removed_lanes', None)
+        through_narrowed = bool(narrowed) and any(int(edge.split(':')[0]) in narrowed for edge in trip.route)
+        if not self.closed.intersection(trip.route) and not through_narrowed:
             return trip.route
         key=(trip.route[0],trip.route[-1], self.type_for(trip.id))
         if key not in self.entry_route_cache:
@@ -955,6 +1033,7 @@ class Simulation:
         changed = (closed != self.closed or self.last_factors is None
                    or not np.array_equal(self.last_factors, disruption.speed_factor) or plan != self.plan)
         lane_toggled = set()
+        narrowed = set()  # edges that lost a lane in this change
         if changed:
             self.entry_route_cache.clear()
         present = set(c.vehicle.getIDList())
@@ -978,12 +1057,17 @@ class Simulation:
                         c.lane.setAllowed(lane.getID(), original)
                 if was_removed != now_removed:
                     lane_toggled.add(eid)
+                if now_removed > was_removed:
+                    narrowed.add(eid)
         previous_closed = self.closed
         self.closed = closed
         self.plan, self.removed_lanes = dict(plan), removed
         self.last_speed_kmh = np.asarray(target_kmh, dtype=np.float64).copy()
-        if closed - previous_closed:
-            self.withhold(c, closed - previous_closed)
+        # A car still waiting to enter on a lane just taken away would abort
+        # SUMO ("Invalid departlane"), like one on a closed road: re-enter it
+        # on a permitted lane instead.
+        if (closed - previous_closed) | narrowed:
+            self.withhold(c, (closed - previous_closed) | narrowed)
         self.last_factors = disruption.speed_factor.copy()
         # Retry after every chunk, including cars which were in internal junctions
         # during the last change and cars newly released from insertion queues.
@@ -999,10 +1083,19 @@ class Simulation:
         # need their lane choice refreshed; refreshing the whole fleet one car
         # at a time stalled the full city for seconds.
         toggled = (closed ^ previous_closed) | lane_toggled
+        # Re-planning drivers (REROUTE_PERIOD_S) change routes inside SUMO, so
+        # `routes` goes stale; a car's route is read again when its route id
+        # moved on, and only when a closure or lane change makes routes matter.
+        routes_matter = bool(closed or previous_closed or toggled)
+        route_ids = getattr(self, 'route_ids', {})
         for vid in candidates:
             state = states.get(vid, {})
             road = state.get(self.traci.constants.VAR_ROAD_ID)
             index = state.get(self.traci.constants.VAR_ROUTE_INDEX)
+            route_id = state.get(self.traci.constants.VAR_ROUTE_ID)
+            if routes_matter and route_id is not None and route_id != route_ids.get(vid):
+                self.routes[vid] = tuple(c.vehicle.getRoute(vid))
+                route_ids[vid] = route_id
             before = self.routes[vid]
             if index is None:
                 index = c.vehicle.getRouteIndex(vid)
@@ -1027,6 +1120,7 @@ class Simulation:
             self.routes[vid] = after
             if after != before:
                 self.rerouted.add(vid)
+                route_ids.pop(vid, None)
             after_index = c.vehicle.getRouteIndex(vid) if after != before else index
             if closed.intersection(after[after_index + 1:]):
                 self.blocked.add(vid)
@@ -1110,7 +1204,8 @@ class Simulation:
                    'arrived': arrived, 'stopped_on_closed': len(self.held & active_ids), 'no_detour': len(self.blocked), 'rerouted': len(self.rerouted),
                    'paired_arrivals': len(paired), 'overdue': overdue,
                    'mean_completed_delay_s': float(np.mean(delays)) if delays else None,
-                   'speed_check': self.speed_check(), 'unstuck': getattr(self, 'unstuck', [0])[0]}
+                   'speed_check': self.speed_check(), 'unstuck': getattr(self, 'unstuck', [0])[0],
+                   'junction_conflicts': len(getattr(self, 'conflicts', [()])[0])}
         metrics['stopped'] = sum(speed < 0.1 for _, speed, _ in fleet)
         # Just after `fork` SUMO lists no queued cars until its next step; the copy
         # is then exactly the scenario, so it reports the scenario's figures.
@@ -1122,10 +1217,11 @@ class Simulation:
                 'pending': len(baseline.simulation.getPendingVehicles()),
                 'arrived': len(self.arrivals[1]),
                 'stopped': sum(s[constants.VAR_SPEED] < 0.1 for s in baseline_states.values()),
-                'unstuck': getattr(self, 'unstuck', [0, 0])[1],
             }
+            metrics['baseline_junction_conflicts'] = len(getattr(self, 'conflicts', [(), ()])[1])
         else:
-            metrics['baseline'] = {key: metrics[key] for key in ('active', 'pending', 'arrived', 'stopped', 'unstuck')}
+            metrics['baseline'] = {key: metrics[key] for key in ('active', 'pending', 'arrived', 'stopped')}
+            metrics['baseline_junction_conflicts'] = metrics['junction_conflicts']
         metrics['stopped_roads'] = sorted(stopped_roads.items())
         types = [self.type_for(vid) if hasattr(self, 'mixed') else 'DEFAULT_VEHTYPE' for vid, _, _ in fleet]
         metrics['vehicle_types'] = {tid: types.count(tid) for tid in set(types)}
@@ -1141,6 +1237,8 @@ class Simulation:
             # Cars the counts put on these roads, and how many of them the entries bring.
             'represented_fleet': round(getattr(inflow, 'represented_fleet', 0)) if inflow else 0,
             'entering_fleet': round(getattr(inflow, 'entering_fleet', 0)) if inflow else 0,
+            'fleet_target': getattr(self, 'fleet_target', None),
+            'held_back': getattr(self, 'held_back', 0),
         }
         if states.keys() != active_ids:
             raise RuntimeError('SUMO replay is missing an active vehicle')
@@ -1234,12 +1332,21 @@ class Simulation:
         Until something is closed or slowed the two runs would be identical,
         so only one is stepped. Just before the first disruption its state,
         random number generators included, is copied into the second.
+
+        The copy starts without the trip file: the saved state holds every
+        car, vehicle types included. Given the trip file as well, SUMO read it
+        again on loading the state and drove every starting car that had
+        already arrived a second time, in the copy only (8,410 extra cars one
+        minute into an 08:00 citywide run).
         """
         c = self.connections[0]
         state = Path(self.directory.name) / 'fork.xml'
         c.simulation.saveState(str(state))
         label = f'dynacity-{uuid.uuid4().hex}'
-        self.traci.start(self._sumo_command, label=label, stdout=subprocess.DEVNULL)
+        command = list(self._sumo_command)
+        if '-r' in command:
+            del command[command.index('-r'):command.index('-r') + 2]
+        self.traci.start(command, label=label, stdout=subprocess.DEVNULL)
         baseline = self.traci.getConnection(label)
         try:
             # Saved signal phases refer to these custom programs, so install
@@ -1262,15 +1369,17 @@ class Simulation:
         self.connections.append(baseline)
         self.subscribed[1] = True
         self.arrivals[1] = dict(self.arrivals[0])
-        self.unstuck[1] = self.unstuck[0]
+        if hasattr(self, 'conflicts'):
+            self.conflicts[1] = set(self.conflicts[0])
         self.forked = self.fresh_fork = True
 
     def withhold(self, c, newly_closed):
-        """Take cars still waiting to enter on a newly closed road out of SUMO.
+        """Take cars still waiting to enter on a newly closed or narrowed road out of SUMO.
 
         SUMO aborts the whole run when a queued car's departure road is
-        closed under it. These cars wait in `entry_queue` instead, counted as
-        pending, and enter once a route from their origin is open again.
+        closed under it, or its departure lane is taken away. These cars wait
+        in `entry_queue` instead, counted as pending, and enter on a permitted
+        lane (`departLane='best'`) once a route from their origin is open.
         """
         trips = {t.id: t for t in self.trips}
         departs = {}
@@ -1280,7 +1389,7 @@ class Simulation:
         waiting = set(c.vehicle.getLoadedIDList()) - set(c.vehicle.getIDList())
         for vid in sorted(waiting):
             route = self.routes.get(vid)
-            if not route or route[0] not in newly_closed or vid not in trips:
+            if not route or not newly_closed.intersection(route) or vid not in trips:
                 continue
             c.vehicle.remove(vid)
             # Cars not in `future_entries` were already due: queue them as overdue.
@@ -1380,15 +1489,26 @@ class Simulation:
                         self.requeued+=1
                         route_id=f'{vid}#{self.requeued}'
                         self.connections[0].route.add(route_id,route)
-                        self.connections[0].vehicle.add(vid,route_id,depart='now',departLane='best',
-                                                        departPos='base',departSpeed='max', typeID=self.type_for(vid))
+                        try:
+                            self.connections[0].vehicle.add(vid,route_id,depart='now',departLane='best',
+                                                            departPos='base',departSpeed='max', typeID=self.type_for(vid))
+                        except self.traci.TraCIException:
+                            continue  # no legal way in yet: it stays queued, counted as pending
                         self.routes[vid]=route
                         if route!=trip.route:
                             self.rerouted.add(vid)
                         del self.entry_queue[vid]
                 if self.inflow:
                     target = self.connections[0].simulation.getTime()+ticks*STEP_S
+                    # The cap reads the unchanged run (the copy once forked), so
+                    # both runs still get exactly the same trips.
+                    reference = runs[-1]
+                    present = reference.vehicle.getIDCount() + len(reference.simulation.getPendingVehicles())
                     for depart,trip in self.inflow.until(target):
+                        if getattr(self, 'fleet_target', None) is not None and present >= self.fleet_target:
+                            self.held_back = getattr(self, 'held_back', 0) + 1
+                            continue
+                        present += 1
                         depart=math.ceil(depart/STEP_S-1e-9)*STEP_S
                         if trip.id in self.routes:
                             raise RuntimeError('Duplicate inflow vehicle identity')
@@ -1407,9 +1527,9 @@ class Simulation:
                                         self.rerouted.add(trip.id)
                         self.future_entries.append((depart,trip))
                 # With a view, the whole fleet is read once per request, for its
-                # metrics, and on the `unstick` clock; otherwise only the cars
+                # metrics, and every FLEET_READ_EVERY_S; otherwise only the cars
                 # around the view are read.
-                due = round(self.connections[0].simulation.getTime() + ticks * STEP_S) % UNSTICK_EVERY_S == 0
+                due = round(self.connections[0].simulation.getTime() + ticks * STEP_S) % FLEET_READ_EVERY_S == 0
                 self.fleet_fresh = remaining == ticks or not self.watching or due
                 def step(index, c):
                     if self.subscribed[index]:
@@ -1433,8 +1553,10 @@ class Simulation:
                         c.junction.subscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE,
                                                     self.context_radius, variables)
                     self.arrivals[index].update({v: c.simulation.getTime() for v in c.simulation.getArrivedIDList()})
-                    if due:
-                        self.unstick(index, c)
+                    if hasattr(self, 'conflicts'):
+                        self.conflicts[index].update(c.simulation.getCollidingVehiclesIDList())
+                    # Keep queues in place; relocating a gridlocked car to a
+                    # later road creates visible jumps through other vehicles.
                 self.fresh_fork = False
                 now=self.connections[0].simulation.getTime()
                 # SUMO can retain a departure exactly at the sample boundary
