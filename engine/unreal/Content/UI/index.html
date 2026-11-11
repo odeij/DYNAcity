@@ -1,0 +1,188 @@
+<!doctype html>
+<!-- Adapted from Bootstrap 5.3.8 Sidebars example. See vendor/bootstrap/LICENSE. -->
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' file:; style-src 'self' file:; img-src 'self' file: data: https://tiles.maps.eox.at; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <title>Explore Beirut</title>
+  <link href="vendor/bootstrap/bootstrap.min.css" rel="stylesheet">
+  <link href="vendor/leaflet/leaflet.css" rel="stylesheet">
+  <link href="controls.css" rel="stylesheet">
+</head>
+<body>
+<a class="visually-hidden-focusable btn btn-light skip-link" href="#content" data-skip>Skip to main content</a>
+<main class="d-flex flex-nowrap min-vh-100">
+  <nav class="d-flex flex-column flex-shrink-0 p-3 text-bg-dark border-end" aria-label="Main navigation">
+    <a href="#explore" class="d-flex align-items-center mb-3 mb-md-0 me-md-auto text-white text-decoration-none"><span class="fs-5">DYNAcity · Beirut</span></a>
+    <hr>
+    <ul class="nav nav-pills flex-column mb-auto gap-1">
+      <li class="nav-item"><a href="#explore" class="nav-link active" data-page="explore" aria-current="page">Main menu</a></li>
+      <li><a href="#map" class="nav-link text-white" data-page="map">City map</a></li>
+      <li><a href="#search" class="nav-link text-white" data-page="search">Find a place</a></li>
+      <li><a href="#controls" class="nav-link text-white" data-page="controls">Controls</a></li>
+      <li><a href="#layers" class="nav-link text-white" data-page="layers">Map layers</a></li>
+    </ul>
+    <hr>
+    <div class="small text-body-secondary mb-3">Local prototype</div>
+    <button class="btn btn-outline-light" data-action="close" id="close-menu">Close menu</button>
+    <div class="small text-body-secondary mt-3">While driving, F1 or Tab opens Controls (use ← Main menu)</div>
+  </nav>
+  <div class="flex-grow-1 p-4 overflow-auto" id="content" tabindex="-1">
+    <header class="d-flex align-items-center gap-3 border-bottom pb-2 mb-3">
+      <span class="badge text-bg-secondary fs-6" id="mode">Connecting to Unreal…</span><span class="text-body-secondary" id="location">Your current session</span>
+    </header>
+    <div id="feedback" class="alert alert-info d-none py-2" role="status" aria-live="polite"></div>
+
+    <section data-section="explore">
+      <h1 class="h3 mb-1" tabindex="-1">DYNAcity: digital twin of Beirut</h1>
+      <p class="mb-2">Explore a 3D model of Beirut's terrain, streets, buildings and trees, and inspect its modeled streets by driving a test vehicle.</p>
+      <p class="small text-body-secondary mb-2"><span class="badge text-bg-warning me-1">Prototype</span> Built from OpenStreetMap and cached reference data; geometry is partly approximate and traffic is synthetic. Not a forecast or a validated measurement.</p>
+      <div class="alert alert-secondary py-2 mb-3" role="status" id="where-you-are"><strong id="mode-title">Now:</strong> <span id="next-step">Choose a tool below.</span></div>
+      <div class="entry-grid mb-3" id="entry-points">
+        <button class="entry entry-primary" data-action="drive" id="drive"><strong>Start driving</strong><span>Test vehicle on Charles Malek Avenue. Arcade handling, not calibrated.</span></button>
+        <button class="entry" data-page="search"><strong>Find a place</strong><span>Search a street or landmark, or paste a map link.</span></button>
+        <button class="entry" data-page="map"><strong>City map</strong><span>2D atlas of modeled roads. Set a GPS route or pick a destination.</span></button>
+        <button class="entry editor-only" data-action="overview" id="entry-overview"><strong>See the whole city</strong><span>Editor camera over Beirut. No car.</span></button>
+        <button class="entry editor-only" data-action="street"><strong>Visit Charles Malek Avenue</strong><span>Eye-level view of the best-detailed street.</span></button>
+        <button class="entry" data-page="layers"><strong>Map layers</strong><span>Show or hide trees, vegetation, data markers.</span></button>
+      </div>
+      <button class="btn btn-outline-secondary btn-sm mb-3 d-none" data-action="end_drive" id="end-drive">End driving</button>
+      <details class="mb-2 drive-only"><summary>Atmosphere and traffic</summary><div class="pt-2">
+        <button class="btn btn-sm btn-outline-light" data-action="night" id="night">Switch to night</button>
+        <span class="d-inline-flex gap-2 flex-wrap ms-1" role="group" aria-label="Illustrative atmosphere">
+          <button class="btn btn-sm btn-outline-light" data-action="morning">Morning</button>
+          <button class="btn btn-sm btn-outline-light" data-action="afternoon">Afternoon</button>
+          <button class="btn btn-sm btn-outline-light" data-action="sunset">Sunset</button>
+          <button class="btn btn-sm btn-outline-light" data-action="clouds" id="ambient-clouds" aria-pressed="true">Clouds on</button>
+        </span>
+        <p class="small text-body-secondary mt-2 mb-2">Illustrative sky and lighting only; the traffic model and its time are unchanged.</p>
+        <button class="btn btn-sm btn-outline-light" data-action="sumo_start">Connect SUMO</button>
+        <button class="btn btn-sm btn-outline-secondary ms-2" data-action="sumo_stop">Disconnect</button>
+        <p class="small mt-2 mb-0" id="traffic-status" role="status">SUMO disconnected</p>
+        <p class="small text-body-secondary mb-0">Synthetic SUMO traffic follows your car. Updating the visible area keeps the simulation session.</p>
+      </div></details>
+      <details class="mb-2"><summary>Data coverage and credits</summary><div class="pt-2">
+        <div class="coverage-counts"><span><strong id="coverage-terrain">—</strong> municipal reference land has source terrain</span><span><strong id="coverage-roads">—</strong> municipal source road length has a 3D surface</span><span><strong id="coverage-segments">—</strong> road surfaces / source segments across the full extract</span></div>
+        <p class="small text-body-secondary mt-2 mb-0">Measured against the 12 cached municipal production areas. Terrain, road geometry and continuous driving are separate checks. Approximate DEM extensions are excluded from source-terrain coverage. Street furniture is incomplete in OSM.</p>
+        <p class="small text-body-secondary mt-2 mb-0">Reference lamp model: Poly Haven, CC0. Powered by Poly Haven. Additional reference-street placements are illustrative.</p>
+        <p class="small text-body-secondary mt-2 mb-0">Vehicle: Ferrari 458 Italia by vicent091036, CC BY 4.0, adapted from the three.js example. Library furniture and trees: Poly Haven, CC0.</p>
+        <p class="small text-body-secondary mt-2 mb-0">Urban-form forecasts, hazard scenarios and planning what-ifs are not in this Unreal view; they live in the separate DYNAcity browser viewer.</p>
+      </div></details>
+    </section>
+
+    <section data-section="map" class="d-none">
+      <h1 class="h3" tabindex="-1">Beirut / City atlas</h1>
+      <p class="text-body-secondary mb-2">Drag, scroll to zoom, click a point to <strong>set a GPS route</strong> (shown on the driving minimap) or go there. Only local modeled roads support driving.</p>
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <div class="btn-group" role="group" aria-label="Basemap style">
+          <button class="btn btn-outline-light" data-map-mode="street" aria-pressed="false" disabled>Street</button>
+          <button class="btn btn-outline-light" data-map-mode="satellite" aria-pressed="false" disabled>Satellite</button>
+          <button class="btn btn-outline-light" data-map-mode="hybrid" aria-pressed="false" disabled>Hybrid</button>
+        </div>
+        <button class="btn btn-outline-light" id="map-in" aria-label="Zoom in">+</button>
+        <button class="btn btn-outline-light" id="map-out" aria-label="Zoom out">−</button>
+        <button class="btn btn-outline-secondary" id="map-fit">Whole network</button>
+        <button class="btn btn-outline-secondary" id="map-player" disabled>My car</button>
+      </div>
+      <div class="d-flex flex-wrap gap-3 align-items-center mb-2 map-options">
+        <label><input class="form-check-input me-2" id="map-follow" type="checkbox" disabled>Follow car</label>
+        <label><input class="form-check-input me-2" id="map-roads" type="checkbox"><span class="map-road-swatch" aria-hidden="true"></span>Exported drivable roads</label>
+        <button class="btn btn-sm btn-primary" data-page="search">Search a place</button>
+        <span class="small text-body-secondary">North up · drag or arrow keys to stop following</span>
+      </div>
+      <div id="city-map" tabindex="0" role="region" aria-label="Beirut city map. Arrow keys pan, plus and minus zoom, Enter selects the map centre." aria-describedby="map-status map-tile-status map-detail"></div>
+      <div class="d-flex gap-3 align-items-start mt-2">
+        <p class="small text-body-secondary flex-grow-1 mb-0" id="map-tile-status" role="status" aria-live="polite">Map tiles load on demand when this page is open.</p>
+        <button class="btn btn-sm btn-outline-secondary flex-shrink-0" id="map-retry">Retry tiles</button>
+      </div>
+      <p class="small text-body-secondary mt-1 mb-0" id="map-detail"></p>
+      <p class="small text-body-secondary mt-1 mb-0" id="map-status" role="status">Waiting for local road geometry and geographic reference…</p>
+      <div id="map-route" class="map-route d-none mt-3" role="region" aria-label="GPS route" aria-live="polite">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="map-route-swatch" aria-hidden="true"></span><strong id="map-route-title">GPS route</strong>
+          <button class="btn btn-sm btn-outline-light ms-auto" id="map-route-show">Show route</button>
+          <button class="btn btn-sm btn-outline-warning" id="map-route-clear">Clear route</button>
+        </div>
+        <div class="map-route-figures" id="map-route-figures"></div>
+        <ol class="small mb-2 mt-2" id="map-route-steps"></ol>
+        <p class="small text-body-secondary mb-0" id="map-route-basis"></p>
+      </div>
+      <div class="mt-3">
+        <label><input class="form-check-input me-2" id="map-heading" type="checkbox" disabled>Heading-up on native driving HUD</label>
+        <p class="small text-body-secondary mt-2 mb-0">Atlas always stays north-up. Mode and HUD heading are shared with Unreal and saved for the next driving session.</p>
+        <p class="small mt-2 mb-0" id="map-settings-status" role="status" aria-live="polite">Connecting to saved map settings…</p>
+      </div>
+    </section>
+    <section data-section="search" class="d-none">
+      <h1 class="h3" tabindex="-1">Find a place</h1>
+      <p class="text-body-secondary">Start typing a street, neighbourhood or landmark. Choose a suggestion to travel there.</p>
+      <div class="d-flex gap-2 flex-wrap mb-3" id="search-shortcuts">
+        <button class="btn btn-sm btn-outline-secondary" data-query="Charles Malek">Charles Malek Avenue</button>
+        <button class="btn btn-sm btn-outline-secondary" data-query="Armenia">Mar Mikhael · Armenia</button>
+        <button class="btn btn-sm btn-outline-secondary" data-query="Hamra">Hamra</button>
+        <button class="btn btn-sm btn-outline-secondary" data-query="Saint Nicholas">Saint Nicholas Garden</button>
+      </div>
+      <form id="search-form" class="mb-3">
+        <label class="form-label" for="query">Place or map location</label>
+        <div class="input-group"><input class="form-control" id="query" name="query" type="search" autocomplete="off" aria-controls="results" placeholder="Search Beirut…" maxlength="8192" required><button class="btn btn-primary" type="submit">Search</button></div>
+      </form>
+      <p id="search-status" class="small text-body-secondary" aria-live="polite">Select a result to go there.</p>
+      <div class="list-group" id="results"></div>
+      <p class="small text-body-secondary mt-4">Names: OpenStreetMap contributors, ODbL. Searches use the local extract. Short Google share links require internet. Driving destinations need a safe nearby modeled road.</p>
+    </section>
+
+    <section data-section="controls" class="d-none">
+      <button class="btn btn-sm btn-outline-secondary mb-3" data-page="explore">← Main menu</button>
+      <h1 class="h3" tabindex="-1">Controls</h1><p class="text-body-secondary" id="control-intro">Choose Start driving to use the vehicle controls.</p>
+      <div class="card mb-4"><div class="card-header">Driving</div><div class="table-responsive"><table class="table table-striped align-middle mb-0"><thead><tr><th scope="col">Action</th><th scope="col">Control</th></tr></thead><tbody>
+        <tr><td>Accelerate / reverse</td><td><kbd>W</kbd> / <kbd>S</kbd> or <kbd>↑</kbd> / <kbd>↓</kbd></td></tr>
+        <tr><td>Steer</td><td><kbd>A</kbd> / <kbd>D</kbd> or <kbd>←</kbd> / <kbd>→</kbd></td></tr>
+        <tr><td>Brake</td><td><kbd>Space</kbd></td></tr>
+        <tr><td>Left / right indicator</td><td><kbd>Z</kbd> / <kbd>X</kbd> · press again to cancel</td></tr>
+        <tr><td>Hazard lights</td><td><kbd>H</kbd> · toggle both indicators</td></tr>
+        <tr><td>Look around</td><td>Hold right mouse and move</td></tr>
+        <tr><td>Change camera</td><td><kbd>C</kbd> <button class="btn btn-sm btn-outline-secondary ms-2 drive-only" data-action="camera">Change camera</button></td></tr>
+        <tr><td>Camera sequence</td><td>Chase → hood → high → in-car cockpit</td></tr>
+        <tr><td>Day / night</td><td><kbd>L</kbd></td></tr>
+        <tr><td>Free flight / return to parked car</td><td><kbd>F</kbd> <button class="btn btn-sm btn-outline-secondary ms-2 drive-only" data-action="fly">Toggle free flight</button><span class="d-block small text-body-secondary">Leaves the car parked at departure. Exit flight to return to it, not to land at the flight location.</span></td></tr>
+        <tr><td>Flight movement (view-relative)</td><td><kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> · <kbd>E</kbd> up · <kbd>Q</kbd> down · <kbd>Shift</kbd> boost · mouse look</td></tr>
+        <tr><td>Recover car nearby</td><td><kbd>U</kbd> <button class="btn btn-sm btn-outline-secondary ms-2 drive-only" data-action="recover">Recover car</button><span class="d-block small text-body-secondary">Use a recent safe ground checkpoint near the current car, or fall back to start.</span></td></tr>
+        <tr><td>Reset to current start</td><td><kbd>R</kbd> <button class="btn btn-sm btn-outline-secondary ms-2 drive-only" data-action="reset">Reset car</button></td></tr>
+        <tr><td>Next area</td><td><kbd>N</kbd> <button class="btn btn-sm btn-outline-secondary ms-2 drive-only" data-action="next_area">Next area</button></td></tr>
+        <tr><td>Menu and controls</td><td><kbd>F1</kbd> or <kbd>Tab</kbd></td></tr>
+        <tr><td>Find a place</td><td><kbd>F3</kbd></td></tr>
+        <tr><td>Native map mode</td><td><kbd>M</kbd> · cycle street / satellite / hybrid on the driving HUD</td></tr>
+        <tr><td>Native map heading</td><td><kbd>B</kbd> · toggle north-up / heading-up on the driving HUD</td></tr>
+        <tr><td>GPS route</td><td>City map → click a point → <strong>Set GPS route here</strong> · magenta line and turn card beside the minimap; recalculates if you leave it</td></tr>
+        <tr><td>End driving</td><td><kbd>Esc</kbd> in the game viewport</td></tr>
+      </tbody></table></div></div>
+      <div class="card mb-4"><div class="card-header">City view in the editor</div><div class="card-body">
+        <p>Click the city viewport first. Hold the <strong>right mouse button</strong> to look around; while holding it, use <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> to move.</p>
+        <p class="mb-0">For a guided view, use Explore → See the whole city or Visit Charles Malek Avenue.</p>
+      </div></div>
+      <button class="btn btn-primary drive-only" data-action="resume">Resume driving</button>
+    </section>
+
+    <section data-section="layers" class="d-none">
+      <h1 class="h3" tabindex="-1">Map layers</h1><p class="text-body-secondary">Choose which mapped details are visible.</p>
+      <div class="list-group mb-4">
+        <label class="list-group-item py-3"><input class="form-check-input me-2" type="checkbox" id="trees" data-layer="trees" checked> Mapped trees</label>
+        <label class="list-group-item py-3"><input class="form-check-input me-2" type="checkbox" id="greenery" data-layer="greenery" checked> Vegetation surfaces</label>
+        <label class="list-group-item py-3"><input class="form-check-input me-2" type="checkbox" id="references" data-layer="references"> Point and outline data markers</label>
+        <label class="list-group-item py-3"><input class="form-check-input me-2" type="checkbox" id="preview" data-layer="preview" checked> Illustrative reference-street finish</label>
+      </div>
+      <div class="alert alert-secondary">Mapped locations come from OSM. Tree forms, row spacing and some terrain elevations are approximate.</div>
+      <button class="btn btn-outline-secondary editor-only" data-action="trees_closeup">View a mapped tree</button>
+      <button class="btn btn-outline-secondary editor-only ms-2" data-action="conifers_closeup">View a mapped conifer</button>
+    </section>
+  </div>
+</main>
+<script src="vendor/bootstrap/bootstrap.bundle.min.js"></script>
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="vendor/proj4/proj4.js"></script>
+<script src="city-map-coordinates.js"></script>
+<script src="city-map.js"></script>
+<script src="controls.js"></script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "schema": "dynacity-traffic-paint/1",
+  "source": "Axalta Global Automotive Color Popularity Report 2025",
+  "source_url": "https://www.axalta.com/content/dam/New%20Axalta%20Corporate%20Website/Public/Documents/US/axalta-global-automotive-color-popularity_2025.pdf",
+  "scope": "Global new-vehicle production in 2025; provisional proxy, not measured Beirut or Lebanon in-use fleet colours.",
+  "notes": "Category percentages follow the published global report. RGB shades are visual choices, not measured paint samples. The 2% others category uses a dark purple example. Model proportions are illustrative and separate from paint weights.",
+  "palette": [
+    {"name": "white", "weight": 29, "rgb_linear": [0.78, 0.78, 0.75]},
+    {"name": "black", "weight": 23, "rgb_linear": [0.009, 0.011, 0.014]},
+    {"name": "gray", "weight": 22, "rgb_linear": [0.12, 0.135, 0.15]},
+    {"name": "silver", "weight": 7, "rgb_linear": [0.48, 0.5, 0.52]},
+    {"name": "blue", "weight": 6, "rgb_linear": [0.012, 0.045, 0.16]},
+    {"name": "red", "weight": 3, "rgb_linear": [0.38, 0.012, 0.018]},
+    {"name": "green", "weight": 3, "rgb_linear": [0.018, 0.085, 0.035]},
+    {"name": "yellow_gold", "weight": 3, "rgb_linear": [0.48, 0.28, 0.025]},
+    {"name": "brown_beige", "weight": 2, "rgb_linear": [0.32, 0.24, 0.16]},
+    {"name": "others", "weight": 2, "rgb_linear": [0.085, 0.018, 0.11]}
+  ]
+}

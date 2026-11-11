@@ -1,0 +1,518 @@
+from datetime import date
+
+import numpy as np
+import pytest
+from fastapi.testclient import TestClient
+
+from dynacity.contracts import UrbanObjectState, UrbanStateSnapshot
+from dynacity.service import create_app
+from dynacity.traffic import (
+    COUNT_STATIONS,
+    RoadDisruption,
+    CRASH_SLOWDOWN,
+    class_peak_volumes,
+    combine_disruptions,
+    estimated_flow,
+    match_stations,
+    TrafficModel,
+    build_traffic_model,
+    road_events,
+    road_crossings,
+    road_graph,
+    road_level,
+    traffic_impact,
+    traffic_payload,
+)
+from dynacity.viewer import utm_to_lonlat
+
+from test_models_engine_api import engine_fixture
+
+# A 3×3 grid of junctions 200 m apart in Beirut's UTM zone, plus a spur.
+X0, Y0, STEP = 733_000.0, 3_750_000.0, 200.0
+CRS = "EPSG:32636"
+
+
+def node_id(col: int, row: int) -> int:
+    return 100 + row * 3 + col
+
+
+def node_xy(node: int) -> tuple[float, float]:
+    if node == 999:  # spur end, east of the middle-right junction
+        return X0 + 3 * STEP, Y0 + STEP
+    k = node - 100
+    return X0 + (k % 3) * STEP, Y0 + (k // 3) * STEP
+
+
+def way(way_id: int, nodes: list[int], highway: str = "secondary", **tags) -> dict:
+    geometry = []
+    for n in nodes:
+        lon, lat = utm_to_lonlat(*node_xy(n), 36, True)
+        geometry.append({"lon": lon, "lat": lat})
+    return {"type": "way", "id": way_id, "nodes": nodes, "geometry": geometry, "tags": {"highway": highway, **tags}}
+
+
+def overpass() -> dict:
+    rows = [way(1 + r, [node_id(c, r) for c in range(3)]) for r in range(3)]
+    # Named like two of the CDR count stations, so volumes can be matched.
+    rows[0]["tags"]["name:en"] = "Saëb Salam Boulevard"
+    rows[1]["tags"].update({"highway": "trunk", "name": "Corniche Pierre Gemayel", "lanes": "6"})
+    rows[2]["tags"].update({"oneway": "yes", "lanes": "3", "name": "Rue Gouraud"})
+    cols = [way(10 + c, [node_id(c, r) for r in range(3)], highway="residential") for c in range(3)]
+    spur = [way(20, [node_id(2, 1), 999], highway="tertiary")]
+    footpath = [{**way(30, [100, 104]), "tags": {"highway": "footway"}}]
+    return {"elements": rows + cols + spur + footpath + signal_nodes() + restrictions()}
+
+
+def signal_node(node: int, x: float, y: float) -> dict:
+    lon, lat = utm_to_lonlat(x, y, 36, True)
+    return {"type": "node", "id": node, "lat": lat, "lon": lon, "tags": {"highway": "traffic_signals"}}
+
+
+def signal_nodes() -> list[dict]:
+    cx, cy = node_xy(104)
+    return [
+        signal_node(5001, cx - 12, cy),  # on the approach to the centre junction
+        signal_node(5002, X0 + 100, Y0),  # mid-block crossing, no junction near
+    ]
+
+
+def restrictions() -> list[dict]:
+    def relation(rel_id: int, kind: str, source: int, target: int) -> dict:
+        return {"type": "relation", "id": rel_id, "tags": {"type": "restriction", "restriction": kind}, "members": [
+            {"type": "way", "ref": source, "role": "from"},
+            {"type": "node", "ref": node_id(2, 1), "role": "via"},
+            {"type": "way", "ref": target, "role": "to"},
+        ]}
+
+    # Off the spur at the middle-right junction: no turn onto the middle row,
+    # and (the same movement, said the other way) right turns only.
+    return [relation(40, "no_left_turn", 20, 2), relation(41, "only_right_turn", 20, 12)]
+
+
+def bus_overpass() -> dict:
+    # Members only, as the light query returns them: geometry comes from the roads.
+    return {"elements": [{
+        "type": "relation", "id": 7, "tags": {"route": "bus", "ref": "2", "operator": "LCC"},
+        "members": [{"type": "way", "ref": 1, "role": ""}, {"type": "way", "ref": 999999, "role": ""}],
+    }]}
+
+
+def write_velocities(path) -> None:
+    # Same header as the Tari'ak file, stray tab included.
+    lines = ['"Date","Time","Coordinate\t (Lon, Lat)","Course","Velocity","OSM ID"']
+    for k in range(12):
+        lines.append(f'"2016-05-0{1 + k % 5}","08:{k:02d}:00","35.5,33.9",90,10,"way/1"')
+        lines.append(f'"2016-05-0{1 + k % 5}","03:{k:02d}:00","35.5,33.9",90,50,"way/1"')
+        lines.append(f'"2016-05-0{1 + k % 5}","09:{k:02d}:00","35.5,33.9",90,20,"way/1"')
+        # Standing still: ignored, or the 3 a.m. median would collapse.
+        lines.append(f'"2016-05-0{1 + k % 5}","03:{k:02d}:30","35.5,33.9",90,0,"way/1"')
+    lines.append('"2016-05-01","09:00:00","35.5,33.9",90,40,"way/77"')  # outside the network
+    path.write_text("\r\n".join(lines) + "\r\n", encoding="utf-8")
+
+
+def building(object_id: str, x: float, y: float, floors: float = 3.0) -> UrbanObjectState:
+    return UrbanObjectState(
+        object_id=object_id, state="stable_built", footprint_area_m2=100, floors=floors, height_m=floors * 3.2,
+        building_use="Residential", centroid_x_m=x, centroid_y_m=y,
+    )
+
+
+def snapshot() -> UrbanStateSnapshot:
+    return UrbanStateSnapshot(
+        snapshot_id="grid", as_of=date(2024, 4, 30), data_version="synthetic", crs=CRS,
+        objects=[
+            # Right beside the middle of the bottom row's first block.
+            building("kerb", X0 + 100, Y0 + 8),
+            building("block", X0 + 300, Y0 + 300),
+        ],
+    )
+
+
+@pytest.fixture
+def model(tmp_path) -> TrafficModel:
+    csv = tmp_path / "velocities.csv"
+    write_velocities(csv)
+    return build_traffic_model(snapshot(), csv, overpass=overpass(), bus_overpass=bus_overpass())
+
+
+def roads_of_way(model: TrafficModel, way_id: int) -> list[int]:
+    return [i for i, w in enumerate(model.way_id) if w == way_id]
+
+
+def test_ways_split_at_shared_nodes_and_footways_dropped():
+    graph = road_graph(overpass(), CRS)
+    # 3 rows × 2 + 3 columns × 2 + the spur; the footway is not drivable.
+    assert len(graph["geometry"]) == 13
+    assert 30 not in graph["way_id"]
+    assert graph["length_m"] == pytest.approx(np.full(13, STEP), abs=0.5)
+
+
+def test_signals_snap_to_junctions_and_turn_bans_resolve_to_roads():
+    graph = road_graph(overpass(), CRS)
+    index = {}
+    for i in range(len(graph["u"])):
+        index[int(graph["u"][i])] = graph["geometry"][i][0]
+        index[int(graph["v"][i])] = graph["geometry"][i][-1]
+    centre = next(n for n, p in index.items() if p == pytest.approx(node_xy(104), abs=0.5))
+    # The approach signal moves 12 m onto the centre junction; the mid-block one is dropped.
+    assert graph["signals"] == [centre]
+    spur = graph["way_id"].index(20)
+    middle_east = [i for i, w in enumerate(graph["way_id"]) if w == 2][1]
+    via = int(graph["u"][spur])
+    assert graph["turn_bans"] == [(spur, via, middle_east)]
+    no_signals = {"elements": [e for e in overpass()["elements"] if e["type"] != "node"]}
+    assert road_graph(no_signals, CRS)["signals"] is None
+
+
+def test_mapped_painted_crossings_snap_to_their_road():
+    def crossing(node: int, x: float, y: float, **tags) -> dict:
+        lon, lat = utm_to_lonlat(x, y, 36, True)
+        return {"type": "node", "id": node, "lat": lat, "lon": lon, "tags": tags}
+
+    elements = overpass()["elements"] + [
+        crossing(6001, X0 + 60, Y0 + 1, highway="crossing", crossing="uncontrolled"),
+        crossing(6002, X0 + 140, Y0, highway="traffic_signals", crossing="traffic_signals"),
+        crossing(6003, X0 + 80, Y0, highway="crossing", crossing="unmarked"),
+        crossing(6004, X0 + 100, Y0 + 60, highway="crossing"),  # off every road
+    ]
+    graph = road_graph({"elements": elements}, CRS)
+    first = next(i for i, w in enumerate(graph["way_id"]) if w == 1)
+    assert graph["crossings"] == [(first, 60.0, "marked"), (first, 140.0, "signals")]
+    # The plain signal fixtures carry no crossing tag, so roads without
+    # crossing nodes report none mapped rather than an empty list.
+    assert road_graph(overpass(), CRS)["crossings"] is None
+    assert road_crossings({"elements": []}, graph["geometry"], CRS) is None
+
+
+def test_crossings_and_signals_reach_the_page(model, tmp_path):
+    road = 0
+    model.crossings = [(road, 12.5, "marked")]
+    loaded = TrafficModel.load(_saved(model, tmp_path))
+    assert loaded.crossings == [(road, 12.5, "marked")]
+    payload = traffic_payload(loaded)
+    assert payload["roads"][road]["xing"] == [[12.5, "marked"]]
+    assert all("xing" not in r for r in payload["roads"][1:])
+    assert payload["signals"] == model.signals and payload["crossings_mapped"]
+
+
+def test_fresh_context_adds_display_crossings_without_changing_signal_controls(model, tmp_path):
+    import json
+    from dynacity.cli import _landscape_view
+    from dynacity.viewer import utm_to_lonlat
+    a,b=model.geometry[0][:2]
+    lon,lat=utm_to_lonlat((a[0]+b[0])/2,(a[1]+b[1])/2,36,True)
+    path=tmp_path/'context.json'
+    path.write_text(json.dumps({'elements':[{'type':'node','id':999,'lon':lon,'lat':lat,
+        'tags':{'highway':'crossing','crossing':'marked'}}]}),encoding='utf-8')
+    controls=list(model.signals)
+    _landscape_view(str(path),model)
+    assert len(model.crossings)==1
+    assert model.signals==controls
+    _landscape_view(str(path),model)
+    assert len(model.crossings)==1
+
+
+def test_bridge_and_tunnel_levels_reach_the_page(model, tmp_path):
+    data = overpass()
+    tags = {e["id"]: e["tags"] for e in data["elements"] if e["type"] == "way"}
+    tags[3]["bridge"] = "yes"
+    tags[11].update({"bridge": "viaduct", "layer": "2"})
+    tags[12]["tunnel"] = "yes"
+    graph = road_graph(data, CRS)
+    level_of = {w: int(lvl) for w, lvl in zip(graph["way_id"], graph["level"], strict=True)}
+    assert (level_of[1], level_of[3], level_of[11], level_of[12]) == (0, 1, 2, -1)
+    assert road_level({"tunnel": "building_passage"}) == 0
+    assert road_level({"bridge": "yes", "layer": "x"}) == 1
+    model.level = np.zeros(len(model), dtype=np.int8)
+    model.level[0] = 1
+    loaded = TrafficModel.load(_saved(model, tmp_path))
+    roads = traffic_payload(loaded)["roads"]
+    assert roads[0]["lvl"] == 1 and all("lvl" not in r for r in roads[1:])
+    # A road file built before levels were kept still loads, with none drawn.
+    model.level = None
+    assert TrafficModel.load(_saved(model, tmp_path)).level is None
+
+
+def test_osm_signals_and_turn_bans_reach_the_simulator(model, tmp_path):
+    from dynacity.traffic_sumo import export_network, runtime
+
+    try:
+        _, _, converter = runtime()
+    except RuntimeError as exc:
+        pytest.skip(str(exc))
+    import sumolib
+
+    loaded = TrafficModel.load(_saved(model, tmp_path))
+    assert loaded.signals == model.signals and loaded.turn_bans == model.turn_bans
+    net = sumolib.net.readNet(str(export_network(loaded, tmp_path, converter)))
+    assert [tls.getID() for tls in net.getTrafficLights()] == [str(model.signals[0])]
+    source, _, target = model.turn_bans[0]
+    moves = {edge.getID() for edge in net.getEdge(f"{source}:-1").getOutgoing()}
+    assert f"{target}:-1" not in moves and moves
+
+
+def _saved(model: TrafficModel, tmp_path):
+    path = tmp_path / "traffic.json"
+    model.save(path)
+    return path
+
+
+def test_hourly_speeds_use_moving_readings_and_fall_back_to_class(model):
+    own = roads_of_way(model, 1)
+    assert model.speed_kmh[own, 8] == pytest.approx(10)
+    assert model.speed_kmh[own, 3] == pytest.approx(50)
+    assert not model.estimated[own].any()
+    assert model.readings[own[0]] == 36  # the zero-speed readings are dropped
+    other = roads_of_way(model, 2)
+    assert model.estimated[other].all()
+
+
+def test_model_round_trips(model, tmp_path):
+    model.save(tmp_path / "t.json")
+    loaded = TrafficModel.load(tmp_path / "t.json")
+    assert loaded.speed_kmh == pytest.approx(model.speed_kmh)
+    assert list(loaded.u) == list(model.u) and loaded.highway == model.highway
+    assert loaded.name == model.name and loaded.class_hour_readings == model.class_hour_readings
+
+
+def test_impact_counts_cut_off_and_delayed_trips(model):
+    untouched = RoadDisruption(closed=np.zeros(len(model), bool), speed_factor=np.ones(len(model)),
+                               reason=[None] * len(model))
+    calm = traffic_impact(model, untouched, origins=6, per_origin=6)
+    assert calm["affected"] == 0 and calm["cut_off"] == 0 and calm["closed"] == []
+
+    everything = RoadDisruption(closed=np.ones(len(model), bool), speed_factor=np.ones(len(model)),
+                                reason=["manual"] * len(model))
+    blocked = traffic_impact(model, everything, origins=6, per_origin=6)
+    assert blocked["affected"] == blocked["trips"] > 0
+    assert blocked["cut_off"] == blocked["trips"]
+
+    slow = RoadDisruption(closed=np.zeros(len(model), bool), speed_factor=np.full(len(model), 0.5),
+                          reason=[None] * len(model))
+    slowed = traffic_impact(model, slow, origins=6, per_origin=6)
+    assert slowed["cut_off"] == 0 and slowed["delay_min"]["p50"] > 0
+
+
+def test_payload_is_aggregate_and_in_lonlat(model):
+    payload = traffic_payload(model)
+    road = payload["roads"][0]
+    assert set(road) == {"path", "len", "cls", "oneway", "u", "v", "speed", "free", "n", "est", "name", "lanes", "width_m", "qf", "source_way"}
+    assert road['source_way'] == model.way_id[0]
+    assert road["width_m"] > 0
+    assert (road["u"], road["v"]) == (int(model.u[0]), int(model.v[0]))
+    assert len(road["speed"]) == 24
+    lon, lat = road["path"][0]
+    assert 35 < lon < 36 and 33 < lat < 35
+    assert "Tari'ak" in payload["source"]
+
+
+def test_viewer_page_embeds_roads(model, bbed_collection):
+    from dynacity.snapshot import snapshot_from_bbed
+    from dynacity.viewer import build_viewer_payload, render_viewer
+
+    located = snapshot_from_bbed(bbed_collection, snapshot_id="bbed", as_of=date(2024, 4, 30), data_version="t")
+    page = render_viewer(build_viewer_payload(bbed_collection, located, traffic=traffic_payload(model)))
+    assert '"schema":"dynacity-roads/1"' in page
+    assert 'id="t-traffic"' in page
+
+
+def test_count_stations_match_by_name_and_class(model):
+    stations = {st["label"]: st for st in match_stations(model)}
+    assert stations["Saeb Salem Road"]["class"] == "secondary"
+    assert stations["Saeb Salem Road"]["roads"] == roads_of_way(model, 1)
+    assert stations["Charles Helou Road"]["roads"] == []  # not on this map
+    both = [st for st in stations.values() if st["label"].startswith("Pierre Gemayel")]
+    assert all(st["class"] == "trunk" for st in both)
+    assert len(stations) == len(COUNT_STATIONS)
+
+
+def test_class_volumes_and_daily_flow(model):
+    volumes = class_peak_volumes(model)
+    assert volumes["secondary"]["vph"] == pytest.approx((2284 + 2378) / 2, abs=1)
+    trunk = np.median([(2366 + 1744) / 2, (2852 + 3033) / 2])
+    assert volumes["trunk"]["vph"] == pytest.approx(trunk, abs=1)
+    assert volumes["primary"]["interpolated"]
+    flow = estimated_flow(model)
+    own = roads_of_way(model, 1)
+    # Readings on secondary roads: 12 at 03:00, 12 at 09:00, 12 at 08:00.
+    assert flow[own[0], 9] == pytest.approx(volumes["secondary"]["vph"])
+    assert flow[own[0], 3] == pytest.approx(volumes["secondary"]["vph"])
+    assert flow[own[0], 12] == 0
+    assert np.isnan(flow[roads_of_way(model, 10)[0]]).all()  # residential: not counted
+
+
+def test_impact_names_the_busiest_closed_counted_road(model):
+    closed = np.zeros(len(model), bool)
+    closed[roads_of_way(model, 1)[0]] = True
+    out = traffic_impact(model, RoadDisruption(closed=closed, speed_factor=np.ones(len(model)),
+                                               reason=["manual" if c else None for c in closed]),
+                         hour=9, origins=6, per_origin=6)
+    assert out["busiest_closed_vph"] == round(class_peak_volumes(model)["secondary"]["vph"], -1)
+
+
+def test_hand_closures_and_crashes(model):
+    spur = roads_of_way(model, 20)[0]
+    crash = roads_of_way(model, 2)[0]
+    out = road_events(model, closed=[spur], crashes=[crash])
+    assert out.reason[spur] == "manual" and out.reason[crash] == "crash"
+    assert out.closed.sum() == 2
+    # The queue: roads touching the crash slow down, the far corner does not.
+    assert out.speed_factor.min() == pytest.approx(CRASH_SLOWDOWN, abs=0.05)
+    assert (out.speed_factor < 1).sum() > 1
+    with pytest.raises(ValueError):
+        road_events(model, closed=[len(model)])
+
+
+def test_crash_queue_backs_up_the_roads_that_feed_it(model):
+    # The top row is one-way west to east: a crash on its first block is fed
+    # only from its west end.
+    first, second = roads_of_way(model, 3)
+    out = road_events(model, crashes=[first])
+    feeder = roads_of_way(model, 10)[1]  # the left column's top block, into the crash
+    assert out.speed_factor[feeder] == pytest.approx(CRASH_SLOWDOWN)
+    # Downstream of the crash, and the street that only meets its far end,
+    # are within 250 m in a straight line but carry no queue.
+    assert out.speed_factor[second] == 1.0
+    assert out.speed_factor[roads_of_way(model, 11)[1]] == 1.0
+    # One block further back the queue has thinned.
+    behind = roads_of_way(model, 10)[0]
+    assert CRASH_SLOWDOWN < out.speed_factor[behind] < 1.0
+
+
+def test_disruptions_combine(model):
+    rain = RoadDisruption(closed=np.zeros(len(model), bool), speed_factor=np.full(len(model), 0.85),
+                          reason=[None] * len(model))
+    spur = roads_of_way(model, 20)[0]
+    both = combine_disruptions(rain, road_events(model, closed=[spur]))
+    assert both.closed.sum() == 1 and both.reason[spur] == "manual"
+    assert both.speed_factor.max() == pytest.approx(0.85)
+
+
+def test_traffic_endpoint_measures_roads_without_a_forecast(model):
+    client = TestClient(create_app(engine_fixture(), viewer_snapshot=snapshot(), viewer_traffic=model))
+    spur = roads_of_way(model, 20)[0]
+    crash = roads_of_way(model, 2)[0]
+    body = client.post("/v1/viewer/traffic", json={"closed": [spur], "crashes": [crash], "hour": 3}).json()
+    assert body["traffic"]["hour"] == 3
+    assert body["traffic"]["closed_by"]["manual"] == 1 and body["traffic"]["closed_by"]["crash"] == 1
+    closed_only = client.post("/v1/viewer/traffic", json={"closed": [spur]}).json()["traffic"]
+    assert closed_only["closed_by"] == {"manual": 1, "crash": 0}
+    # Disasters are gone from the request contract, so the field is refused, not ignored.
+    assert client.post("/v1/viewer/traffic", json={"hazards": [], "closed": [spur]}).status_code == 422
+    assert client.post("/v1/viewer/traffic", json={}).json()["traffic"] is None
+    assert client.post("/v1/viewer/traffic", json={"closed": [10_000]}).status_code == 422
+
+
+def test_traffic_endpoint_needs_a_traffic_model():
+    client = TestClient(create_app(engine_fixture(), viewer_snapshot=snapshot()))
+    assert client.post("/v1/viewer/traffic", json={"closed": [0]}).status_code == 404
+
+
+def test_lanes_come_from_osm_per_direction(model):
+    from dynacity.traffic import lanes_of
+
+    lanes = lanes_of(model)
+    assert lanes[roads_of_way(model, 2)[0]] == 3       # two-way "6" → 3 each way
+    assert lanes[roads_of_way(model, 3)[0]] == 3       # one-way "3"
+    assert lanes[roads_of_way(model, 1)[0]] == 2       # untagged secondary: class default
+    assert lanes[roads_of_way(model, 10)[0]] == 1      # untagged residential
+
+
+def test_pm_count_anchors_the_afternoon():
+    from dynacity.traffic import _pm_correction
+
+    shape = np.ones(24)
+    corr = _pm_correction(shape, am=1000, pm=1500)
+    assert corr[9] == 1 and corr[16] == pytest.approx(1.5) and corr[20] == pytest.approx(1.5)
+    assert 1 < corr[12] < 1.5
+
+
+def test_bus_routes_take_geometry_from_the_roads_and_report_cuts(model):
+    assert len(model.bus_routes) == 1
+    route = model.bus_routes[0]
+    assert route["label"] == "2" and route["ways"] == [1]  # the way outside the map is dropped
+    closed = np.zeros(len(model), bool)
+    closed[roads_of_way(model, 1)[0]] = True
+    out = traffic_impact(model, RoadDisruption(closed=closed, speed_factor=np.ones(len(model)),
+                                               reason=["manual" if c else None for c in closed]),
+                         origins=6, per_origin=6)
+    assert [b["label"] for b in out["bus_routes_hit"]] == ["2"]
+    assert traffic_payload(model)["bus_routes"][0]["paths"]
+
+
+def test_detour_congestion_only_adds_delay(model):
+    closed = np.zeros(len(model), bool)
+    closed[roads_of_way(model, 2)] = True  # the middle row: its traffic must detour
+    disruption = RoadDisruption(closed=closed, speed_factor=np.ones(len(model)),
+                                reason=["manual" if c else None for c in closed])
+    plain = traffic_impact(model, disruption, hour=9, origins=6, per_origin=8, congestion=False)
+    jammed = traffic_impact(model, disruption, hour=9, origins=6, per_origin=8)
+    assert jammed["diverted_vph"] > 0 and jammed["vph_per_trip"] > 0
+    assert jammed["delay_min"]["mean"] >= plain["delay_min"]["mean"]
+    assert jammed["delay_min_uncongested"] == plain["delay_min"]
+    assert plain["jammed"] == [] and plain["jammed_km"] == 0
+
+
+def test_typed_road_events_close_the_named_street(model):
+    from dynacity.scenario_compiler import DraftRoadEvent, ScenarioDraft
+
+    from test_scenario_compiler import FakeClient
+
+    draft = ScenarioDraft(scenario_id="close-it", horizon_years=2, road_events=[
+        DraftRoadEvent(event_id="c1", kind="closure", street="Saeb Salam"),
+        DraftRoadEvent(event_id="x1", kind="crash", street="Pierre Gemayel"),
+    ])
+    client = TestClient(create_app(engine_fixture(), scenario_client=FakeClient(draft),
+                                   viewer_snapshot=snapshot(), viewer_traffic=model))
+    body = client.post("/v1/viewer/scenario", json={
+        "text": "Close Saeb Salam and put a crash on Pierre Gemayel", "hour": 9,
+    }).json()
+    assert body["compilation"]["scenario"] is not None
+    events = {e["event_id"]: e for e in body["compilation"]["road_events"]}
+    assert events["c1"]["roads"] == roads_of_way(model, 1)
+    assert body["road_events"]["closed"] == roads_of_way(model, 1)
+    assert len(body["road_events"]["crashes"]) == 1
+    assert body["traffic"]["closed_by"]["manual"] == 2 and body["traffic"]["closed_by"]["crash"] == 1
+
+
+def test_several_samples_report_their_range(model):
+    closed = np.zeros(len(model), bool)
+    closed[roads_of_way(model, 2)] = True
+    disruption = RoadDisruption(closed=closed, speed_factor=np.ones(len(model)),
+                                reason=["manual" if c else None for c in closed])
+    out = traffic_impact(model, disruption, hour=9, origins=6, per_origin=8, samples=3)
+    assert out["samples"] == 3
+    lo, hi = out["ranges"]["delay_p50"]
+    assert lo <= out["delay_min"]["p50"] <= hi
+    assert set(out["ranges"]) == {"affected", "cut_off", "delay_p50", "delay_p90", "diverted_vph", "spillover_trips"}
+    assert traffic_impact(model, disruption, origins=6, per_origin=8)["samples"] == 1
+
+
+def test_building_coverage_flags_a_road_model_smaller_than_the_city(model):
+    from dynacity.traffic import building_coverage
+    city = snapshot()
+    assert building_coverage(model, city) == 1.0
+    far = city.model_copy(update={"objects": [*city.objects, building("far", X0 + 50_000, Y0)]})
+    assert building_coverage(model, far) == pytest.approx(2 / 3)
+    assert building_coverage(model, city.model_copy(update={"crs": "EPSG:4326"})) is None
+
+
+def test_quick_estimate_routes_respect_turn_bans(model):
+    from dataclasses import replace
+    from scipy.sparse.csgraph import dijkstra
+    from dynacity.traffic import _directed, _path_roads
+
+    source, via, target = model.turn_bans[0]
+    origin = int(model.u[source]) if int(model.v[source]) == via else int(model.v[source])
+    far = int(model.v[target]) if int(model.u[target]) == via else int(model.u[target])
+
+    def route(m):
+        graph, arcs = _directed(m, 8, None)
+        _, before = dijkstra(graph, indices=origin, return_predecessors=True)
+        return _path_roads(before, origin, far, arcs)[::-1]
+
+    banned = route(model)
+    assert banned and banned[0] == source
+    assert all((a, b) != (source, target) for a, b in zip(banned, banned[1:]))
+    # Without the ban the direct turn is the quickest way.
+    assert route(replace(model, turn_bans=[], _graph_cache={})) == [source, target]

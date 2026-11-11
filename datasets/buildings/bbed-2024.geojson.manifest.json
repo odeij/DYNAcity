@@ -1,0 +1,24 @@
+{
+  "source": "https://services3.arcgis.com/tuNLpt6Wfhd22qmO/ArcGIS/rest/services/BBED2024_/FeatureServer/1",
+  "retrieved_at": "2026-08-05T11:16:52.369682+00:00",
+  "crs": "EPSG:32636",
+  "fields": [
+    "OBJECTID",
+    "BULBuildingID",
+    "ParcelID",
+    "Sector",
+    "Building_Use",
+    "NoofFloor",
+    "Building_Hight_m",
+    "YearCompleted",
+    "PermitYear",
+    "Status2018",
+    "Status2022",
+    "F5__Current_status",
+    "Shape__Area",
+    "Shape__Length"
+  ],
+  "feature_count": 3349,
+  "sha256": "591162f23f9184d4b0938d43e6198226577425960cea617f02df554215d68e10",
+  "license": "ODbL; attribute Beirut Built Environment Database, Beirut Urban Lab (AUB)"
+}

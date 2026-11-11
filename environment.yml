@@ -1,0 +1,11 @@
+name: dynacity-forecasting
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pdal>=2.8
+  - gdal>=3.10
+  - pip
+  - pip:
+      - -e .[dev]
+
