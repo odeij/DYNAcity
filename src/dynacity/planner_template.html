@@ -12,7 +12,7 @@
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <style>
 :root {
-  --desk: #1c130c;
+  --desk: #4a3826;
   --desk-2: #2b1d12;
   --paper: #f3e6c8;
   --paper-2: #ead7ae;
@@ -26,7 +26,9 @@
   --amber: #a8681a;
   --purple: #5b3a8c;
   --gold: #c39a45;
-  --frame: 26px;
+  --frame: 10px;
+  /* Side panel width; the corner buttons and map controls are placed from it. */
+  --panel-w: 360px;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--desk); color: var(--ink);
@@ -40,7 +42,7 @@ button { font-family: inherit; }
 #paper { position: absolute; inset: 0; pointer-events: none; z-index: 2;
   mix-blend-mode: multiply;
   background:
-    radial-gradient(ellipse at 50% 45%, rgba(255,250,235,0) 60%, rgba(170,120,60,.2) 90%, rgba(120,75,30,.38) 100%),
+    radial-gradient(ellipse at 50% 45%, rgba(255,250,235,0) 70%, rgba(170,120,60,.07) 92%, rgba(140,95,45,.14) 100%),
     var(--fibres),
     linear-gradient(#fdf8ee, #f8efdc);
   background-size: auto, 320px 320px, auto;
@@ -65,17 +67,18 @@ button { font-family: inherit; }
 #compass:hover { transform: rotate(-8deg) scale(1.04); }
 
 /* ---------- Scale bar & credits ---------- */
-.maplibregl-ctrl-bottom-left { left: calc(160px + var(--frame)); bottom: calc(14px + var(--frame)); z-index: 4; }
+.maplibregl-ctrl-bottom-left { left: calc(160px + var(--frame)); right: calc(var(--frame) + var(--panel-w) + 40px); bottom: calc(14px + var(--frame)); z-index: 4; }
 .maplibregl-ctrl-scale { background: transparent; border: 2px solid var(--ink); border-top: none; color: var(--ink);
   font: 600 11px Inter, sans-serif; padding: 0 6px; }
 .maplibregl-ctrl-attrib { background: rgba(243,230,200,.75) !important; font: 10.5px Inter, sans-serif; color: var(--ink-soft); }
 .maplibregl-ctrl-attrib a { color: var(--ink-soft); }
-.maplibregl-ctrl-bottom-left { display: flex; align-items: flex-end; gap: 10px; }
+.maplibregl-ctrl-bottom-left { display: flex; align-items: flex-end; gap: 6px 10px; flex-wrap: wrap-reverse; }
+.maplibregl-ctrl-attrib { max-width: 100%; }
 .maplibregl-ctrl-bottom-left .maplibregl-ctrl { margin: 0 !important; float: none; }
 
 /* ---------- Side panel: a sheet of paper pinned to the map ---------- */
 #panel { position: absolute; z-index: 6; top: calc(var(--frame) + 16px); right: calc(var(--frame) + 16px);
-  bottom: calc(var(--frame) + 16px); width: 360px; display: flex; flex-direction: column;
+  bottom: calc(var(--frame) + 16px); width: var(--panel-w); display: flex; flex-direction: column;
   background: linear-gradient(#f7ecd3, #efdfba); border-radius: 3px;
   box-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 18px 40px rgba(30,15,5,.45), 0 2px 6px rgba(30,15,5,.35);
   transform: rotate(.35deg); }
@@ -180,16 +183,43 @@ h3::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg
 .res .d { grid-column: 1 / -1; font-size: 12px; color: var(--ink-faint); }
 .res.bad .v { color: var(--red); }
 .res.good .v { color: var(--green); }
+.res .v small { font: 600 12px Inter, sans-serif; color: var(--ink-faint); margin-left: 3px; }
+.res.big .v { font-size: 28px; }
+.res .bar { grid-column: 1 / -1; display: grid; grid-template-columns: 64px 1fr auto; gap: 4px 8px; align-items: center; font-size: 11.5px; color: var(--ink-soft); margin-top: 4px; }
+.res .bar i { display: block; height: 7px; border-radius: 4px; background: var(--ink-soft); min-width: 2px; }
+.res .bar i.now { background: var(--green); }
+.res .bar i.now.worse { background: var(--red); }
+.res .bar b { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.caveat { font-size: 12px; line-height: 1.45; color: #6b3a10; background: rgba(168,104,26,.13); border-left: 3px solid var(--amber);
+  border-radius: 6px; padding: 7px 10px; }
+.assume { margin-top: 12px; border: 1px solid rgba(91,65,40,.28); border-radius: 10px; background: rgba(255,251,240,.45); }
+.assume summary { cursor: pointer; padding: 9px 12px; font-size: 13px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 8px; }
+.assume summary::-webkit-details-marker { display: none; }
+.assume summary::after { content: 'Hide'; font-weight: 500; font-size: 12px; color: var(--ink-faint); text-decoration: underline; text-underline-offset: 3px; }
+.assume:not([open]) summary::after { content: 'Show'; }
+.assume ol { margin: 0; padding: 0 14px 10px 30px; display: grid; gap: 6px; font-size: 12px; line-height: 1.45; color: var(--ink-soft); }
+.assume p { margin: 0 12px 6px; font-size: 11.5px; font-weight: 600; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .08em; }
+.db-scale { grid-column: 1 / -1; position: relative; height: 34px; margin: 8px 2px 2px; }
+.db-scale .track { position: absolute; left: 0; right: 0; top: 9px; height: 6px; border-radius: 3px;
+  background: linear-gradient(90deg, #6f9a6a, #c9b25a 45%, #c4703a 75%, #9b2b18); opacity: .8; }
+.db-scale .tick { position: absolute; top: 18px; transform: translateX(-50%); font-size: 10px; color: var(--ink-faint); white-space: nowrap; }
+.db-scale .mk { position: absolute; top: 2px; width: 2px; height: 20px; margin-left: -1px; background: var(--ink); border-radius: 1px; }
+.db-scale .mk.now { background: var(--green); width: 4px; margin-left: -2px; }
+.db-scale .mk.now.worse { background: var(--red); }
+.db-scale .mk span { position: absolute; bottom: 21px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: 600; white-space: nowrap; color: var(--ink-soft); }
+.streets { grid-column: 1 / -1; margin: 6px 0 0; padding: 0; list-style: none; font-size: 12px; color: var(--ink-soft); display: grid; gap: 3px; }
+.streets li { display: flex; justify-content: space-between; gap: 8px; }
+.streets b { font-variant-numeric: tabular-nums; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; font-size: 12px; color: var(--ink-soft); }
 .legend i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
 
 /* sound toggle */
-#sound { position: absolute; z-index: 6; top: calc(var(--frame) + 16px); right: calc(var(--frame) + 440px);
+#sound { position: absolute; z-index: 6; top: calc(var(--frame) + 16px); right: calc(var(--frame) + var(--panel-w) + 80px);
   width: 40px; height: 40px; border-radius: 50%; border: 1.5px solid rgba(91,65,40,.5); background: rgba(247,236,211,.92);
   color: var(--ink); cursor: pointer; display: grid; place-items: center; box-shadow: 0 4px 10px rgba(30,15,5,.3); }
 
 /* back to the 3D city */
-#to3d { position: absolute; z-index: 6; top: calc(var(--frame) + 16px); right: calc(var(--frame) + 490px);
+#to3d { position: absolute; z-index: 6; top: calc(var(--frame) + 16px); right: calc(var(--frame) + var(--panel-w) + 130px);
   height: 40px; padding: 0 15px 0 11px; border-radius: 20px; border: 1.5px solid rgba(91,65,40,.5);
   background: rgba(247,236,211,.92); color: var(--ink); cursor: pointer; display: flex; align-items: center; gap: 8px;
   font: 600 13.5px Inter, sans-serif; box-shadow: 0 4px 10px rgba(30,15,5,.3); transition: transform .15s, background .2s; }
@@ -200,7 +230,7 @@ h3::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg
 html:not(.embed) #to3d kbd { display: none; }
 
 /* hide the paper panel, title and compass (H): just the map and its edits */
-#bare { position: absolute; z-index: 6; top: calc(var(--frame) + 16px); right: calc(var(--frame) + 392px);
+#bare { position: absolute; z-index: 6; top: calc(var(--frame) + 16px); right: calc(var(--frame) + var(--panel-w) + 32px);
   width: 40px; height: 40px; border-radius: 50%; border: 1.5px solid rgba(91,65,40,.5); background: rgba(247,236,211,.92);
   color: var(--ink); cursor: pointer; display: grid; place-items: center; box-shadow: 0 4px 10px rgba(30,15,5,.3); }
 #bare .on { display: none; }
@@ -255,14 +285,39 @@ html:not(.embed) #to3d kbd { display: none; }
 .embed.leaving #paper, .embed.leaving #frame, .embed.leaving #panel, .embed.leaving #cartouche,
 .embed.leaving #compass, .embed.leaving #sound, .embed.leaving #to3d, .embed.leaving #bare { transition-delay: 0s !important; transition-duration: .45s !important; }
 
+/* Tablets and small laptops: a narrower panel, smaller title and compass, so the
+   title, corner buttons and panel never overlap. */
+@media (max-width: 1100px) and (min-width: 761px) {
+  :root { --frame: 8px; --panel-w: 320px; }
+  #cartouche svg { width: 260px; }
+  #compass { width: 100px; height: 100px; }
+  .maplibregl-ctrl-bottom-left { left: calc(128px + var(--frame)); }
+  .scroll { padding: 22px 20px 16px; }
+  .foot { padding: 0 20px 20px; }
+}
+/* Between the two, the title moves under the corner buttons' row if they would touch. */
+@media (max-width: 900px) and (min-width: 761px) {
+  #cartouche { top: calc(var(--frame) + 66px); }
+  #cartouche svg { width: 220px; }
+}
 @media (max-width: 760px) {
-  :root { --frame: 10px; }
-  #cartouche svg { width: 230px; }
-  #compass { width: 84px; height: 84px; bottom: auto; top: calc(var(--frame) + 92px); left: calc(var(--frame) + 10px); }
-  #panel { top: auto; left: calc(var(--frame) + 8px); right: calc(var(--frame) + 8px); width: auto; height: 46%; transform: none; }
+  :root { --frame: 5px; --panel-w: 0px; }
+  .maplibregl-ctrl-bottom-left { right: auto; }
+  /* Phones: icon-only corner buttons, a smaller title beside them, the compass below it,
+     and a compact panel footer so the scrolling part keeps most of the sheet. */
+  #cartouche { top: calc(var(--frame) + 10px); left: calc(var(--frame) + 4px); }
+  #cartouche svg { width: min(190px, calc(100vw - 180px)); }
+  #compass { width: 64px; height: 64px; bottom: auto; top: calc(var(--frame) + 96px); left: calc(var(--frame) + 12px); }
+  #panel { top: auto; left: calc(var(--frame) + 8px); right: calc(var(--frame) + 8px); width: auto; height: 50%; transform: none; }
   #bare, .bare #bare { right: calc(var(--frame) + 12px); }
-  #sound, .bare #sound { right: calc(var(--frame) + 60px); }
-  #to3d, .bare #to3d { right: calc(var(--frame) + 108px); padding: 0 13px 0 10px; }
+  #sound, .bare #sound { right: calc(var(--frame) + 58px); }
+  #to3d, .bare #to3d { right: calc(var(--frame) + 104px); width: 40px; padding: 0; justify-content: center; }
+  #to3d span { display: none; }
+  .scroll { padding: 20px 18px 12px; }
+  .foot { padding: 0 18px 14px; }
+  .seal { padding: 10px 14px; font-size: 15px; }
+  .seal .wax { width: 28px; height: 28px; }
+  .note { margin-top: 6px; font-size: 11px; }
   .bare #panel { transform: translateY(calc(100% + 60px)); }
   #to3d kbd { display: none; }
   .embed:not(.entered) #panel { transform: translateY(calc(100% + 60px)); }
@@ -352,6 +407,16 @@ html:not(.embed) #to3d kbd { display: none; }
       <div class="clock"><b id="clock">08:00:00</b><span id="clockNote">simulated time</span></div>
       <div class="status" id="status"></div>
       <div class="results" id="results"></div>
+      <h3>Carbon and exhaust</h3>
+      <div class="results" id="carbon"><p class="empty">Exhaust totals appear once the comparison starts.</p></div>
+      <h3>Noise</h3>
+      <div class="results" id="noise"><p class="empty">Noise levels appear once the comparison starts.</p></div>
+      <h3>Space for people</h3>
+      <div class="results" id="space"></div>
+      <details class="assume" id="assume" open>
+        <summary>Assumptions behind these numbers</summary>
+        <div id="assumeList"></div>
+      </details>
       <div class="legend">
         <span><i style="background:var(--purple)"></i>Detours</span>
         <span><i style="background:var(--red-2)"></i>Queues</span>
@@ -429,7 +494,7 @@ function drawFrame() {
   const jag = (t) => {
     let v = 0;
     for (const [p, f, a] of waves) v += Math.sin(t * f * 6.28 + p) * a;
-    return Math.max(0, 3 + v + rnd() * 2.2 + (rnd() < 0.025 ? 5 + rnd() * 7 : 0));
+    return Math.max(0, 1 + v * 0.4 + rnd() * 1.2 + (rnd() < 0.02 ? 3 + rnd() * 3 : 0));
   };
   const pts = [], step = 7;
   for (let x = m; x < W - m; x += step) pts.push([x, m + jag(x)]);
@@ -442,18 +507,19 @@ function drawFrame() {
 
   // The desk under the map.
   const desk = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .3, W / 2, H / 2, Math.max(W, H) * .75);
-  desk.addColorStop(0, '#3a2716'); desk.addColorStop(1, '#120b06');
+  desk.addColorStop(0, '#6e5639'); desk.addColorStop(1, '#4a3826');
   ctx.fillStyle = desk; ctx.fillRect(0, 0, W, H);
   // Shadow the paper casts on the desk, then cut the paper's hole.
-  ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.75)'; ctx.shadowBlur = 26; ctx.shadowOffsetY = 6;
+  ctx.save(); ctx.shadowColor = 'rgba(30,18,8,.35)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 4;
   ctx.fillStyle = '#000'; ctx.fill(edge); ctx.restore();
   ctx.save(); ctx.globalCompositeOperation = 'destination-out'; ctx.fill(edge); ctx.restore();
 
   // Scorched, darkened margin inside the paper.
   ctx.save(); ctx.clip(edge);
-  ctx.filter = 'blur(14px)'; ctx.strokeStyle = 'rgba(96,56,20,.55)'; ctx.lineWidth = 46; ctx.stroke(edge);
-  ctx.filter = 'blur(4px)'; ctx.strokeStyle = 'rgba(70,38,12,.6)'; ctx.lineWidth = 12; ctx.stroke(edge);
-  ctx.filter = 'none'; ctx.strokeStyle = 'rgba(40,20,6,.9)'; ctx.lineWidth = 2.2; ctx.stroke(edge);
+  // Kept light: a faint warm tan, not burnt, so the map reads right to its edge.
+  ctx.filter = 'blur(8px)'; ctx.strokeStyle = 'rgba(150,105,55,.16)'; ctx.lineWidth = 18; ctx.stroke(edge);
+  ctx.filter = 'blur(3px)'; ctx.strokeStyle = 'rgba(130,88,45,.18)'; ctx.lineWidth = 6; ctx.stroke(edge);
+  ctx.filter = 'none'; ctx.strokeStyle = 'rgba(110,75,40,.55)'; ctx.lineWidth = 1.4; ctx.stroke(edge);
 
   // Faint rhumb lines from the compass, as on a sea chart.
   const compass = document.getElementById('compass').getBoundingClientRect();
@@ -801,7 +867,7 @@ function renderStreet() {
     ${canWhole ? `<button class="whole" id="whole">Pick the whole of ${esc(s.names[0])} (${wholeIds.length} pieces)</button>` : ''}
     <div class="actions">
       <button class="act close" data-k="close" aria-pressed="${all('close')}">
-        <span class="ic">${ICONS.close}</span><span><b>Close it to cars</b><span>Cars must find another way. People can still walk.</span></span></button>
+        <span class="ic">${ICONS.close}</span><span><b>Make it pedestrian-only</b><span>No cars at all; the whole street is for people on foot. Cars must find another way.</span></span></button>
       <button class="act lane" data-k="lane" aria-pressed="${all('lane')}" ${s.lanes < 2 ? 'disabled title="Only one lane: close it instead"' : ''}>
         <span class="ic">${ICONS.lane}</span><span><b>Give one lane to people</b><span>${s.lanes < 2 ? 'Only one lane here. Close it instead.' : s.minLanes < 2 ? 'Wider pavement where there are 2+ lanes; single-lane pieces stay as they are.' : 'One car lane each way becomes wider pavement.'}</span></span></button>
       <button class="act slow" data-k="slow" aria-pressed="${all('slow')}" ${s.free <= 30 ? 'disabled' : ''}>
@@ -840,6 +906,7 @@ function applyAction(kind) {
 
 function afterEdit(drawIds, kind) {
   syncEdits(drawIds, kind);
+  if (!$('sim').hidden) showSpace();
   renderStreet(); renderChanges();
   if (state.sim) toast('Change sent. The traffic will react within a few seconds.');
 }
@@ -880,7 +947,7 @@ function fitTo(ids) {
 
 // ---------------------------------------------------------------- the changes list
 function editWords(e) {
-  if (e.close) return ['X', 'Closed to cars', '#8f2213'];
+  if (e.close) return ['X', 'Pedestrian-only (no cars)', '#8f2213'];
   if (e.lane && e.slow) return ['⇥', 'One lane to people, 30 km/h', '#2e6a3c'];
   if (e.lane) return ['⇥', 'One lane to people', '#2e6a3c'];
   return ['◔', 'Slowed to 30 km/h', '#a8681a'];
@@ -1069,6 +1136,7 @@ async function startSim() {
   renderChanges();
   setStatus('Releasing the morning traffic onto the streets… (about 20 seconds)', true);
   $('results').innerHTML = '';
+  showSpace();
   $('scroll').scrollTo({ top: $('scroll').scrollHeight, behavior: 'smooth' });
   try {
     const r = await fetch('/v1/viewer/traffic/simulation', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(planBody(4)) });
@@ -1076,6 +1144,7 @@ async function startSim() {
     if (!r.ok) throw new Error(data.detail || r.status);
     if (sim.stopped) { closeSession(data.session); return; }
     sim.key = data.session;
+    renderAssumptions(data);
     sim.queue.push(...data.frames);
     setStatus('Simulating. Give it a minute or two for the effects to spread.', true);
     requestAnimationFrame(play);
@@ -1150,10 +1219,133 @@ function showMetrics(frame) {
       d: `Across the whole city; normal day: ${fmt(b.stopped)}. Includes cars at red lights.` });
   }
   $('results').innerHTML = rows.map((r) => `<div class="res ${r.cls}"><span class="k">${r.k}</span><span class="v">${r.v}</span>${r.d ? `<span class="d">${r.d}</span>` : ''}</div>`).join('');
+  showCarbon(m.emissions);
+  showNoise(m.emissions && m.emissions.noise);
   const toLines = (pairs, scale) => ({ type: 'FeatureCollection', features: pairs.filter(([id]) => state.roads.features[id])
     .map(([id, n]) => ({ type: 'Feature', properties: { w: Math.min(3, 0.6 + Math.sqrt(n) / scale) }, geometry: feature(id).geometry })) });
   map.getSource('detours').setData(toLines(m.detour || [], 3));
   map.getSource('queues').setData(toLines((m.stopped_roads || []).filter(([, n]) => n >= 4), 4));
+}
+// Exhaust of the plan against today's streets (traffic_emissions.py). Positive = saved.
+function mass(g) {
+  const a = Math.abs(g);
+  if (a >= 1e6) return [(g / 1e6).toFixed(a >= 1e7 ? 0 : 1), 't'];
+  if (a >= 1000) return [(g / 1000).toFixed(a >= 1e5 ? 0 : 1), 'kg'];
+  if (a >= 1) return [g.toFixed(a >= 100 ? 0 : 1), 'g'];
+  return [g.toFixed(a >= 0.01 ? 2 : 3), 'g'];
+}
+function signed(g, unitFn = mass) {
+  const [n, u] = unitFn(Math.abs(g));
+  return `${g < 0 ? '+' : g > 0 ? '−' : ''}${n}<small>${u}</small>`;
+}
+function bars(label, before, after, fmtFn) {
+  const top = Math.max(before, after, 1e-9);
+  return `<span class="bar"><span>Today</span><i style="width:${(100 * before / top).toFixed(1)}%"></i><b>${fmtFn(before)}</b>
+    <span>Your plan</span><i class="now ${after > before ? 'worse' : ''}" style="width:${(100 * after / top).toFixed(1)}%"></i><b>${fmtFn(after)}</b></span>`;
+}
+function showCarbon(e) {
+  const el = $('carbon');
+  if (!e) { el.innerHTML = '<p class="empty">Exhaust totals appear once the comparison starts.</p>'; return; }
+  const kg = (g) => mass(g).join(' ');
+  const mins = Math.max(1, Math.round(e.window_s / 60));
+  const co2 = e.saved.co2_g, pct = e.saved_percent.co2_g;
+  const cls = (v, tol) => (v > tol ? 'good' : v < -tol ? 'bad' : '');
+  const out = [];
+  if (!e.settled) out.push(`<div class="caveat">Only ${Math.round(e.window_s)} s compared so far. Wait a few minutes: detours and queues take time to build up.</div>`);
+  if (e.stranded.extra > 0) out.push(`<div class="caveat"><b>${fmt(e.stranded.extra)} more cars are stuck or waiting</b> than on a normal day. They emit little while they wait, so part of any “saving” is trips not being made, not cleaner trips.</div>`);
+  out.push(`<div class="res big ${cls(co2, 1)}"><span class="k">Change in CO₂, whole city</span><span class="v">${signed(co2)}</span>
+    <span class="d">${pct == null ? '' : `${Math.abs(pct).toFixed(1)}% ${co2 >= 0 ? 'less' : 'more'} exhaust than today over the same ${mins} simulated min (− means less). `}Today: ${kg(e.baseline.co2_g)}, your plan: ${kg(e.scenario.co2_g)}.</span></div>`);
+  if (e.saved_per_hour) {
+    const h = e.saved_per_hour.co2_g;
+    out.push(`<div class="res ${cls(h, 1)}"><span class="k">Change per hour, at this pace</span><span class="v">${signed(h)}</span>
+      <span class="d">CO₂ per hour of this traffic if the current difference held. Not a yearly or all-day figure.</span></div>`);
+  }
+  const ps = e.planned_streets;
+  if (ps.roads) {
+    const b = ps.co2_g.baseline, s = ps.co2_g.scenario, ob = ps.elsewhere_co2_g.baseline, os = ps.elsewhere_co2_g.scenario;
+    out.push(`<div class="res ${cls(b - s, 1)}"><span class="k">On the streets you changed</span><span class="v">${signed(b - s)}</span>
+      <span class="d">CO₂ emitted on the ${ps.roads} street piece${ps.roads > 1 ? 's' : ''} in your plan. This shows where exhaust goes, not air quality.</span>${bars('', b, s, kg)}</div>`);
+    out.push(`<div class="res ${cls(ob - os, 1)}"><span class="k">On every other street</span><span class="v">${signed(ob - os)}</span>
+      <span class="d">${os > ob ? 'Detouring traffic moves exhaust onto nearby streets.' : 'Other streets carry less exhaust than today.'}</span></div>`);
+  }
+  const fuel = e.saved.fuel_l, km = e.saved.vehicle_km;
+  out.push(`<div class="res ${cls(fuel, 0.05)}"><span class="k">Fuel</span><span class="v">${signed(fuel, (l) => [l.toFixed(l >= 10 ? 0 : 1), 'L'])}</span>
+    <span class="d">Today ${e.baseline.fuel_l.toFixed(1)} L, your plan ${e.scenario.fuel_l.toFixed(1)} L (petrol-equivalent litres)</span></div>`);
+  out.push(`<div class="res ${cls(km, 0.5)}"><span class="k">Distance driven</span><span class="v">${signed(km, (k) => [k.toFixed(k >= 10 ? 0 : 1), 'km'])}</span>
+    <span class="d">Today ${fmt(Math.round(e.baseline.vehicle_km))} km, your plan ${fmt(Math.round(e.scenario.vehicle_km))} km. CO₂ per km: ${e.co2_per_km.baseline ?? '–'} g today, ${e.co2_per_km.scenario ?? '–'} g with your plan.</span></div>`);
+  out.push(`<div class="res ${cls(e.saved.nox_g, 0.5)}"><span class="k">Nitrogen oxides (NOₓ)</span><span class="v">${signed(e.saved.nox_g)}</span>
+    <span class="d">Today ${kg(e.baseline.nox_g)}, your plan ${kg(e.scenario.nox_g)}. Exhaust particles (PM): ${kg(Math.abs(e.saved.pmx_g))} ${e.saved.pmx_g >= 0 ? 'less' : 'more'}. Brake, tyre and road dust are not counted.</span></div>`);
+  el.innerHTML = out.join('');
+}
+// Traffic noise near the road, Leq in dB(A) (traffic_emissions.py). Negative = quieter.
+const DB_REFS = [[40, 'quiet room'], [50, 'quiet street'], [60, 'conversation'], [70, 'busy road'], [80, 'heavy traffic']];
+function dbLike(db) {
+  let best = DB_REFS[0];
+  for (const r of DB_REFS) if (Math.abs(r[0] - db) < Math.abs(best[0] - db)) best = r;
+  return best[1];
+}
+function loudness(r) {
+  if (r > 0.9 && r < 1.1) return 'sounds about the same as today';
+  if (r >= 0.45 && r <= 0.55) return 'sounds about half as loud as today';
+  if (r >= 1.9 && r <= 2.1) return 'sounds about twice as loud as today';
+  return `sounds about ${Math.round(r * 100)}% as loud as today`;
+}
+function dbScale(before, after) {
+  const lo = 40, hi = 85, x = (v) => Math.max(0, Math.min(100, 100 * (v - lo) / (hi - lo)));
+  const ticks = DB_REFS.map(([v, w]) => `<span class="tick" style="left:${x(v)}%">${v}</span>`).join('');
+  return `<span class="db-scale" aria-hidden="true"><span class="track"></span>${ticks}
+    <span class="mk" style="left:${x(before)}%"><span>Today</span></span>
+    <span class="mk now ${after > before ? 'worse' : ''}" style="left:${x(after)}%"><span>Plan</span></span></span>`;
+}
+const dB = (d) => `${d > 0 ? '+' : d < 0 ? '−' : ''}${Math.abs(d).toFixed(1)}<small>dB</small>`;
+function streetName(id) { return (state.roads.features[id] && feature(id).properties.name) || 'Unnamed street'; }
+function showNoise(n) {
+  const el = $('noise');
+  if (!n) { el.innerHTML = '<p class="empty">Noise levels appear once the comparison starts.</p>'; return; }
+  const out = [];
+  const p = n.planned;
+  if (p) {
+    out.push(`<div class="res big ${p.delta_db <= -1 ? 'good' : p.delta_db >= 1 ? 'bad' : ''}"><span class="k">Traffic noise on your streets</span><span class="v">${dB(p.delta_db)}</span>
+      <span class="d"><b>${p.words}.</b> It ${loudness(p.loudness_ratio)}. Today ${p.baseline_db} dB(A), like a ${dbLike(p.baseline_db)}; with your plan ${p.scenario_db} dB(A)${p.car_free ? ', no cars left, only the city background' : `, like a ${dbLike(p.scenario_db)}`}.</span>
+      ${dbScale(p.baseline_db, p.scenario_db)}</div>`);
+  }
+  // A street is made of several road pieces: list each name once, with its largest change (rows come sorted).
+  const byName = (rows) => { const seen = new Set(); return rows.filter((r) => { const k = streetName(r.road); if (seen.has(k) && k !== 'Unnamed street') return false; seen.add(k); return true; }); };
+  const list = (rows) => `<ul class="streets">${byName(rows).slice(0, 4).map((r) => `<li><span>${esc(streetName(r.road))}</span><b>${r.delta_db > 0 ? '+' : '−'}${Math.abs(r.delta_db).toFixed(1)} dB</b></li>`).join('')}</ul>`;
+  const louder = n.streets_louder_3db || 0, quieter = n.streets_quieter_3db || 0;
+  const near = n.near_m ? `within ${n.near_m} m of your plan` : 'in the city';
+  out.push(`<div class="res ${louder ? 'bad' : ''}"><span class="k">Nearby streets noticeably louder</span><span class="v">${fmt(louder)}</span>
+    <span class="d">${louder ? `Busy streets ${near} now 3 dB or more louder, mostly where detouring cars drive. Loudest increases:` : `No busy street ${near} became 3 dB or more louder.`}</span>${n.louder.length ? list(n.louder) : ''}</div>`);
+  if (quieter || n.quieter.length) out.push(`<div class="res ${quieter ? 'good' : ''}"><span class="k">Nearby streets noticeably quieter</span><span class="v">${fmt(quieter)}</span>
+    <span class="d">Busy streets ${near} now 3 dB or more quieter. Biggest drops:</span>${list(n.quieter)}</div>`);
+  el.innerHTML = out.join('');
+}
+// Carriageway handed to people, from the planner's own road data (3.2 m per lane, as the lane tool assumes).
+const LANE_M = 3.2, COURT_M2 = 261;
+function showSpace() {
+  let closed = 0, lanes = 0, slowM = 0;
+  for (const [id, e] of state.edits) {
+    const p = feature(id).properties, len = lineLength(feature(id).geometry.coordinates), dirs = p.oneway ? 1 : 2;
+    if (e.close) closed += len * p.lanes * dirs * LANE_M;
+    else if (e.lane) lanes += len * dirs * LANE_M;
+    if (e.slow && !e.close) slowM += len;
+  }
+  const area = closed + lanes, rows = [];
+  if (area > 0) rows.push(`<div class="res big good"><span class="k">Street space given to people</span><span class="v">${fmt(Math.round(area))}<small>m²</small></span>
+    <span class="d">About ${area >= COURT_M2 ? `${fmt(Math.round(area / COURT_M2))} tennis court${area >= 1.5 * COURT_M2 ? 's' : ''}` : 'a third of a tennis court or less'} of road surface${closed ? `: ${fmt(Math.round(closed))} m² on pedestrian-only streets` : ''}${lanes ? `${closed ? ',' : ':'} ${fmt(Math.round(lanes))} m² of lanes turned to pavement` : ''}. Lanes counted at ${LANE_M} m wide; existing pavements not included.</span></div>`);
+  if (slowM > 0) rows.push(`<div class="res"><span class="k">Street length slowed to 30 km/h</span><span class="v">${slowM >= 1000 ? (slowM / 1000).toFixed(1) + '<small>km</small>' : Math.round(slowM) + '<small>m</small>'}</span>
+    <span class="d">Safety effects of lower speeds are not estimated here.</span></div>`);
+  $('space').innerHTML = rows.join('') || '<p class="empty">No street space changes hands in this plan.</p>';
+}
+function renderAssumptions(data) {
+  const classes = new Set();
+  for (const t of Object.values((data.network && data.network.vehicle_types) || {})) if (t.emission_class) classes.add(`${t.label}: ${t.emission_class}`);
+  const items = [...(data.emission_assumptions || [])];
+  if (classes.size) items.push(`Emission class used in this run: ${[...classes].join('; ')} (SUMO default, a petrol Euro-era car unless the vehicle mix is on).`);
+  items.push('This page closes streets to cars and drives the same trips around them; people walking on a pedestrian-only street are not simulated or counted.');
+  items.push(`Street space counts the carriageway only: each closed lane at ${LANE_M} m wide by the street's mapped length; pavements already there are not added. Not a survey of real street widths.`);
+  $('assumeList').innerHTML = `<p>Carbon, exhaust, noise and space</p><ol>${items.map((a) => `<li>${esc(a)}</li>`).join('')}</ol>`
+    + (data.assumptions ? `<p>Traffic model</p><ol><li>${esc(data.assumptions)}</li></ol>` : '');
 }
 function setStatus(text, busy) {
   $('status').innerHTML = (busy ? '<svg class="quill" viewBox="0 0 24 24" fill="none" stroke="#5b4128" stroke-width="1.8" stroke-linecap="round"><path d="M20 4C11 5 6 11 4 20M20 4c-1 7-6 11-12 11"/></svg>' : '') + `<span>${esc(text)}</span>`;

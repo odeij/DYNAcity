@@ -298,8 +298,9 @@ def create_app(
         planner_cache: dict[str, Any] = {}
 
         @app.get("/planner", response_class=HTMLResponse, include_in_schema=False)
-        def planner() -> str:
-            return planner_page()
+        def planner() -> HTMLResponse:
+            # Revalidate every load, so an edited page is never served from a stale browser cache.
+            return HTMLResponse(planner_page(), headers={"Cache-Control": "no-cache"})
 
         @app.get("/v1/planner/roads")
         def planner_road_list() -> dict:

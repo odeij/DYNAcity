@@ -702,8 +702,9 @@ const metres = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round
 const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, imagery: 0, mode: 'scenario', answer: null, answerIds: null, traffic: false, hour: 8, roadHighlight: null, buses: false, stationsOpen: false,
   trafficImpact: null, trafficStyle: 'street', mobilityMap: true, showSignals: true, mixed: false,
   shadows: !/(^|&)shadows=off/.test(location.hash.slice(1)),
-  // Observed view: tint BBED-linked buildings by their recorded state. Off by default (plain stone); `#status=on`.
-  statusColours: /(^|&)status=on/.test(location.hash.slice(1)),
+  // Observed view: tint BBED-linked buildings by their recorded state. On by default, like every
+  // data layer; `#status=off` (or `#layers=off`) shows plain stone.
+  statusColours: !/(^|&)(status|layers)=off/.test(location.hash.slice(1)),
   canopyReview: false, canopyCandidate: null, graniteOverlay: false, granitePanel: false,
   roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map(), planning: new Map(), selectedRoad: null, planSearch: '' };
 
@@ -4198,6 +4199,13 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
     const tab = hashLens && document.querySelector(`.tab[data-lens="${CSS.escape(hashLens)}"]:not([hidden])`);
     setLens(tab ? hashLens : ui.lens);
     if(DATA.api && DATA.traffic && new URLSearchParams(location.search).get('traffic')==='1')setTraffic(true);
+    // Every data layer the server has is shown from the start (traffic, bus routes,
+    // pedestrians); their detail panels stay closed so the city stays in view.
+    // `#layers=off` starts with them off.
+    else if (!/(^|&)layers=off/.test(location.hash.slice(1))) {
+      if (DATA.traffic) { ui.buses = !!DATA.traffic.bus_routes?.length; setTraffic(true); $('p-traffic').hidden = true; }
+      if (DATA.pedestrians && typeof setPeople === 'function') setPeople(true);
+    }
     if (corridorMode()) togglePanel('p-corridor', $('t-corridor'), true);
   });
 }

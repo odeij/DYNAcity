@@ -28,6 +28,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from .traffic import TrafficModel, RoadDisruption, background_flow, lane_counts, LANE_WIDTH_M
+from .traffic_emissions import EMISSION_ASSUMPTIONS, NEAR_M, EmissionLedger
 from .traffic_planning import lanes_left, resolve_planning, speed_caps, summarize as summarize_planning
 from .viewer import _utm_zone, utm_to_lonlat
 
@@ -43,6 +44,12 @@ ASSUMPTIONS = (
     "it is not measured origin-destination demand or a current demand forecast. "
     "Junction blockers remain obstacles; gridlocked vehicles are not relocated and queues can persist."
 )
+
+
+def EMISSION_VARIABLES(constants):
+    """Per-vehicle exhaust rates (mg/s in SUMO >= 1.14) and noise level (dB(A)) read with the fleet."""
+    return (constants.VAR_CO2EMISSION, constants.VAR_FUELCONSUMPTION,
+            constants.VAR_NOXEMISSION, constants.VAR_PMXEMISSION, constants.VAR_NOISEEMISSION)
 
 
 def road_identity(model):
@@ -572,6 +579,8 @@ class Simulation:
         self.seen = set()
         self.retry = set()
         self.blocked = set()
+        # Exhaust totals of both runs from the moment they split (`fork`).
+        self.emissions = EmissionLedger(len(model))
         self.rerouted = set()
         # SUMO route id behind each entry of `routes`, to notice re-planning.
         self.route_ids = {}
@@ -675,15 +684,17 @@ class Simulation:
             constants = self.traci.constants
             variables = (constants.VAR_POSITION, constants.VAR_ANGLE, constants.VAR_SPEED,
                          constants.VAR_ROAD_ID, constants.VAR_LANE_INDEX, constants.VAR_ROUTE_INDEX,
-                         constants.VAR_WAITING_TIME, constants.VAR_SIGNALS, constants.VAR_ROUTE_ID)
+                         constants.VAR_WAITING_TIME, constants.VAR_SIGNALS, constants.VAR_ROUTE_ID,
+                         *EMISSION_VARIABLES(constants))
             self.variables = variables
             # With a view, the whole fleet reports only what the metrics need;
             # cars around the view report everything (`watch`).
             self.fleet_variables = (constants.VAR_SPEED, constants.VAR_ROAD_ID, constants.VAR_ROUTE_INDEX,
-                                    constants.VAR_ROUTE_ID)
+                                    constants.VAR_ROUTE_ID, *EMISSION_VARIABLES(constants))
             self.watching = False
             self.subscribed = [True, False]
-            self.baseline_variables = (constants.VAR_SPEED, constants.VAR_WAITING_TIME)
+            self.baseline_variables = (constants.VAR_SPEED, constants.VAR_WAITING_TIME, constants.VAR_ROAD_ID,
+                                       *EMISSION_VARIABLES(constants))
             self._sumo_command = [binary, '-n', str(path), '-r', str(routes_path), '--step-length', str(STEP_S), '--seed', str(seed),
                                   '--save-state.rng', 'true', '--routing-algorithm', ROUTING_ALGORITHM,
                                   '--time-to-teleport', '-1', '--time-to-teleport.disconnected', '-1',
@@ -729,6 +740,7 @@ class Simulation:
                     'label': declared[tid].label if tid in declared else 'Passenger car',
                     'length_m': c.vehicletype.getLength(tid), 'width_m': c.vehicletype.getWidth(tid),
                     'height_m': c.vehicletype.getHeight(tid),
+                    'emission_class': c.vehicletype.getEmissionClass(tid),
                     'parameters': 'SUMO class defaults; not measured Beirut vehicle dimensions or behaviour',
                 }
             self.signal_links = []
@@ -1013,6 +1025,7 @@ class Simulation:
             metrics['baseline'] = {key: metrics[key] for key in ('active', 'pending', 'arrived', 'stopped')}
             metrics['baseline_junction_conflicts'] = metrics['junction_conflicts']
         metrics['stopped_roads'] = sorted(stopped_roads.items())
+        metrics['emissions'] = self.emission_summary(now, metrics)
         types = [self.type_for(vid) if hasattr(self, 'mixed') else 'DEFAULT_VEHTYPE' for vid, _, _ in fleet]
         metrics['vehicle_types'] = {tid: types.count(tid) for tid in set(types)}
         inflow = getattr(self,'inflow',None)
@@ -1033,6 +1046,53 @@ class Simulation:
             raise RuntimeError('SUMO vehicle accounting invariant failed')
         self.last_metrics = metrics
         return self.finish(c, vehicles, metrics)
+
+    def record_emissions(self, index, c):
+        """Add run `index`'s current fleet exhaust rates to the ledger (`traffic_emissions`)."""
+        k = self.traci.constants
+        states = c.junction.getContextSubscriptionResults(self.context_node) or {}
+        # Cars caught on a road when it closed stand there until it reopens
+        # (`apply`); a real driver would switch off, so they emit nothing.
+        parked = self.held if index == 0 else ()
+        self.emissions.record(index, c.simulation.getTime(), (
+            (s.get(k.VAR_SPEED, 0.0), s.get(k.VAR_CO2EMISSION, 0.0), s.get(k.VAR_FUELCONSUMPTION, 0.0),
+             s.get(k.VAR_NOXEMISSION, 0.0), s.get(k.VAR_PMXEMISSION, 0.0), s.get(k.VAR_ROAD_ID, ''),
+             s.get(k.VAR_NOISEEMISSION, 0.0))
+            for vid, s in states.items() if vid not in parked))
+
+    def emission_summary(self, now, metrics):
+        """Exhaust of the plan against today's streets, or None before the runs split."""
+        ledger = getattr(self, 'emissions', None)
+        if ledger is None or not ledger.started:
+            return None
+        planned = set(getattr(self, 'plan', {}) or {})
+        planned |= {int(edge.split(':')[0]) for edge in getattr(self, 'closed', set())}
+        baseline = metrics.get('baseline') or {}
+        stranded = {'scenario': metrics['pending'] + metrics['no_detour'] + metrics['stopped_on_closed'],
+                    'baseline': baseline.get('pending', metrics['pending'])}
+        classes = {tid: t.get('emission_class') for tid, t in self.network_quality.get('vehicle_types', {}).items()}
+        return ledger.summary(now, planned, stranded=stranded, emission_classes=classes,
+                              nearby=self.roads_near(planned))
+
+    def roads_near(self, roads, radius_m=NEAR_M):
+        """Roads with a vertex within `radius_m` of any vertex of `roads` (metres, the model's CRS)."""
+        key = frozenset(roads)
+        cache = self.__dict__.setdefault('_near_cache', {})
+        if key not in cache:
+            if not key:
+                cache[key] = []
+            else:
+                if '_road_points' not in self.__dict__:
+                    from scipy.spatial import cKDTree
+                    pts = [np.asarray(g, dtype=float)[:, :2] for g in self.model.geometry]
+                    xy = np.concatenate(pts)
+                    self._road_points = (cKDTree(xy), xy, np.repeat(np.arange(len(pts)), [len(p) for p in pts]))
+                tree, xy, owner = self._road_points
+                hits = tree.query_ball_point(xy[np.isin(owner, list(key))], radius_m)
+                cache[key] = sorted({int(owner[i]) for group in hits for i in group})
+            if len(cache) > 32:
+                cache.pop(next(iter(cache)))
+        return cache[key]
 
     def finish(self, c, vehicles, metrics):
         """Add signal states and the cars to send to a frame's metrics."""
@@ -1144,6 +1204,8 @@ class Simulation:
         if hasattr(self, 'conflicts'):
             self.conflicts[1] = set(self.conflicts[0])
         self.forked = self.fresh_fork = True
+        if hasattr(self, 'emissions'):
+            self.emissions.start(c.simulation.getTime())
 
     def withhold(self, c, newly_closed):
         """Take cars still waiting to enter on a newly closed or narrowed road out of SUMO.
@@ -1316,6 +1378,8 @@ class Simulation:
                     if self.fleet_fresh:
                         c.junction.subscribeContext(self.context_node, self.traci.constants.CMD_GET_VEHICLE_VARIABLE,
                                                     self.context_radius, variables)
+                    if self.fleet_fresh and self.emissions.started:
+                        self.record_emissions(index, c)
                     self.arrivals[index].update({v: c.simulation.getTime() for v in c.simulation.getArrivedIDList()})
                     if hasattr(self, 'conflicts'):
                         self.conflicts[index].update(c.simulation.getCollidingVehiclesIDList())
@@ -1337,7 +1401,8 @@ class Simulation:
                 self.future_entries=still_future
                 frames.append(self.frame())
                 remaining -= ticks
-            return {'frames': frames, 'assumptions': ASSUMPTIONS, 'network': self.network_quality,
+            return {'frames': frames, 'assumptions': ASSUMPTIONS, 'emission_assumptions': EMISSION_ASSUMPTIONS,
+                    'network': self.network_quality,
                     'planning': summarize_planning(self.model, plan)}
 
 
