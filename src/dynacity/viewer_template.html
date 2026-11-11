@@ -10,7 +10,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.css" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/deck.gl@9.4.0/dist.min.js"></script>
+<!-- deck.gl 9.3.1, not 9.4.0: in 9.4.0 a shadow-casting light (the sun) makes every pick come back empty,
+     so no building, road or marker can be clicked or hovered. Recheck picking with shadows before upgrading. -->
+<script src="https://cdn.jsdelivr.net/npm/deck.gl@9.3.1/dist.min.js"></script>
 <style>
 :root {
   --font: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
@@ -1035,7 +1037,7 @@ function lighting(night = 0) {
 // Here the fitted map is (1) grown to the next quarter-octave size, so panning keeps one size, and (2) shifted
 // by under one texel so the texel grid stays fixed to the ground. Coverage only grows, so nothing that was
 // shadowed loses its shadow. Light clip position = viewProjectionMatrix0 · (common − commonOrigin) +
-// projectCenter0 (checked against the deck.gl 9.4.0 shadow module; matrix rows 0 and 1 are clip x and y).
+// projectCenter0 (checked against the deck.gl 9.3.1 and 9.4.0 shadow modules; matrix rows 0 and 1 are clip x and y).
 let shadowStableEffect = null;
 function stabiliseShadowMatrix(matrix, centre, origin, size) {
   for (const row of [0, 1]) {
@@ -1486,7 +1488,7 @@ const SOFT = { depthWriteEnabled: false };
 // Distance haze for the extruded building layers. deck draws over MapLibre, so
 // MapLibre's fog cannot fade deck buildings; this LayerExtension blends their
 // colour toward the fog colour (HAZE, set by applySky) with distance from the
-// camera. Hooks checked against the deck.gl 9.4.0 dist: vs/fs DECKGL_FILTER_COLOR.
+// camera. Hooks checked against the deck.gl 9.3.1 and 9.4.0 dists: vs/fs DECKGL_FILTER_COLOR.
 // The vertex hook only measures the distance in metres; the fragment hook mixes.
 class HazeExtension extends deck.LayerExtension {
   getShaders() {

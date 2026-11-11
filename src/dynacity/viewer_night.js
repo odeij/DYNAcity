@@ -2,7 +2,7 @@
    LayerExtension (shader injection into SolidPolygonLayer's side shader).
    Storeys are ~3 m and bays ~3.6 m, fitted to each wall so rows end cleanly at corners.
    Which windows glow is a deterministic hash of the building id: decorative, not occupancy.
-   Hooks used (checked in deck.gl@9.4.0 dist): vs:#decl, vs:#main-end, fs:#decl, fs:DECKGL_FILTER_COLOR. */
+   Hooks used (checked in deck.gl@9.3.1 and 9.4.0 dists): vs:#decl, vs:#main-end, fs:#decl, fs:DECKGL_FILTER_COLOR. */
 const NIGHT_DARK_STATES=new Set(['vacant_or_evicted','demolished','empty_or_parking','stalled_or_cancelled']);
 // FNV-1a of the building id, as a unit float: the same building always gets the same windows.
 function nightSeed(id) {

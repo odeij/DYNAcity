@@ -11,7 +11,8 @@ function snappedViewBox(bounds,centre,cell=VIEW_CELL_DEG) {
 let osmContextCache=null,osmVisibleCache=null,osmModelIndex=null,osmModelSource=null;
 function osmContextEntries() {
   const source=DATA.landscape?.features;
-  if(osmContextCache?.source===source)return osmContextCache.entries;
+  // `osmContextCache?.source` is undefined before the first build, which equals a missing landscape's source.
+  if(osmContextCache&&osmContextCache.source===source)return osmContextCache.entries;
   const entries=(source??[]).filter(f=>f.properties.context_group).flatMap(f=>
     f.geometry.type==='MultiPolygon'?f.geometry.coordinates.map(coordinates=>({...f,geometry:{type:'Polygon',coordinates}})):[f]);
   const roadTags=new Map(entries.filter(f=>f.properties.context_group==='roads').map(f=>[f.properties.id,f.properties.tags]));
