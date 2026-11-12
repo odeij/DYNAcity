@@ -66,7 +66,7 @@ bool FDynaMinimapStatusTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Mobility embeds identical minimap snapshot"),Combined->GetObjectField(TEXT("minimap"))->GetStringField(TEXT("mode")),State->GetStringField(TEXT("mode")));
     for(const TCHAR* Field:{TEXT("tiles"),TEXT("pending"),TEXT("errors"),TEXT("drawn_tiles"),TEXT("failed_loads_total")})
         TestEqual(FString::Printf(TEXT("Inspection does not create tile activity: %s"),Field),State->GetNumberField(Field),0.0);
-    for(const FString Reference:{FString(TEXT("{\"crs\":\"EPSG:4326\"}")),FString(TEXT("{\"crs\":32636}")),FString(TEXT("null"))})
+    for(const FString& Reference:{FString(TEXT("{\"crs\":\"EPSG:4326\"}")),FString(TEXT("{\"crs\":32636}")),FString(TEXT("null"))})
     {
         Configure(Reference); State=Inspect();
         TestFalse(TEXT("Reject unsupported or malformed map reference"),State->GetBoolField(TEXT("georeferenced")));
@@ -79,7 +79,7 @@ bool FDynaMinimapStatusTest::RunTest(const FString& Parameters)
     Configure(TEXT("")); State=Inspect();
     TestTrue(TEXT("Legacy payload without map_reference still works"),State->GetBoolField(TEXT("georeferenced")));
     TestFalse(TEXT("Legacy CRS is assumed, not declared"),State->GetBoolField(TEXT("crs_declared")));
-    for(const FString Json:{FString(TEXT("{}")),FString(TEXT("{\"origin_utm_m\":[500000,3750000,\"bad\"]}")),FString(TEXT("not json"))})
+    for(const FString& Json:{FString(TEXT("{}")),FString(TEXT("{\"origin_utm_m\":[500000,3750000,\"bad\"]}")),FString(TEXT("not json"))})
     {
         Map->ConfigureGeography(Json); State=Inspect();
         TestFalse(TEXT("Reject missing/malformed origin"),State->GetBoolField(TEXT("georeferenced")));
