@@ -48,7 +48,7 @@ bool FDynaMinimapPreferencesTest::RunTest(const FString& Parameters)
     TestEqual(TEXT("Fresh instance restores mode"),Reload->Mode,EDynaBasemap::Hybrid);
     TestFalse(TEXT("Fresh instance restores orientation"),Reload->HeadingUp);
     TestEqual(TEXT("Status identifies exact settings path"),Reload->StatusObject()->GetStringField(TEXT("preferences_path")),Path);
-    for(const FString Name:{FString(TEXT("unknown")),FString(TEXT("")),FString(TEXT("Street"))})
+    for(const FString& Name:{FString(TEXT("unknown")),FString(TEXT("")),FString(TEXT("Street"))})
     {
         TestFalse(TEXT("Reject unknown mode without fallback"),Map->SetPreferences(Name,true));
         TestEqual(TEXT("Invalid input preserves live mode"),Map->Mode,EDynaBasemap::Hybrid);
@@ -85,7 +85,7 @@ bool FDynaMinimapPreferencesTest::RunTest(const FString& Parameters)
     Map->ConfigureGeography(TEXT("{}"));
     TestEqual(TEXT("Geography does not override explicit preferences"),Map->Mode,EDynaBasemap::Satellite);
     TestFalse(TEXT("Geography does not override explicit heading"),Map->HeadingUp);
-    for(const FString Broken:{FString(TEXT("not json")),FString(TEXT("{}")),
+    for(const FString& Broken:{FString(TEXT("not json")),FString(TEXT("{}")),
         FString(TEXT("{\"version\":2,\"mode\":\"hybrid\",\"heading_up\":false}")),
                 FString(TEXT("{\"version\":\"1\",\"mode\":\"hybrid\",\"heading_up\":false}")),
                 FString(TEXT("{\"version\":1,\"mode\":\"Hybrid\",\"heading_up\":false}")),
