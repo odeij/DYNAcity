@@ -842,6 +842,8 @@ class Simulation:
             self.trip_ids = {t.id for t in self.trips}
             self.routes = {t.id: t.route for t in self.trips}
             self.held = set()
+            # Cars taken off a road made car-free under them (`apply`).
+            self.cleared = set()
             routes_xml = ET.Element('routes')
             # Every car merges with the same assertiveness (see DRIVER_LANE_CHANGE).
             ET.SubElement(routes_xml, 'vType', id='DEFAULT_VEHTYPE', **DRIVER_LANE_CHANGE)
@@ -1043,6 +1045,10 @@ class Simulation:
                                 speed_caps(self.model, plan))
         closed = {edge.getID() for edge in self.net.getEdges()
                   if disruption.closed[int(edge.getID().split(':')[0])] or int(edge.getID().split(':')[0]) in shut}
+        # Car-free roads (pedestrianised by hand or left with no motor lane) are
+        # emptied; a crash closes its road with the cars on it still queued there.
+        car_free = {eid for eid in closed
+                    if disruption.reason[int(eid.split(':')[0])] == 'manual' or int(eid.split(':')[0]) in shut}
         changed = (closed != self.closed or self.last_factors is None
                    or not np.array_equal(self.last_factors, disruption.speed_factor) or plan != self.plan)
         lane_toggled = set()
@@ -1137,7 +1143,15 @@ class Simulation:
             after_index = c.vehicle.getRouteIndex(vid) if after != before else index
             if closed.intersection(after[after_index + 1:]):
                 self.blocked.add(vid)
-            # Cars already on a closed edge queue in place and resume on reopen.
+            # Cars on a road made car-free leave the run (counted in `cleared`):
+            # nobody drives a pedestrian street. Cars on a road a crash closed
+            # queue in place and resume on reopen.
+            if road in car_free:
+                c.vehicle.remove(vid)
+                self.cleared.add(vid)
+                self.held.discard(vid)
+                self.blocked.discard(vid)
+                continue
             if road in closed:
                 c.vehicle.setSpeed(vid, 0)
                 self.held.add(vid)
@@ -1152,6 +1166,9 @@ class Simulation:
         # thousands of per-vehicle socket round trips.
         constants = self.traci.constants
         states = c.junction.getContextSubscriptionResults(self.context_node) or {}
+        # A car cleared this step is still in the subscription until SUMO steps again.
+        if getattr(self, 'cleared', None):
+            states = {vid: state for vid, state in states.items() if vid not in self.cleared}
         watched = {} if getattr(self, 'light', False) else states
         if getattr(self, 'watching', False):
             watched = c.poi.getContextSubscriptionResults(WATCH_POI) or {}
@@ -1187,11 +1204,12 @@ class Simulation:
         active = len(active_ids)
         arrived = len(self.arrivals[0])
         pending = len(pending_ids)
-        if self.trip_ids != active_ids | pending_ids | self.arrivals[0].keys():
+        cleared = getattr(self, 'cleared', set())
+        if self.trip_ids != active_ids | pending_ids | self.arrivals[0].keys() | cleared:
             raise RuntimeError('SUMO lost a represented vehicle')
         paired = self.arrivals[0].keys() & self.arrivals[1].keys()
         delays = [self.arrivals[0][v] - self.arrivals[1][v] for v in paired]
-        overdue = sum(v not in self.arrivals[0] for v in self.arrivals[1])
+        overdue = sum(v not in self.arrivals[0] and v not in cleared for v in self.arrivals[1])
         detour_counts = {}
         stopped_roads = {}
         # (id, speed, road) for the whole fleet, drawn or not.
@@ -1218,7 +1236,9 @@ class Simulation:
                    'paired_arrivals': len(paired), 'overdue': overdue,
                    'mean_completed_delay_s': float(np.mean(delays)) if delays else None,
                    'speed_check': self.speed_check(), 'unstuck': getattr(self, 'unstuck', [0])[0],
-                   'junction_conflicts': len(getattr(self, 'conflicts', [()])[0])}
+                   'junction_conflicts': len(getattr(self, 'conflicts', [()])[0]),
+                   # Cars taken off roads made car-free; total = active + pending + arrived + cleared.
+                   'cleared': len(cleared)}
         metrics['stopped'] = sum(speed < 0.1 for _, speed, _ in fleet)
         # Just after `fork` SUMO lists no queued cars until its next step; the copy
         # is then exactly the scenario, so it reports the scenario's figures.
@@ -1235,6 +1255,8 @@ class Simulation:
         else:
             metrics['baseline'] = {key: metrics[key] for key in ('active', 'pending', 'arrived', 'stopped')}
             metrics['baseline_junction_conflicts'] = metrics['junction_conflicts']
+            # Cars cleared from a car-free road in this first step were still driving in the copy.
+            metrics['baseline']['active'] += metrics['cleared']
         metrics['stopped_roads'] = sorted(stopped_roads.items())
         metrics['emissions'] = self.emission_summary(now, metrics)
         types = [self.type_for(vid) if hasattr(self, 'mixed') else 'DEFAULT_VEHTYPE' for vid, _, _ in fleet]
@@ -1617,7 +1639,9 @@ class Simulation:
                                                     self.context_radius, variables)
                     if self.fleet_fresh and self.emissions.started:
                         self.record_emissions(index, c)
-                    self.arrivals[index].update({v: c.simulation.getTime() for v in c.simulation.getArrivedIDList()})
+                    # Cars taken off a car-free road are cleared, not arrived.
+                    self.arrivals[index].update({v: c.simulation.getTime() for v in c.simulation.getArrivedIDList()
+                                                 if index or v not in self.cleared})
                     if hasattr(self, 'conflicts'):
                         self.conflicts[index].update(c.simulation.getCollidingVehiclesIDList())
                     # Keep queues in place; relocating a gridlocked car to a

@@ -102,8 +102,9 @@ EMISSION_ASSUMPTIONS = (
     "Both runs carry the same trips. Closing a street never makes a trip disappear or switch to "
     "walking, cycling or transit. Cities that closed streets have often seen some traffic vanish "
     "('traffic evaporation'), so real savings could be larger; induced trips elsewhere could also make them smaller.",
-    "Cars caught on a street at the moment it closes stay parked there in the simulation until it "
-    "reopens; their engines are treated as off, so they add no exhaust to the pedestrian street.",
+    "Cars caught on a street at the moment it is made car-free leave the simulation (counted as "
+    "cleared, not stranded), so they add no more exhaust. Cars on a street a crash closes stay "
+    "queued there, engines off, until it reopens.",
     "A car that cannot start, or waits because a closure cuts off its destination, emits little "
     "or nothing while it waits. That shows up as a saving it is not: the page warns when the plan leaves "
     "more cars stranded than today.",

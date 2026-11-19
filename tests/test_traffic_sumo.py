@@ -102,7 +102,8 @@ def simulation(network):
 
 def assert_accounting(frame):
     m=frame['metrics']
-    assert m['total']==m['active']+m['pending']+m['arrived']
+    # Cars taken off a car-free road are cleared, not lost.
+    assert m['total']==m['active']+m['pending']+m['arrived']+m['cleared']
     assert len(frame['vehicles'])==m['active']
     b = m['baseline']
     assert m['total'] == b['active'] + b['pending'] + b['arrived']
@@ -204,7 +205,8 @@ def test_detour_uses_actual_positions_and_fixed_destination(simulation,network):
     assert result['frames'][-1]['metrics']['arrived']==2
 
 def test_spacing_and_same_edge_closure_resume(simulation,network):
-    result=simulation.advance(road_events(network,closed=[0]),5)
+    # A crash closes the road with its cars queued on it; they resume when it clears.
+    result=simulation.advance(road_events(network,crashes=[0]),5)
     c=simulation.connections[0]
     assert c.vehicle.getSpeed('a')==0
     assert c.vehicle.getSpeed('b')==0
@@ -808,7 +810,7 @@ def test_closed_spare_lanes_carry_no_cars_and_reopen_closed(network):
 
 @pytest.mark.parametrize('closed_road, open_first_s', [(1, 12), (5, 0)])
 def test_gridlock_breaker_never_moves_cars_a_closure_holds_or_blocks(network, monkeypatch, closed_road, open_first_s):
-    """Road 1 closes under cars driving it (held); road 5 is every trip's last road (blocked, no detour)."""
+    """A crash closes road 1 under cars driving it (held); road 5 is every trip's last road (blocked, no detour)."""
     try: runtime()
     except RuntimeError as exc: pytest.skip(str(exc))
     import dynacity.traffic_sumo as ts
@@ -817,7 +819,7 @@ def test_gridlock_breaker_never_moves_cars_a_closure_holds_or_blocks(network, mo
     try:
         if open_first_s:
             sim.advance(road_events(network), open_first_s, include_initial=False)
-        closed = road_events(network, closed=[closed_road])
+        closed = road_events(network, crashes=[closed_road])
         for _ in range(16):
             for frame in sim.advance(closed, 5, include_initial=False)['frames']:
                 assert_accounting(frame)
@@ -827,6 +829,31 @@ def test_gridlock_breaker_never_moves_cars_a_closure_holds_or_blocks(network, mo
         assert not any(c.vehicle.getRoadID(v) == f'{closed_road}:1' for v in sim.blocked if v in c.vehicle.getIDList())
     finally:
         sim.close()
+
+
+def test_a_car_free_road_is_emptied_but_a_crash_holds_its_queue(network):
+    """Pedestrianised (manual) roads lose the cars on them; a crash keeps them queued in place."""
+    try: runtime()
+    except RuntimeError as exc: pytest.skip(str(exc))
+    trips = [Trip(f'v{k}', ('0:1', '1:1', '5:1'), 0, 5 + 8 * k) for k in range(8)]
+    for events, emptied in ((dict(closed=[1]), True), (dict(crashes=[1]), False)):
+        sim = Simulation(network, trips=trips)
+        try:
+            sim.advance(road_events(network), 12, include_initial=False)
+            c = sim.connections[0]
+            on_road = [v for v in c.vehicle.getIDList() if c.vehicle.getRoadID(v) == '1:1']
+            assert on_road, 'cars are driving road 1 when it closes'
+            for _ in range(6):
+                for frame in sim.advance(road_events(network, **events), 5, include_initial=False)['frames']:
+                    assert_accounting(frame)
+            left = [v for v in c.vehicle.getIDList() if c.vehicle.getRoadID(v) == '1:1']
+            if emptied:
+                assert not left and set(on_road) <= sim.cleared
+                assert not set(on_road) & sim.arrivals[0].keys(), 'cleared cars never count as arrived'
+            else:
+                assert left and not sim.cleared
+        finally:
+            sim.close()
 
 
 def test_entries_and_exits_follow_the_cut_nodes(network, tmp_path):

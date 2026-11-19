@@ -3042,6 +3042,10 @@ function setRoadTool(tool) {
 }
 function toggleRoadEvent(i, at) {
   if(ui.roadTool!=='close'&&ui.roadTool!=='crash')return;
+  // Highways stay open to cars (canPedestrianise, viewer_pedestrians.js); a crash can still close one.
+  if (ui.roadTool === 'close' && !ui.closedRoads.has(i) && !canPedestrianise(DATA.traffic.roads[i])) {
+    $('progress').textContent = 'A highway stays open to cars: it cannot be made car-free'; return;
+  }
   const set = ui.roadTool === 'crash' ? ui.crashes : ui.closedRoads;
   const other = ui.roadTool === 'crash' ? ui.closedRoads : ui.crashes;
   if (set.has(i)) set.delete(i); else { set.add(i); other.delete(i); }

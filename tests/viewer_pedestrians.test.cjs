@@ -17,7 +17,7 @@ function fixture(){
     ui:{traffic:true,roadTool:null,closedRoads:new Set(),crashes:new Set(),crashSites:new Map(),planning:new Map(),selectedRoad:null,planSearch:''},
     calm:{matches:false},roadHeightAt:()=>0,
     metresBetween:(a,b)=>Math.hypot((a[0]-b[0])*92500,(a[1]-b[1])*111320),
-    deck:{PathLayer:Layer,SimpleMeshLayer:Layer},mesh:()=>({}),MATERIAL:{},trafficView:()=>null,
+    deck:{PathLayer:Layer,SimpleMeshLayer:Layer,ScatterplotLayer:Layer},mesh:()=>({}),MATERIAL:{},trafficView:()=>null,
     $:()=>null,render:()=>{},renderTraffic:()=>{},prepareCars:()=>calls.push('prepare'),requestTraffic:()=>calls.push('request'),
     esc:x=>String(x).replace(/[&<>"']/g,ch=>`&#${ch.charCodeAt(0)};`),isDark:()=>false,nightLevel:()=>0,
     closeTrafficSession:()=>{},focusRoads:i=>calls.push('focus:'+i.join()),SOFT:{},ON_TOP:{},offsetRoadPath:(path,o)=>path.map(p=>[p[0],p[1]+o/111320])});
@@ -162,7 +162,11 @@ test('planning layers highlight the selected and planned streets and show widene
   assert.equal(run('planningLayers().length'),0);
   run('selectRoad(0);setPlan(0,{lanes_removed:1,speed_limit_kmh:30})');
   const layers=run('planningLayers()');
-  assert.deepEqual(plain(layers.map(l=>l.id)),['plan-pavement-widening','plan-streets','plan-selected']);
+  assert.deepEqual(plain(layers.map(l=>l.id)),['plan-pavement-widening','plan-streets','plan-selected','plan-selected-kerbs','plan-selected-ends']);
+  // The selected section: full carriageway width, both kerbs, and a marker at each end.
+  assert.equal(layers[2].getWidth,12);
+  assert.equal(layers[3].data.length,2);
+  assert.equal(layers[4].data.length,2);
   assert.equal(layers[0].data.length,2);
   assert.ok(layers[0].data.every(d=>d.width===3.2));             // 6.4 m freed, half per pavement
   run('selectRoad(null);ui.planning.clear()');
@@ -263,4 +267,14 @@ test('the narrow-panel layout wraps long names and keeps tables and fields insid
   assert.match(html,/#mobility-lab :is\(\.more, \.plan-street, \.note, \.plan-field\) \{ min-width: 0; overflow-wrap: anywhere; \}/);
   assert.match(html,/\.plan-table \{ width: 100%; table-layout: fixed;/);
   assert.match(html,/\.panel \{ padding: 14px 16px; max-height: 100%; overflow: auto;/);
+});
+test('highways cannot be pedestrianised',()=>{
+  const {run}=fixture();
+  run('selectRoad(2);togglePedestrianise(2)');
+  assert.equal(run('ui.closedRoads.has(2)'),false,'the motorway stays open');
+  const html=run('plannerHtml()');
+  assert.match(html,/data-plan="pedestrianise" aria-pressed="false" disabled/);
+  assert.match(html,/A highway stays open to cars/);
+  run('selectRoad(0);togglePedestrianise(0)');
+  assert.equal(run('ui.closedRoads.has(0)'),true,'other streets still can');
 });

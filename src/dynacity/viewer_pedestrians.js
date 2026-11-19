@@ -160,8 +160,12 @@ function setPlan(i,patch) {
   if(next.speed_limit_kmh===undefined&&next.lanes_removed===0)ui.planning.delete(i);else ui.planning.set(i,next);
   planningChanged();
 }
+// Motorways and trunk roads, and their ramps, stay open to cars: nobody walks a highway.
+const CAR_ONLY_CLASSES=new Set(['motorway','motorway_link','trunk','trunk_link']);
+const canPedestrianise=r=>!!r&&!CAR_ONLY_CLASSES.has(r.cls);
 function togglePedestrianise(i) {
   if(!DATA.traffic?.roads[i])return;
+  if(!ui.closedRoads.has(i)&&!canPedestrianise(DATA.traffic.roads[i]))return;
   if(ui.closedRoads.has(i))ui.closedRoads.delete(i);
   else {ui.closedRoads.add(i);ui.crashes.delete(i);ui.crashSites.delete(i);}
   planningChanged();
@@ -215,7 +219,8 @@ function plannerHtml() {
       <div class="note">${esc(r.cls.replace(/_/g,' '))} · ${r.oneway?'one-way · ':''}${lanes.n} lane${lanes.n===1?'':'s'}${r.oneway?'':' each way'}${lanes.assumed?' (estimated from width)':''} · section ${sel}</div>
       <div class="note">Changes apply to this one section only; a named street is made of several.</div>
       <div class="plan-actions">
-        <button type="button" class="more" data-plan="pedestrianise" aria-pressed="${closed}"${enabled?'':' disabled'}>${closed?'Reopen this section to traffic':'Pedestrianise this section'}</button>
+        <button type="button" class="more" data-plan="pedestrianise" aria-pressed="${closed}"${enabled&&(closed||canPedestrianise(r))?'':' disabled'}>${closed?'Reopen this section to traffic':'Pedestrianise this section'}</button>
+        ${canPedestrianise(r)?'':'<div class="note">A highway stays open to cars; it cannot be pedestrianised.</div>'}
         <button type="button" class="more" data-plan="calm30" aria-pressed="${speed===30}"${off}>Calm this section to 30 km/h</button>
         <label class="plan-field">Other speed limit<select id="plan-speed"${off}><option value="">Unchanged</option>${PLAN_SPEEDS.map(v=>`<option value="${v}"${speed===v?' selected':''}>${v} km/h</option>`).join('')}</select></label>
         <button type="button" class="more" data-plan="lane" aria-pressed="${plan.lanes_removed>0}"${can?off:' disabled'}>${r.oneway?'Give the curb lane to the pavement':'Give one lane each way to pavements'}</button>
@@ -256,8 +261,19 @@ function planningLayers() {
   const planned=[...ui.planning.keys()].filter(i=>roads[i]&&!ui.closedRoads.has(i));
   if(planned.length)out.push(new deck.PathLayer({id:'plan-streets',data:planned,getPath:i=>roads[i].path,getWidth:3,widthUnits:'pixels',
     getColor:[24,120,168,230],capRounded:true,parameters:ON_TOP,pickable:false}));
-  if(ui.selectedRoad!==null&&roads[ui.selectedRoad])out.push(new deck.PathLayer({id:'plan-selected',data:[ui.selectedRoad],
-    getPath:i=>roads[i].path,getWidth:6,widthUnits:'pixels',getColor:[255,190,30,255],capRounded:true,parameters:ON_TOP,pickable:false}));
+  // The selected section: its carriageway at full width, both kerb lines, and a marker at each end,
+  // so where the section starts and stops is plain.
+  const sel=ui.selectedRoad!==null?roads[ui.selectedRoad]:null;
+  if(sel) {
+    const half=roadWidth(sel)/2,path=sel.path;
+    out.push(new deck.PathLayer({id:'plan-selected',data:[path],getPath:p=>p,getWidth:2*half,widthUnits:'meters',widthMinPixels:10,
+      getColor:[255,196,20,150],capRounded:false,parameters:ON_TOP,pickable:false}),
+    new deck.PathLayer({id:'plan-selected-kerbs',data:[-1,1].map(side=>offsetRoadPath(path,side*half)),getPath:p=>p,getWidth:3,
+      widthUnits:'pixels',getColor:[32,24,0,255],capRounded:true,parameters:ON_TOP,pickable:false}),
+    new deck.ScatterplotLayer({id:'plan-selected-ends',data:[path[0],path[path.length-1]],getPosition:p=>p,getRadius:7,
+      radiusUnits:'pixels',filled:true,stroked:true,getFillColor:[255,196,20,255],getLineColor:[32,24,0,255],lineWidthMinPixels:3,
+      parameters:ON_TOP,pickable:false}));
+  }
   return out;
 }
 function renderMobilityLab() {
