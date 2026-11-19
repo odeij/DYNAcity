@@ -168,6 +168,10 @@ button { cursor: pointer; touch-action: manipulation; }
 .legend-row .sw { width: 12px; height: 12px; border-radius: 4px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35); }
 .legend-row .n { color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .legend-row.muted { opacity: 0.55; }
+.legend-row.toggle { grid-template-columns: 14px 12px 1fr auto; cursor: pointer; }
+.legend-row.toggle input { margin: 0; }
+.legend-row .sw.dot { border-radius: 50%; }
+.legend-group { margin: 10px 0 2px; color: var(--ink-2); font-size: 11.5px; font-weight: 600; }
 .ramp { height: 10px; border-radius: 999px; margin: 6px 0 4px; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3); }
 .ramp-labels { display: flex; justify-content: space-between; color: var(--ink-3); font-size: 11px; font-variant-numeric: tabular-nums; }
 .road-row { display: grid; grid-template-columns: 22px 1fr; align-items: center; gap: 9px; padding: 3px 0; font-size: 12px; }
@@ -553,6 +557,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 
   <div class="tabs" role="tablist" aria-label="Map lens">
     <button class="tab" role="tab" data-lens="observed" aria-selected="true">Observed</button>
+    <button class="tab" role="tab" data-lens="key" aria-selected="false" hidden>Key buildings</button>
     <button class="tab" role="tab" data-lens="forecast" aria-selected="false">Forecast +2y</button>
     <button class="tab" role="tab" data-lens="change" aria-selected="false">Change risk</button>
     <button class="tab" role="tab" data-lens="delta" aria-selected="false" hidden>Δ vs baseline</button>
@@ -753,7 +758,8 @@ function fill(b) {
   let rgb = baseBeirutColor(b.id);
   if (ui.lens === 'observed') {
     if (ui.statusColours) rgb = mix(rgb, hex(STATES[b.state].color), 0.6);
-  } else if (ui.lens === 'forecast') { const p = activeP(b); rgb = p ? hex(STATES[argmax(p)].color) : hex(NO_DATA); }
+  } else if (ui.lens === 'key') rgb = keyBuildingColour(b);
+  else if (ui.lens === 'forecast') { const p = activeP(b); rgb = p ? hex(STATES[argmax(p)].color) : hex(NO_DATA); }
   else if (ui.lens === 'change') { const p = activeP(b); rgb = p ? rampColor(leaveProb(p, b.state)) : hex(NO_DATA); }
   else { const d = deltaFor(b); rgb = d === null ? hex(NO_DATA) : divergeColor(d); }
   if (ui.selected === b.id) rgb = mix(rgb, [255, 255, 255], 0.45);
@@ -1169,13 +1175,13 @@ function beirutBuildingLayers(){
   ...nightWindowProps((p)=>{const o=d.buildings[p.beirutModel],b=o.objectid==null?null:beirutOverlay.snapshotById.get(String(o.objectid));
     return nightInfo(b?b.state:'unknown',`m${p.beirutModel}`);},[HAZE_EXT]),
   pickable:!ui.roadTool,autoHighlight:true,highlightColor:[80,161,220,130],
-  updateTriggers:{getFillColor:[ui.lens,ui.statusColours,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),occlusion.signature]},
+  updateTriggers:{getFillColor:[ui.lens,keyBuildingsVersion,ui.statusColours,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),occlusion.signature]},
  }),
   new deck.SolidPolygonLayer({
    id:'beirut-001-roofs',data:beirutOverlay.polygons,getPolygon:(p)=>(p.rg??=groundedPolygon(p.rings,d.buildings[p.beirutModel].height_m+ROOF_LIFT_M)),extruded:false,
    getFillColor:roofColour,
    pickable:false,extensions:[HAZE_EXT],
-   updateTriggers:{getFillColor:[ui.lens,ui.statusColours,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),occlusion.signature,appliedNight]},
+   updateTriggers:{getFillColor:[ui.lens,keyBuildingsVersion,ui.statusColours,ui.selected,ui.scenario,ui.highlight,ui.answerIds,isDark(),occlusion.signature,appliedNight]},
   })];
 }
 function beirutBridgeLayers(){
@@ -1359,14 +1365,17 @@ function layers() {
         data: props.data ? (ground.grid ? contextOnGround(contextData(props.data, props.tile), props.tile) : contextData(props.data, props.tile)) : [],
         extruded: true, stroked: false, filled: true, pickable: false,
         getElevation: (f) => Math.max(Number(f.properties?.render_height) || 6, 3),
+        // The Key buildings view colours basemap buildings that hold a service.
         getFillColor: (f) => {
-          const base = baseBeirutColor(f.properties?.id ?? 'context');
-          return [...base, 235];
-        }, material: MATERIAL,
+          const key = ui.lens === 'key' ? keyContextColour(f, props.tile) : null;
+          return [...(key ?? baseBeirutColor(f.properties?.id ?? 'context')), 235];
+        },
+        updateTriggers: { getFillColor: [ui.lens, keyBuildingsVersion] }, material: MATERIAL,
         // Basemap footprints carry no stable id here, so the first vertex seeds the window pattern.
         ...nightWindowProps((f) => nightInfo('unknown', f.geometry.coordinates[0][0].join(',')), [HAZE_EXT]),
 
       }),
+      updateTriggers: { renderSubLayers: [ui.lens, keyBuildingsVersion, isDark()] },
     }));
   }
   out.push(...landscapeLayers());
@@ -1386,7 +1395,7 @@ function layers() {
       ...nightWindowProps((d) => nightInfo(d.b.state, d.b.id), [HAZE_EXT]),
       // No colour transition: an interrupted fade can leave a lens showing the
       // previous lens's colours, and a data view must never show stale values.
-      updateTriggers: { getFillColor: [ui.lens, ui.statusColours, ui.selected, ui.highlight, ui.answerIds, ui.scenario, occlusion.signature], getElevation: [ui.lens] },
+      updateTriggers: { getFillColor: [ui.lens, keyBuildingsVersion, ui.statusColours, ui.selected, ui.highlight, ui.answerIds, ui.scenario, occlusion.signature], getElevation: [ui.lens] },
     }));
     out.push(new deck.SolidPolygonLayer({
       id: 'buildings-roofs',
@@ -1394,7 +1403,7 @@ function layers() {
       getPolygon: (d) => groundedRing(d.ring, elevation(d.b) + ROOF_LIFT_M), extruded: false,
       getFillColor: (d) => cameraSafeColour(shade(mix(fill(d.b), [255, 255, 255], 0.25), appliedNight, ROOF_NIGHT_DIM), 'bbed', d.b.id, occlusion),
       pickable: false, extensions: [HAZE_EXT],
-      updateTriggers: { getFillColor: [ui.lens, ui.statusColours, ui.selected, ui.highlight, ui.answerIds, ui.scenario, occlusion.signature, appliedNight], getPolygon: [ui.lens] },
+      updateTriggers: { getFillColor: [ui.lens, keyBuildingsVersion, ui.statusColours, ui.selected, ui.highlight, ui.answerIds, ui.scenario, occlusion.signature, appliedNight], getPolygon: [ui.lens] },
     }));
   }
   out.push(...beirutBuildingLayers());
@@ -1535,7 +1544,7 @@ function drawFx() {
   if (!deckgl || plan2d.hidden) return;
   const now = performance.now();
   refreshCameraGeometry(now);
-  deckgl.setProps({ layers: plan2dFlatten([...baseLayers, ...streetDetailLayers(), ...intersectionDetailLayers(), ...planningLayers(), ...carLayers(now), ...pedestrianLayers(now), ...mobilityLayers(), ...osmPlaceLayers()]) });
+  deckgl.setProps({ layers: plan2dFlatten([...baseLayers, ...streetDetailLayers(), ...intersectionDetailLayers(), ...planningLayers(), ...carLayers(now), ...pedestrianLayers(now), ...mobilityLayers(), ...osmPlaceLayers(), ...facilityLayers()]) });
 }
 function animate() {
   cancelAnimationFrame(fxRaf);
@@ -3473,7 +3482,7 @@ const deckProps = () => ({
   onHover: showTip,
   // Roads are thin; a few pixels of slack makes them clickable.
   pickingRadius: 6,
-  onClick: ({ object, coordinate }) => { if (object?.canopyCandidate) { ui.canopyCandidate = object.id; renderCanopyReviewPanel(); return; } if (object?.beirutModel != null || (beirutOverlay.data && object?.b)) { showBeirutRecord(object,true); return; } if (object?.bus || object?.survey || object?.feature || object?.signal || object?.signalJunction || object?.properties?.kind || object?.bridgeStructure) return; if (object?.r) { if (ui.roadTool === 'lane') changeLanes(object.i, 1); else if (ui.roadTool) toggleRoadEvent(object.i, coordinate); else selectRoad(object.i); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
+  onClick: ({ object, coordinate }) => { if (object?.canopyCandidate) { ui.canopyCandidate = object.id; renderCanopyReviewPanel(); return; } if (object?.beirutModel != null || (beirutOverlay.data && object?.b)) { showBeirutRecord(object,true); return; } if (object?.bus || object?.survey || object?.feature || object?.signal || object?.signalJunction || object?.properties?.kind || object?.properties?.facility || object?.bridgeStructure) return; if (object?.r) { if (ui.roadTool === 'lane') changeLanes(object.i, 1); else if (ui.roadTool) toggleRoadEvent(object.i, coordinate); else selectRoad(object.i); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
 });
 
 function linkedMapCamera() {
@@ -3632,6 +3641,11 @@ function showTip({ object, x, y }) {
   }
   if(object.feature?.properties?.context_group)object=object.feature;
   if (object.beirutModel != null || (beirutOverlay.data && object.b)) { heightTip(tip, object, x, y); return; }
+  if(object.properties?.facility) {
+    tip.innerHTML=facilityTip(object);
+    tip.hidden=false;tip.style.left=`${Math.max(8,Math.min(x+16,innerWidth-tip.offsetWidth-10))}px`;
+    tip.style.top=`${Math.max(8,Math.min(y+16,innerHeight-tip.offsetHeight-10))}px`;return;
+  }
   if(object.bridgeStructure) {
     tip.innerHTML=`<div class="h">Illustrative bridge ${esc(object.kind)}</div><div class="s">Mapped elevated road; structural dimensions and pier spacing are assumptions. Piers avoid mapped lower road corridors.</div>`;
     tip.hidden=false;tip.style.left=`${Math.max(8,Math.min(x+16,innerWidth-tip.offsetWidth-10))}px`;
@@ -3713,7 +3727,7 @@ function bandNote(f) {
 function renderStatus() {
   const f = ui.scenario?.forecast ?? DATA.forecast;
   const assumed = f?.evidence_level === 'assumption_based_scenario';
-  const label = ui.lens === 'observed' ? 'Observed records' : f ? evidenceLabel(f) : 'No model prediction';
+  const label = ui.lens === 'observed' ? 'Observed records' : ui.lens === 'key' ? 'Mapped and listed services' : f ? evidenceLabel(f) : 'No model prediction';
   $('status').innerHTML = `<span class="badge ${assumed ? 'assumed' : ''}"><i></i>${label}</span>`;
 }
 
@@ -3727,7 +3741,9 @@ function renderLegend() {
   // The building-model controls above it are static; only the legend is redrawn.
   const el = $('legend-body');
   let body = '';
-  if (ui.lens === 'observed' || ui.lens === 'forecast') {
+  if (ui.lens === 'key') {
+    body = keyBuildingsLegend();
+  } else if (ui.lens === 'observed' || ui.lens === 'forecast') {
     const c = ui.lens === 'observed' ? counts((b) => b.state) : counts((b) => { const p = activeP(b); return p ? argmax(p) : null; });
     const title = ui.lens === 'observed' ? `Recorded building states` : `Most likely state in 2 years${ui.scenario ? ' · scenario' : ''}`;
     body = `<h2>${title}</h2><div class="sub">Building count per canonical BBED state</div>` +
@@ -3771,7 +3787,7 @@ function fmtChange(value, unit) {
 }
 function renderDock() {
   const dock = $('dock');
-  dock.hidden = ui.lens === 'observed' && $('p-kpis').hidden;
+  dock.hidden = (ui.lens === 'observed' || ui.lens === 'key') && $('p-kpis').hidden;
   if (!baselineForecast()) { dock.innerHTML = '<span class="empty">Run a scenario to see its forecast and baseline comparison.</span>'; return; }
   const horizons = [...new Set(baselineForecast().kpis.map((k) => k.year_offset))].sort((a, b) => a - b);
   if (!horizons.includes(ui.horizon)) ui.horizon = horizons[0];
@@ -3898,6 +3914,8 @@ function setLens(lens) {
   history.replaceState(null, '', `#${viewParams}`);
   document.querySelectorAll('.tab').forEach((t) => { t.setAttribute('aria-selected', String(t.dataset.lens === lens)); t.tabIndex = t.dataset.lens === lens ? 0 : -1; });
   renderStatus(); renderLegend(); renderDock(); render();
+  // The key-buildings colours mean nothing without their legend and toggles.
+  if (lens === 'key') togglePanel('p-legend', $('t-legend'), true);
 }
 function togglePanel(id, button, force) {
   const el = $(id);
@@ -4157,6 +4175,12 @@ function wire() {
   // Picking a date switches the satellite view on with that imagery.
   $('sat-source').onchange = (e) => setSatellite(true, Number(e.target.value));
   $('t-legend').onclick = (e) => togglePanel('p-legend', e.currentTarget);
+  $('p-legend').addEventListener('change', (e) => {
+    const kind = e.target.dataset?.facility;
+    if (!kind) return;
+    toggleFacility(kind, e.target.checked);
+    render();
+  });
   $('t-corridor').onclick = (e) => togglePanel('p-corridor', e.currentTarget);
   $('p-corridor').addEventListener('click', (e) => {
     const stop = e.target.closest('[data-stop]');
@@ -4274,6 +4298,7 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
 } else {
   renderSources();
   if (!DATA.forecast) document.querySelectorAll('[data-lens="forecast"],[data-lens="change"]').forEach((t) => (t.hidden = true));
+  document.querySelector('[data-lens="key"]').hidden = !DATA.facilities;
   // Detail panels start collapsed so the city stays visible.
   $('t-traffic').hidden = !DATA.traffic;
   $('t-people').hidden = !DATA.pedestrians;

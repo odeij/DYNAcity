@@ -15,6 +15,7 @@ files rather than in-process state:
     refine-beirut001-alignment → measure a pack's placement against OSM footprints, write a refined pack + report
     build-traffic   → OSM road graph + Tari'ak hourly speeds (.json) for traffic and road closures
     build-zones     → decision zones (.json) over the roads from OSM boundaries, for adaptation policies
+    build-facilities → key buildings (.json): the public services people go to, from OSM and the MEHE school list
     run-plan        → a street plan in SUMO against a paired baseline (.json), without the viewer
     freeze-evidence → registry JSON → content-hashed EvidenceBundle
     compile-scenario→ planner prose → checked ScenarioSpec + audit trail
@@ -438,7 +439,8 @@ def command_export_viewer(args: argparse.Namespace) -> None:
     model = TrafficModel.load(args.traffic) if args.traffic else None
     landscape = _landscape_view(getattr(args, 'landscape', None), model, getattr(args, 'context_buildings', None), overlays=getattr(args, 'context_overlay', None))
     traffic = traffic_payload(model) if model is not None else None
-    payload = build_viewer_payload(_json(args.bbed), snapshot, forecast, basemap=args.basemap, traffic=traffic, landscape=landscape)
+    payload = build_viewer_payload(_json(args.bbed), snapshot, forecast, basemap=args.basemap, traffic=traffic, landscape=landscape,
+                                   facilities=_facilities_view(getattr(args, 'facilities', None)))
     _attach_canopy_review(payload, args)
     _attach_granite_overlay(payload, args)
     if getattr(args, "pedestrians", None):
@@ -566,6 +568,42 @@ def command_build_zones(args: argparse.Namespace) -> None:
           + (f"; {unzoned} roads outside every zone" if unzoned else "") + ")")
 
 
+def command_build_facilities(args: argparse.Namespace) -> None:
+    from .facilities import build_facilities, fetch_facilities, read_official_schools
+    from .traffic import snapshot_extent
+
+    if args.bbox:
+        bbox = tuple(args.bbox)
+    elif args.snapshot:
+        bbox = snapshot_extent(UrbanStateSnapshot.model_validate(_json(args.snapshot)), args.margin_m)
+    else:
+        raise SystemExit("build-facilities needs --bbox or --snapshot")
+    osm = _json(args.osm) if args.osm else fetch_facilities(bbox)
+    official = read_official_schools(args.official_schools) if args.official_schools else None
+    collection = build_facilities(osm, official, bbox=bbox)
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(collection, ensure_ascii=False), encoding="utf-8")
+    counts = ", ".join(f"{n} {kind}" for kind, n in sorted(collection["counts"].items()))
+    merged = collection["official_schools"]
+    print(f"facilities -> {args.output} ({counts}"
+          + (f"; MEHE list: {merged['confirmed']} schools matched in OSM, {merged['added']} added" if merged else "") + ")")
+
+
+def _facilities_view(path: str | None, bounds: tuple[float, float, float, float] | None = None) -> dict | None:
+    if not path:
+        return None
+    collection = _json(path)
+    if collection.get("schema") != "dynacity-facilities/1":
+        raise SystemExit(f"{path} is not a build-facilities output")
+    if bounds is None:
+        return collection
+    from .facilities import crop_facilities
+    # The page loads basemap buildings this far around the corridor too (corridorExtent).
+    pad = 0.006
+    return crop_facilities(collection, (bounds[0] - pad, bounds[1] - pad, bounds[2] + pad, bounds[3] + pad))
+
+
 def command_run_plan(args: argparse.Namespace) -> None:
     from .plan_runs import RunSettings, StreetPlan, run_plan
     from .traffic import TrafficModel
@@ -665,7 +703,7 @@ def command_serve(args: argparse.Namespace) -> None:
         payload = build_viewer_payload(
             collection, snapshot, baseline, api=True, basemap=args.basemap,
             traffic=_traffic_view(traffic, args.beirut001) if traffic is not None else None,
-            landscape=landscape,
+            landscape=landscape, facilities=_facilities_view(args.facilities, focus),
         )
         if viewer_terrain is not None:
             payload["terrain"] = viewer_terrain.meta("/v1/viewer/terrain.bin", "/v1/viewer/terrain/{z}/{x}/{y}.png")
@@ -880,6 +918,15 @@ def build_parser() -> argparse.ArgumentParser:
     zones.add_argument("--output", required=True)
     zones.set_defaults(func=command_build_zones)
 
+    facilities = subparsers.add_parser("build-facilities", help="key buildings, the public services people go to, from OSM and the MEHE school list")
+    facilities.add_argument("--output", required=True)
+    facilities.add_argument("--bbox", type=float, nargs=4, metavar=("WEST", "SOUTH", "EAST", "NORTH"))
+    facilities.add_argument("--snapshot", help="use the snapshot's extent plus --margin-m instead of --bbox")
+    facilities.add_argument("--margin-m", type=float, default=800.0)
+    facilities.add_argument("--osm", help="saved Overpass JSON (out center); fetched from Overpass when omitted")
+    facilities.add_argument("--official-schools", help="MEHE public and UNRWA schools list (.xlsx needs openpyxl, or .csv)")
+    facilities.set_defaults(func=command_build_facilities)
+
     run = subparsers.add_parser("run-plan", help="a street plan in SUMO against a paired baseline, without the viewer")
     run.add_argument("--traffic", required=True, help="traffic model from build-traffic")
     run.add_argument("--plan", required=True, help="JSON: plan_id, close_roads, close_streets, add_lanes")
@@ -945,6 +992,7 @@ def build_parser() -> argparse.ArgumentParser:
     viewer.add_argument("--canopy-screening", help="matching canopy screening JSON; required with --canopy-review")
     viewer.add_argument("--granite-overlay", help="private corridor bundle manifest; estimated panels, off by default")
     viewer.add_argument("--granite-parent", help="matching parent snapshot; required with --granite-overlay")
+    viewer.add_argument("--facilities", help="build-facilities output: the Key buildings view (public services) on the map")
     viewer.set_defaults(func=command_export_viewer)
 
     serve = subparsers.add_parser("serve")
@@ -968,6 +1016,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--canopy-screening", help="matching canopy screening JSON; required with --canopy-review")
     serve.add_argument("--granite-overlay", help="private corridor bundle manifest; estimated panels, off by default")
     serve.add_argument("--granite-parent", help="matching parent snapshot; required with --granite-overlay")
+    serve.add_argument("--facilities", help="build-facilities output: the Key buildings view (public services) on the map")
     serve.add_argument("--corridor", help="GeoJSON line to focus on (e.g. Al Masar al Akhdar); every input is cut to its buffer")
     serve.add_argument("--corridor-buffer-m", type=float, default=250.0, help="buffer around --corridor, metres")
     serve.add_argument("--basemap", choices=["carto", "none"], default="carto")

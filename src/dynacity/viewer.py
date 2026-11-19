@@ -209,6 +209,7 @@ def build_viewer_payload(
     basemap: str = "carto",
     traffic: dict[str, Any] | None = None,
     landscape: dict[str, Any] | None = None,
+    facilities: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Join geometry, snapshot, and forecast into the viewer's data contract.
 
@@ -297,6 +298,8 @@ def build_viewer_payload(
         "bounds": [[min(lons), min(lats)], [max(lons), max(lats)]],
         "basemap": BASEMAPS[basemap],
         "landscape": landscape,
+        # Map annotations only (facilities.py); never simulation inputs.
+        "facilities": facilities,
         "states": [state.value for state in CanonicalState],
         "buildings": buildings,
         "storey_height_m": STOREY_HEIGHT_M,
@@ -363,7 +366,7 @@ def render_viewer(payload: dict[str, Any], *, title: str = "DynaCITY · Beirut")
     # Inline detail modules so exported viewers remain a single portable HTML file.
     details = "\n".join(
         files("dynacity").joinpath(name).read_text(encoding="utf-8")
-        for name in ("viewer_street_edges.js", "viewer_intersections.js", "viewer_building_details.js", "viewer_osm_context.js", "viewer_camera.js", "viewer_pedestrians.js", "viewer_night.js", "viewer_canopy_review.js", "viewer_granite_overlay.js", "viewer_plan2d.js")
+        for name in ("viewer_street_edges.js", "viewer_intersections.js", "viewer_building_details.js", "viewer_osm_context.js", "viewer_facilities.js", "viewer_camera.js", "viewer_pedestrians.js", "viewer_night.js", "viewer_canopy_review.js", "viewer_granite_overlay.js", "viewer_plan2d.js")
     )
     return (template.replace(_PLACEHOLDER, data).replace("__DYNACITY_CARS__", car_models)
             .replace("/*__DYNACITY_DETAILS__*/", details).replace("__DYNACITY_TITLE__", title)
