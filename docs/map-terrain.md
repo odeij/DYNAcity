@@ -36,3 +36,54 @@ The Beirut 001 bridge mesh is in model heights, which already agree with GLO-30 
 - Polygons (land-use surfaces, parking) take per-vertex ground heights; their interiors are not subdivided.
 - A road mapped at ground level that in reality crosses on an untagged viaduct follows the ground under it; so do tunnels (they were drawn flat before).
 - Ground heights are 10 m cells: a retaining wall or river bank steeper than that is smoothed.
+
+## Option: FABDEM V1-2 bare-earth ground (non-commercial licence)
+
+`dynacity fetch-fabdem` writes the same `.npz` as `fetch-terrain` from
+[FABDEM V1-2](https://data.bris.ac.uk/data/dataset/s5hqmjcdj8yo2ibzi9b4ew3sn) (Forest And Buildings removed
+Copernicus DEM, University of Bristol; Hawker et al. 2022, doi:10.1088/1748-9326/ac4d4f). It takes CRS, origin, cell size and
+shape from an existing terrain file (`--like`), so `serve --terrain <fabdem.npz>` works unchanged and the default
+GLO-30 file is not touched:
+
+```powershell
+dynacity fetch-fabdem --like $env:DYNACITY_DATA_ROOT\terrain-glo30-roads.npz `
+  --output $env:DYNACITY_DATA_ROOT\terrain-fabdem-roads.npz `
+  --sources-root $env:DYNACITY_DATA_ROOT\open-sources-20261120
+```
+
+- **Download.** Only the one 1-degree tile (`N33E035`, 18 MB) is read, by HTTP range requests into the publisher's
+  1.6 GB 10-degree archive; the archive is not downloaded. The tile goes to `<sources-root>/raw/fabdem/`; its URL,
+  size, SHA256, retrieval time and the licence text are appended to `<sources-root>/sources.json`.
+- **No street-level filter.** GLO-30 is a surface model, so `terrain.ground_from_surface` lowers it with a 150 m
+  low-percentile window. FABDEM already has buildings and trees removed in the source, so that filter is skipped and
+  the height is resampled bilinearly onto the lattice. The one rule kept from the GLO-30 path is the sea rule (cells at or
+  below 0 m carry no ground, land cells are at least 0.1 m), so both files share one coastline (2,128 of
+  about 784,000 land cells, 0.3 %, are land in only one of the two files).
+- **Licence: CC BY-NC-SA 4.0.** Non-commercial and share-alike, unlike GLO-30's licence. Credit the attribution stored in
+  the file's `source` field (also in `sources.json`); commercial use needs the publisher (fabdem@fathom.global). The
+  dataset page's metadata box also lists a "Non-Commercial Government Licence"; the page text and `license.txt` give
+  CC BY-NC-SA 4.0, which is what is recorded here. Keep this file out of any commercial or public deployment.
+- **Datum and accuracy.** Heights are metres above EGM2008, like GLO-30. FABDEM is a machine-learning correction of
+  GLO-30 with vertical errors of a few metres, larger on steep slopes and in dense cities; it is not a survey.
+
+### Measured against the served GLO-30 ground and Beirut 001
+
+`scripts/compare_fabdem_glo30.py` gives (full numbers in the run's `fabdem-stats.json`; 10 m cells, heights in metres):
+
+| FABDEM minus GLO-30 (served, filtered) | cells | median | p10 / p90 | max abs |
+| --- | --- | --- | --- | --- |
+| Inside the Beirut 001 ground coverage | 207,018 | +0.83 | -0.72 / +4.21 | 24.9 |
+| Outside it | 574,890 | +0.98 | -0.84 / +14.82 | 76.8 |
+
+FABDEM is mostly higher than the filtered GLO-30 because a low percentile over 150 m sits below the true ground on any
+slope; on the hills east of the city the gap reaches tens of metres. Against the Beirut 001 ground at its cells
+(bilinear, 207,802 cells): FABDEM minus Beirut 001 has median +0.30 m and absolute p10 / p90 of 0.35 / 7.63 m (max 40.1 m);
+GLO-30 filtered minus Beirut 001 has median -0.37 m and absolute p10 / p90 of 0.33 / 7.92 m (max 57.1 m). FABDEM does not
+agree better with Beirut 001 in the typical cell (median absolute gap 2.36 m against 2.11 m); it removes the filter's
+low bias and trims the large misses.
+
+After `merge_ground` (Beirut 001 where it covers, the other model elsewhere) the seam stays smooth with either source: the
+step between a Beirut 001 cell and its neighbouring fallback cell has median 0.20 m for FABDEM and 0.18 m for GLO-30
+(Beirut 001's own neighbouring cells differ by 0.20 m), and p90 1.05 m against 0.80 m. FABDEM needs a smaller shift at the
+seam (first-ring median offset +0.82 m against +1.39 m) because it is not biased low. The profile in the run folder shows one
+transect.

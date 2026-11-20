@@ -462,6 +462,61 @@ def command_fetch_terrain(args: argparse.Namespace) -> None:
     print(f"terrain -> {args.output} ({cols}x{rows} cells of {ground.cell_m:g} m in {ground.crs})")
 
 
+def command_fetch_fabdem(args: argparse.Namespace) -> None:
+    from .fabdem import ATTRIBUTION, FABDEM_LICENCE, FABDEM_PAGE, fabdem_ground_model, fetch_tile, lattice_tiles
+    from .open_sources import record_source
+    like = GroundModel.load(args.like)
+    tiles = lattice_tiles(like)
+    if len(tiles) != 1:
+        raise SystemExit(f"the extent spans {len(tiles)} FABDEM tiles; only a single 1 degree tile is supported")
+    root = Path(args.sources_root)
+    entry = fetch_tile(*tiles[0], root / "raw" / "fabdem")
+    ground = fabdem_ground_model(like, entry["path"])
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    ground.save(destination)
+    record_source(root, "fabdem-v1-2", files=[entry], licence=FABDEM_LICENCE, attribution=ATTRIBUTION,
+                  publisher=f"University of Bristol, {FABDEM_PAGE}")
+    rows, cols = ground.ground.shape
+    print(f"fabdem terrain -> {args.output} ({cols}x{rows} cells of {ground.cell_m:g} m in {ground.crs}; "
+          f"{entry['bytes']} byte tile, sha256 {entry['sha256'][:12]})")
+
+
+def command_fetch_canopy(args: argparse.Namespace) -> None:
+    from .canopy_heights import ATTRIBUTION, LICENCE, METADATA_URL, TILE_URL, tiles_for_bounds
+    from .corridor import Corridor
+    from .open_sources import download_ranges, record_source
+    root = Path(args.sources_root)
+    corridor = Corridor.load(args.corridor, args.crs, args.corridor_buffer_m)
+    # Roads of the corridor subset reach past the buffer: widen the box by `--margin-deg`.
+    west, south, east, north = corridor.bounds()
+    tiles = tiles_for_bounds(west - args.margin_deg, south - args.margin_deg, east + args.margin_deg, north + args.margin_deg)
+    entries = []
+    for tile in tiles:
+        raw = root / "raw" / "meta-wri-chm"
+        for url, name in [(TILE_URL.format(tile=tile), f"{tile}.tif"), (METADATA_URL.format(tile=tile), f"{tile}.geojson")]:
+            entries.append(download_ranges(url, raw / name, max_bytes=args.max_bytes, workers=args.workers))
+            print(f"{name}: {entries[-1]['bytes']} bytes sha256 {entries[-1]['sha256'][:12]}")
+    record_source(root, "meta-wri-chm-v1", files=entries, licence=LICENCE,
+                  attribution=ATTRIBUTION.format(accessed=date.today().isoformat()),
+                  publisher="Meta and World Resources Institute (AWS Open Data: dataforgood-fb-data)",
+                  notes="Per-footprint acquisition dates are in the metadata geojson; the height raster has no per-pixel date.")
+    print("tiles:", ", ".join(tiles))
+
+
+def command_build_canopy(args: argparse.Namespace) -> None:
+    from .canopy_heights import build_canopy_dataset
+    raw = Path(args.sources_root) / "raw" / "meta-wri-chm"
+    metadata = raw / f"{args.tile}.geojson"
+    summary = build_canopy_dataset(
+        chm_path=raw / f"{args.tile}.tif", corridor_path=args.corridor, traffic_path=args.traffic, osm_path=args.osm,
+        metadata_path=metadata if metadata.exists() else None, output_dir=args.output, tile_id=args.tile,
+        crs=args.crs, buffer_m=args.corridor_buffer_m, min_height_m=args.min_height_m, footprints_path=args.footprints,
+        min_spacing_m=args.min_spacing_m, road_buffer_m=args.road_buffer_m, unmapped_distance_m=args.unmapped_distance_m)
+    print(f"canopy -> {args.output}: {summary['candidates']['count']} candidates, "
+          f"{summary['roads']['count']} roads, {summary['osm_trees']['nodes_in_buffer']} OSM trees")
+
+
 def command_pack_beirut001(args: argparse.Namespace) -> None:
     from .beirut001_pack import build_pack
     pack = build_pack(args.model, args.bbed, cell_m=args.cell_m)
@@ -801,6 +856,38 @@ def build_parser() -> argparse.ArgumentParser:
     terrain.add_argument("--traffic", help="traffic model from build-traffic; the grid then also covers its roads")
     terrain.add_argument("--margin-m", type=float, default=1500.0, help="ground beyond the outermost building or road")
     terrain.set_defaults(func=command_fetch_terrain)
+
+    fabdem = subparsers.add_parser("fetch-fabdem", help="FABDEM V1-2 bare-earth ground on the lattice of an existing terrain .npz")
+    fabdem.add_argument("--like", required=True, help="terrain .npz from fetch-terrain; FABDEM takes its CRS, extent and cell size")
+    fabdem.add_argument("--output", required=True)
+    fabdem.add_argument("--sources-root", required=True, help="open-sources folder: raw tile goes to raw/fabdem, ledger to sources.json")
+    fabdem.set_defaults(func=command_fetch_fabdem)
+
+    canopy_fetch = subparsers.add_parser("fetch-canopy", help="Meta/WRI canopy height tile(s) and acquisition-date footprints covering a corridor")
+    canopy_fetch.add_argument("--corridor", required=True, help="corridor line GeoJSON")
+    canopy_fetch.add_argument("--sources-root", required=True, help="open-sources folder: files go to raw/meta-wri-chm, ledger to sources.json")
+    canopy_fetch.add_argument("--crs", default="EPSG:32636")
+    canopy_fetch.add_argument("--corridor-buffer-m", type=float, default=250.0)
+    canopy_fetch.add_argument("--margin-deg", type=float, default=0.02)
+    canopy_fetch.add_argument("--max-bytes", type=int, default=1_000_000_000, help="refuse any single file larger than this")
+    canopy_fetch.add_argument("--workers", type=int, default=16, help="parallel range requests")
+    canopy_fetch.set_defaults(func=command_fetch_canopy)
+
+    canopy_build = subparsers.add_parser("build-canopy", help="tree candidates, OSM tree heights and per-road canopy cover for a corridor")
+    canopy_build.add_argument("--corridor", required=True)
+    canopy_build.add_argument("--sources-root", required=True)
+    canopy_build.add_argument("--tile", required=True, help="tile id (quadkey) from fetch-canopy")
+    canopy_build.add_argument("--traffic", required=True, help="traffic model from build-traffic")
+    canopy_build.add_argument("--osm", required=True, help="OSM context extract holding natural=tree nodes")
+    canopy_build.add_argument("--output", required=True)
+    canopy_build.add_argument("--footprints", help="lon/lat building footprints GeoJSON (e.g. Overture); flags candidates lying on a footprint")
+    canopy_build.add_argument("--crs", default="EPSG:32636")
+    canopy_build.add_argument("--corridor-buffer-m", type=float, default=250.0)
+    canopy_build.add_argument("--min-height-m", type=float, default=3.0)
+    canopy_build.add_argument("--min-spacing-m", type=float, default=4.0)
+    canopy_build.add_argument("--road-buffer-m", type=float, default=8.0)
+    canopy_build.add_argument("--unmapped-distance-m", type=float, default=5.0)
+    canopy_build.set_defaults(func=command_build_canopy)
 
     beirut001 = subparsers.add_parser("pack-beirut001")
     beirut001.add_argument("--model", required=True, help="Beirut 001 Rhino .3dm (private; read once)")
