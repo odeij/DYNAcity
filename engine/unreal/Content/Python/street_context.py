@@ -298,7 +298,7 @@ def focus_reference(filename):
 
 def load_editor_geometry():
     descs=unreal.WorldPartitionBlueprintLibrary.get_actor_descs() or []
-    wanted=[d.guid for d in descs if str(d.label).startswith(('Street_','StreetCover_','StreetCollision_','StreetLinear_'))]
+    wanted=[d.guid for d in descs if str(d.label).startswith(('Street_','StreetCover_','StreetCollision_','StreetLinear_','Corridor canopy estimate'))]
     unreal.WorldPartitionBlueprintLibrary.load_actors(wanted)
     return len(wanted)
 
