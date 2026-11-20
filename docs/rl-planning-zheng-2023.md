@@ -229,6 +229,15 @@ New dependencies go in an `rl` extra: `torch`, `pymoo`, and `libsumo` for the tr
 
 ## Progress
 
+### Exact optimum and baselines, phase A1 of the GPU plan (20 November 2026)
+
+`access_search.py` solves the land-use problem exactly as a coverage integer program (scipy HiGHS,
+under 1.6 s per solve) and runs random, greedy and NSGA-II on the GPU scorer (`dynacity
+search-access`). With 10 sites and α = 1 the optimum takes medical care within 500 m from 14% to
+54% of residents and parks from 36% to 92% (89% without the rail bed): 7 parks and 3 clinics.
+Greedy is within 1% of the optimum in 92% of cases, NSGA-II in 99%. RL on this static problem can
+only check the pipeline; see [rl-planning-gpu-plan.md](rl-planning-gpu-plan.md#phase-a1-the-exact-optimum-and-the-baselines-access_searchpy).
+
 ### GPU scorer, phases 0 and A0 of the GPU plan (20 November 2026)
 
 `access_gpu.py` scores batches of plans as in [rl-planning-gpu-plan.md](rl-planning-gpu-plan.md#phase-a0-the-gpu-scorer-access_gpupy).

@@ -167,6 +167,14 @@ closer, and the integer program gives the actual gap. If greedy is already withi
 everywhere, say so plainly: the static problem then needs no RL. That is a result, not a
 failure.
 
+**Gate A1 result (rig5090, 20 November 2026).** The integer program proved the optimum in every
+case (budgets 1–30, α 0.5–4, both site sets), each in under 1.6 s. Greedy is within 1% in 92% of
+cases (median 0.56% with the rail bed, 0.39% without), but not everywhere: at α = 4 without the
+rail bed it drifts to 1.9% from N = 14. NSGA-II (population 1,024, 200 generations) is closer
+(median 0.23% and 0.07%, worst 1.15%); random search is 8–13% short. The static problem is
+therefore solved exactly in seconds, and RL there can only be a check of the pipeline. Details:
+[work log](beirut-simulation-work-log.md).
+
 ## Phase A2: RL on the static problem (`access_rl.py`)
 
 The paper's agent, but now checked against a known optimum.

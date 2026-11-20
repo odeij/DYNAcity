@@ -117,3 +117,82 @@ def test_the_gpu_gives_the_cpu_s_scores():
     cpu = BatchScorer(m, "cpu").objective(plans)
     gpu = BatchScorer(m, "cuda").objective(plans).cpu()
     assert (cpu - gpu).abs().max().item() < 1e-12
+
+
+# -- phase A1: the exact optimum and the baselines --------------------------------
+
+from itertools import combinations, product  # noqa: E402
+
+from dynacity.access_search import (  # noqa: E402
+    CoverageProgram, front_gap, greedy_path, nsga2, pareto_front, random_search, use_weights,
+)
+
+
+def brute_force(scorer, budget, alpha):
+    """Best plan by enumeration, for small models."""
+
+    best = -np.inf
+    options = [np.flatnonzero(m) + 1 for m in scorer.mask.numpy()]
+    eligible = [s for s, o in enumerate(options) if len(o)]
+    for size in range(budget + 1):
+        for sites in combinations(eligible, size):
+            for uses in product(*[options[s] for s in sites]):
+                plan = np.zeros(scorer.n_sites, dtype=np.int8)
+                plan[list(sites)] = uses
+                best = max(best, scorer.objective(torch.as_tensor(plan)[None], alpha).item())
+    return best
+
+
+@pytest.mark.parametrize("alpha", [0.5, 2.0])
+def test_the_integer_program_finds_the_enumerated_optimum(alpha):
+    m = random_model(seed=6, homes=80, sites=8)
+    scorer = BatchScorer(m, "cpu")
+    program = CoverageProgram.build(scorer)
+    base = scorer.objective(torch.zeros(1, 8, dtype=torch.int8), alpha).item()
+    for budget in (1, 2, 3):
+        r = program.solve(budget, use_weights(scorer, alpha))
+        assert r["optimal"] and (r["plan"] > 0).sum() <= budget and bool(scorer.valid(torch.as_tensor(r["plan"])[None]))
+        exact = scorer.objective(torch.as_tensor(r["plan"])[None], alpha).item()
+        assert exact == pytest.approx(base + r["gain"], abs=1e-9)
+        assert exact == pytest.approx(brute_force(scorer, budget, alpha), abs=1e-9)
+
+
+def test_greedy_random_and_nsga2_stay_valid_and_below_the_optimum():
+    m = random_model(seed=7, homes=120, sites=12)
+    scorer = BatchScorer(m, "cpu")
+    opt = (scorer.objective(torch.zeros(1, 12, dtype=torch.int8)).item()
+           + CoverageProgram.build(scorer).solve(3, use_weights(scorer, 1.0))["gain"])
+    path = greedy_path(scorer, 3, 1.0)
+    assert [int((p > 0).sum()) for p in path] == [1, 2, 3]
+    assert scorer.objective(torch.as_tensor(path[-1])[None]).item() <= opt + 1e-9
+    r = random_search(scorer, 3, 1.0, samples=2000, batch=512)
+    assert r["objective"] <= opt + 1e-9 and r["distribution"]["p05"] <= r["distribution"]["p95"]
+    front = nsga2(scorer, 3, population=40, generations=15)
+    assert bool(scorer.valid(torch.as_tensor(front["plans"])).all()) and ((front["plans"] > 0).sum(1) <= 3).all()
+    assert (front["service"] + front["parks"]).max() <= opt + 1e-9
+
+
+def test_the_exact_front_runs_from_best_service_to_best_parks():
+    m = random_model(seed=8, homes=100, sites=10)
+    program = CoverageProgram.build(BatchScorer(m, "cpu"))
+    front = pareto_front(program, 2, points=5)
+    services = [p["service"] for p in front]
+    assert services == sorted(services, reverse=True), "more parks costs service along the front"
+    assert front_gap(front, front) == 0
+    worse = [{"service": p["service"] * 0.9, "parks": p["parks"]} for p in front]
+    assert front_gap(front, worse) == pytest.approx(10)
+    assert front_gap(front, []) == 100
+
+
+def test_search_runs_from_the_command_line(tmp_path):
+    m = random_model(seed=9, homes=80, sites=8)
+    path = tmp_path / "access.npz"
+    m.save(path)
+    out, md = tmp_path / "search.json", tmp_path / "summary.md"
+    main(["search-access", "--model", str(path), "--output", str(out), "--summary", str(md), "--device", "cpu",
+          "--budget", "1", "2", "--alpha", "1", "--samples", "500", "--population", "20", "--generations", "5",
+          "--pareto-points", "3"])
+    result = json.loads(out.read_text())
+    gaps = {r["method"]: r["gap_pct"] for r in result["results"] if r["budget"] == 2}
+    assert gaps["milp"] == 0 and min(gaps.values()) >= -1e-9
+    assert "| 2 |" in md.read_text()

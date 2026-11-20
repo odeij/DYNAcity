@@ -3035,5 +3035,53 @@ was committed, which the records note (`uncommitted_changes`).
 **Verification:** 9 new scorer tests (CPU, plus one CPU-against-GPU test) and the 12 access
 tests pass.
 
-**Next:** phase A1 (integer program and baselines), after review of this gate.
+**Next:** phase A1 (integer program and baselines); done below.
+
+### 20 November 2026 — corridor planning on the GPU: phase A1, the exact optimum
+
+Branch `T5.1_RL-access-gpu`, rig5090. `access_search.py` and `dynacity search-access`.
+
+**Method.** The integer program is the plan's coverage program over the five search uses (four
+scored services and parks): 388 binary and 4,178 continuous variables with the rail bed, 282 and
+4,113 without. Baselines on the GPU scorer: random (10⁶ plans per budget and α), greedy (every
+candidate step scored in one batch) and NSGA-II (pymoo, population 1,024, 200 generations, on
+service score against parks share; each α takes its best plan from the final front). The exact
+Pareto front comes from 11 ε-constraint solves per budget. Budgets 1–30, α 0.5, 1, 2, 4.
+
+**Results.** All 240 weighted solves and every front point were proven optimal, each in under
+1.6 s. Gap to the optimum, over all budgets and α:
+
+| Method | With rail bed: median / worst | Without: median / worst | Cases over 1% |
+|---|---|---|---|
+| Greedy | 0.56% / 1.02% | 0.39% / 1.90% | 2% and 14% |
+| NSGA-II | 0.23% / 1.15% | 0.07% / 0.70% | 2% and 0% |
+| Random | 8.4% / 12.3% | 9.9% / 13.3% | 89% and 91% |
+
+Greedy exceeds 1% only at α = 4 (service-led), from N = 29 with the rail bed and N = 14 without.
+NSGA-II's front comes within 0.9% (median) of the exact front on both scores, at worst 1.9%
+(relative ε indicator against the computed points, a lower bound). Wall time: 16 and 20 minutes,
+mostly NSGA-II.
+
+**What the optimum does.** With 10 sites and α = 1: medical care within 500 m rises from 14% to
+54% of residents and parks from 36% to 92% (89% without the rail bed), with 7 parks and 3 clinics.
+With α = 2: 5 clinics, medical care 74%. With 30 sites: medical care 88% with the rail bed and 74%
+without, since the rail-bed parks free other sites for clinics.
+
+**Reading.** The static land-use problem is solved exactly in seconds, so no learned policy can
+improve on it; greedy is close but not within 1% everywhere. Per the plan, phase A2 (RL on this
+problem) is now only a test of the environment and policy before phase B, where links make the
+problem non-linear and no optimum is known.
+
+**A measurement correction.** The first comparison of fronts used a hypervolume share, which came
+out above 1: the exact front was sampled at 11 points, which understates its area. It was replaced
+by the relative ε indicator, recomputed from the saved fronts without rerunning.
+
+**Outputs:** `~/private/dynacity-data/access/gpu-20261120/search-{railbed,no-railbed}.{json,md,log}`
+and `search.nvidia-smi.csv`.
+
+**Verification:** 14 tests in `tests/test_access_gpu.py` (the integer program matches brute-force
+enumeration on small models) and the 12 access tests pass.
+
+**Next:** decide whether phase A2 is still worth running as a pipeline check, or whether to go to
+phase B, which needs the reviewed candidate links.
 

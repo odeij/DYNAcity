@@ -19,6 +19,7 @@ files rather than in-process state:
     build-access    → walking access to the 15-minute services on a corridor (.npz + report), and what candidate sites would add
     score-access    → one site plan (site → new use) scored on a build-access model (.json)
     bench-access-gpu→ the batch plan scorer checked against AccessModel and timed on CPU/GPU (.json)
+    search-access   → exact optimum (integer program) and random/greedy/NSGA-II plans, with gaps (.json, .md)
     run-plan        → a street plan in SUMO against a paired baseline (.json), without the viewer
     freeze-evidence → registry JSON → content-hashed EvidenceBundle
     compile-scenario→ planner prose → checked ScenarioSpec + audit trail
@@ -770,6 +771,36 @@ def command_bench_access_gpu(args: argparse.Namespace) -> None:
     print(f"bench -> {args.output}")
 
 
+def command_search_access(args: argparse.Namespace) -> None:
+    import time
+
+    from .access import AccessModel
+    from .access_gpu import run_record
+    from .access_search import add_gaps, run_search, summary_table
+
+    try:
+        import torch
+    except ImportError:
+        raise SystemExit("search-access needs torch (the rl extra; see docs/rl-planning-gpu-plan.md)") from None
+    started = time.perf_counter()
+    model = AccessModel.load(args.model)
+    low, high = args.budget
+    device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    out = run_search(model, args.method, list(range(low, high + 1)), args.alpha, device=device,
+                     samples=args.samples, population=args.population, generations=args.generations,
+                     pareto_points=args.pareto_points, seed=args.seed)
+    if args.optimum:
+        add_gaps(out, json.loads(Path(args.optimum).read_text(encoding="utf-8")))
+    out["record"] = run_record(args.model, time.perf_counter() - started, seeds=[args.seed], methods=args.method,
+                               device=device)
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding="utf-8")
+    if args.summary:
+        Path(args.summary).write_text(summary_table(out, args.label or Path(args.model).stem), encoding="utf-8")
+    print(f"search -> {args.output} ({len(out['results'])} results, {out['record']['wall_seconds']} s)")
+
+
 def _facilities_view(path: str | None, bounds: tuple[float, float, float, float] | None = None) -> dict | None:
     if not path:
         return None
@@ -1154,6 +1185,25 @@ def build_parser() -> argparse.ArgumentParser:
     bench_gpu.add_argument("--check", type=int, default=10_000, help="random plans compared with AccessModel (0: skip)")
     bench_gpu.add_argument("--seed", type=int, default=0)
     bench_gpu.set_defaults(func=command_bench_access_gpu)
+
+    search = subparsers.add_parser("search-access", help="exact optimum and search baselines for land-use plans")
+    search.add_argument("--model", required=True)
+    search.add_argument("--output", required=True)
+    search.add_argument("--method", nargs="+", choices=["milp", "greedy", "random", "nsga2"],
+                        default=["milp", "greedy", "random", "nsga2"])
+    search.add_argument("--budget", type=int, nargs=2, default=[1, 30], metavar=("LOW", "HIGH"),
+                        help="sites changed, every budget from LOW to HIGH")
+    search.add_argument("--alpha", type=float, nargs="+", default=[0.5, 1.0, 2.0, 4.0])
+    search.add_argument("--device", help="default: cuda when available")
+    search.add_argument("--samples", type=int, default=1_000_000, help="random plans per budget and alpha")
+    search.add_argument("--population", type=int, default=1024)
+    search.add_argument("--generations", type=int, default=200)
+    search.add_argument("--pareto-points", type=int, default=11, help="epsilon-constraint points per budget")
+    search.add_argument("--optimum", help="a milp run's JSON, for gaps when milp is not among the methods")
+    search.add_argument("--summary", help="Markdown table for Gate A1")
+    search.add_argument("--label")
+    search.add_argument("--seed", type=int, default=0)
+    search.set_defaults(func=command_search_access)
 
     run = subparsers.add_parser("run-plan", help="a street plan in SUMO against a paired baseline, without the viewer")
     run.add_argument("--traffic", required=True, help="traffic model from build-traffic")
