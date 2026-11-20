@@ -3138,3 +3138,23 @@ commands), with the 26 access and GPU-scorer tests, all pass.
 (`reviewed_by` on each link kept, `rejected: true` on the others). Then the joint search
 (land uses plus links) and Gate B.
 
+### 20 November 2026 — candidate links reviewed
+
+The proposals were reviewed on a private review page (map of each crossing, the walk it replaces
+and the homes it would bring within 500 m; satellite, Street View and OSM links), with keep,
+already exists or drop for each crossing and one decision for the rail-bed walkway.
+
+**Decisions (Marc Nadim Zeenny):** kept 11 crossings: the four that change access at 500 m
+(#9 and #24 at Joseph Chader, #4 at Charles Helou, #22 on Fouad Chehab Avenue) and seven with no
+effect at 500 m (#0–3 and #5 at Charles Helou toward the port, #6 on the Émile Lahoud motorway, #7
+at Omar Beyhum Street); kept the rail-bed walkway; dropped the other 40 crossings. None was marked
+as an existing crossing missing from OSM.
+
+**File:** `datasets/corridor/candidate-links.geojson` (every link carries `reviewed_by`; dropped
+ones `rejected: true`). Built with `dynacity build-links` on both models: 90 links, 106 end points,
+30 split ways; 1,000 random link sets match a full Dijkstra to 0.24 mm, the GPU version to 0.46 mm.
+All kept links together: 484 homes gain a service within 500 m; medical care +5.4% of residents,
+shops +3.6%, schools +2.2%, parks +0.8%; objective +0.038 at α = 1 with no land-use change.
+
+**Next:** the joint search over land uses and links, then Gate B.
+

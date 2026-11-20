@@ -265,9 +265,13 @@ the person who reviewed it.
   `build_access` exactly: walks over 4 km (`LIMIT_M`) are cut on the network part, before the home
   and site snaps are added; and a repeated graph edge keeps its shorter length (see the work log
   for the bug this exposed).
-- **Next:** a person reviews the proposals into `datasets/corridor/candidate-links.geojson`
-  (`reviewed_by` on each kept link, `rejected: true` on the rest). Until then `build-links`
-  refuses them, except with `--allow-unreviewed` for testing. The joint search follows.
+- **Review (20 November 2026, Marc Nadim Zeenny):** `datasets/corridor/candidate-links.geojson`
+  keeps 11 crossings (#0–7, #9, #22, #24) and the whole rail-bed walkway (79 pieces), and drops
+  40 crossings; none was marked as already existing. Together the kept links bring 484 homes
+  within 500 m of a service (medical care +5.4% of residents, shops +3.6%, schools +2.2%).
+  `build-links` on the reviewed file: 90 links, 106 end points; 1,000 random sets match a full
+  Dijkstra to 0.24 mm on both site sets.
+- **Next:** the joint search (land uses plus links) and Gate B.
 
 **Joint search.** A plan is land uses plus links, under a budget on the count of each.
 - greedy and NSGA-II;

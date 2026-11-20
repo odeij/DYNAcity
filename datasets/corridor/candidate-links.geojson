@@ -1,0 +1,4083 @@
+{
+ "type": "FeatureCollection",
+ "schema": "dynacity-candidate-links/1",
+ "status": "reviewed",
+ "rules": {
+  "crossings": "walkable nodes 8-60 m apart across a motorway, trunk road or river, whose walk along the network is over 3 times as long; one per 100 m, biggest saving first",
+  "railbed_walkway": "the corridor line cut where it crosses walkable ways (the access points) and at the rail-bed site boundaries"
+ },
+ "attribution": "© OpenStreetMap contributors, ODbL",
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5369707,
+      33.8984928
+     ],
+     [
+      35.5371704,
+      33.8983632
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/0",
+    "kind": "crossing",
+    "length_m": 23.4,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway_link",
+    "barrier_name": "",
+    "straight_m": 23.4,
+    "network_m": null,
+    "saved_at_least_m": 1976.6,
+    "review_note": ""
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5165626,
+      33.8964613
+     ],
+     [
+      35.5166303,
+      33.8962381
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/1",
+    "kind": "crossing",
+    "length_m": 25.5,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Sea Highway - Charles Hélou Avenue",
+    "straight_m": 25.5,
+    "network_m": null,
+    "saved_at_least_m": 1974.5,
+    "review_note": ""
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5183403,
+      33.8960901
+     ],
+     [
+      35.5182416,
+      33.8963208
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/2",
+    "kind": "crossing",
+    "length_m": 27.2,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Sea Highway - Charles Hélou Avenue",
+    "straight_m": 27.2,
+    "network_m": null,
+    "saved_at_least_m": 1972.8,
+    "review_note": ""
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5312127,
+      33.8807823
+     ],
+     [
+      35.5309039,
+      33.8807148
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/3",
+    "kind": "crossing",
+    "length_m": 29.5,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Émile Lahoud Motorway",
+    "straight_m": 29.5,
+    "network_m": null,
+    "saved_at_least_m": 1970.5,
+    "review_note": ""
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5335439,
+      33.8981939
+     ],
+     [
+      35.5333575,
+      33.8978248
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/4",
+    "kind": "crossing",
+    "length_m": 44.4,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Charles Helou Highway",
+    "straight_m": 44.4,
+    "network_m": null,
+    "saved_at_least_m": 1955.6,
+    "review_note": ""
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5265665,
+      33.8995905
+     ],
+     [
+      35.5266277,
+      33.8991711
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/5",
+    "kind": "crossing",
+    "length_m": 46.9,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Charles Helou Highway",
+    "straight_m": 46.9,
+    "network_m": null,
+    "saved_at_least_m": 1953.1,
+    "review_note": ""
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5296572,
+      33.8746597
+     ],
+     [
+      35.5292659,
+      33.8745135
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/6",
+    "kind": "crossing",
+    "length_m": 39.7,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Émile Lahoud Motorway",
+    "straight_m": 39.7,
+    "network_m": 1561.0,
+    "saved_at_least_m": 1521.4,
+    "review_note": ""
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5138699,
+      33.8708852
+     ],
+     [
+      35.5133745,
+      33.8705464
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/7",
+    "kind": "crossing",
+    "length_m": 59.3,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk_link",
+    "barrier_name": "Omar Beyhum Street",
+    "straight_m": 59.3,
+    "network_m": 1231.0,
+    "saved_at_least_m": 1171.7,
+    "review_note": ""
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5127437,
+      33.8717701
+     ],
+     [
+      35.5128291,
+      33.8713819
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/8",
+    "kind": "crossing",
+    "length_m": 43.8,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk_link",
+    "barrier_name": "Omar Beyhum Street",
+    "straight_m": 43.8,
+    "network_m": 923.7,
+    "saved_at_least_m": 879.9,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5293866,
+      33.8903287
+     ],
+     [
+      35.5299702,
+      33.8901081
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/9",
+    "kind": "crossing",
+    "length_m": 59.3,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Rue Joseph Chader",
+    "straight_m": 59.3,
+    "network_m": 929.7,
+    "saved_at_least_m": 870.4,
+    "review_note": ""
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5238972,
+      33.8755577
+     ],
+     [
+      35.5235967,
+      33.8751007
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/10",
+    "kind": "crossing",
+    "length_m": 57.8,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Elias Al Hrawi Highway",
+    "straight_m": 57.8,
+    "network_m": 917.7,
+    "saved_at_least_m": 859.9,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5258606,
+      33.8698378
+     ],
+     [
+      35.5262839,
+      33.869666
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/11",
+    "kind": "crossing",
+    "length_m": 43.6,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway_link",
+    "barrier_name": "",
+    "straight_m": 43.6,
+    "network_m": 882.0,
+    "saved_at_least_m": 838.4,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.53556,
+      33.8644218
+     ],
+     [
+      35.5361028,
+      33.8646891
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/12",
+    "kind": "crossing",
+    "length_m": 58.3,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "river",
+    "barrier_name": "Beirut River",
+    "straight_m": 58.3,
+    "network_m": 795.0,
+    "saved_at_least_m": 736.7,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5172142,
+      33.8725748
+     ],
+     [
+      35.5176589,
+      33.8723297
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/13",
+    "kind": "crossing",
+    "length_m": 49.3,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Sami El Solh Avenue",
+    "straight_m": 49.3,
+    "network_m": 771.3,
+    "saved_at_least_m": 721.9,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5233006,
+      33.8764225
+     ],
+     [
+      35.5232908,
+      33.8758984
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/14",
+    "kind": "crossing",
+    "length_m": 58.2,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Elias Al Hrawi Highway",
+    "straight_m": 58.2,
+    "network_m": 777.3,
+    "saved_at_least_m": 719.1,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5126407,
+      33.8700574
+     ],
+     [
+      35.5130561,
+      33.8698143
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/15",
+    "kind": "crossing",
+    "length_m": 47.0,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Président Jamal Abdel Nasser",
+    "straight_m": 47.0,
+    "network_m": 756.8,
+    "saved_at_least_m": 709.8,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5361172,
+      33.866939
+     ],
+     [
+      35.5357987,
+      33.8672809
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/16",
+    "kind": "crossing",
+    "length_m": 48.0,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Street 12",
+    "straight_m": 48.0,
+    "network_m": 707.2,
+    "saved_at_least_m": 659.1,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5151293,
+      33.869246
+     ],
+     [
+      35.5153747,
+      33.8695967
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/17",
+    "kind": "crossing",
+    "length_m": 45.1,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk_link",
+    "barrier_name": "",
+    "straight_m": 45.1,
+    "network_m": 669.1,
+    "saved_at_least_m": 624.0,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5384729,
+      33.8970745
+     ],
+     [
+      35.5379386,
+      33.8970997
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/18",
+    "kind": "crossing",
+    "length_m": 49.5,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway_link",
+    "barrier_name": "Bourj Hammoud Interchange",
+    "straight_m": 49.5,
+    "network_m": 598.9,
+    "saved_at_least_m": 549.4,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5228053,
+      33.8770205
+     ],
+     [
+      35.52257,
+      33.8768024
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/19",
+    "kind": "crossing",
+    "length_m": 32.6,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Elias Al Hrawi Highway",
+    "straight_m": 32.6,
+    "network_m": 576.2,
+    "saved_at_least_m": 543.6,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5209332,
+      33.8890638
+     ],
+     [
+      35.5206608,
+      33.8895327
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/20",
+    "kind": "crossing",
+    "length_m": 57.8,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Mar Dimitrious Street",
+    "straight_m": 57.8,
+    "network_m": 561.8,
+    "saved_at_least_m": 504.0,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5420893,
+      33.8955637
+     ],
+     [
+      35.5422481,
+      33.8960328
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/21",
+    "kind": "crossing",
+    "length_m": 54.1,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Sea Highway",
+    "straight_m": 54.1,
+    "network_m": 538.6,
+    "saved_at_least_m": 484.6,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5280166,
+      33.8913913
+     ],
+     [
+      35.5277172,
+      33.8910243
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/22",
+    "kind": "crossing",
+    "length_m": 49.2,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "جادة الرئيس اللواء فؤاد شهاب",
+    "straight_m": 49.2,
+    "network_m": 524.3,
+    "saved_at_least_m": 475.0,
+    "review_note": ""
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5252736,
+      33.8708376
+     ],
+     [
+      35.5258737,
+      33.8710415
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/23",
+    "kind": "crossing",
+    "length_m": 60.0,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway_link",
+    "barrier_name": "",
+    "straight_m": 60.0,
+    "network_m": 524.8,
+    "saved_at_least_m": 464.9,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5279373,
+      33.8892065
+     ],
+     [
+      35.5273806,
+      33.8893333
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/24",
+    "kind": "crossing",
+    "length_m": 53.4,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Joseph Chader",
+    "straight_m": 53.4,
+    "network_m": 516.6,
+    "saved_at_least_m": 463.2,
+    "review_note": ""
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5343838,
+      33.8651729
+     ],
+     [
+      35.5344562,
+      33.8646573
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/25",
+    "kind": "crossing",
+    "length_m": 57.6,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "river",
+    "barrier_name": "Beirut River",
+    "straight_m": 57.6,
+    "network_m": 516.5,
+    "saved_at_least_m": 458.9,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.540542,
+      33.8778361
+     ],
+     [
+      35.5402731,
+      33.877686
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/26",
+    "kind": "crossing",
+    "length_m": 29.9,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk_link",
+    "barrier_name": "",
+    "straight_m": 29.9,
+    "network_m": 469.9,
+    "saved_at_least_m": 439.9,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5137147,
+      33.8924715
+     ],
+     [
+      35.5137026,
+      33.8920129
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/27",
+    "kind": "crossing",
+    "length_m": 50.9,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Charles Malek Avenue",
+    "straight_m": 50.9,
+    "network_m": 452.5,
+    "saved_at_least_m": 401.6,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.516523,
+      33.8688533
+     ],
+     [
+      35.5160121,
+      33.8688499
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/28",
+    "kind": "crossing",
+    "length_m": 47.3,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk_link",
+    "barrier_name": "",
+    "straight_m": 47.3,
+    "network_m": 385.1,
+    "saved_at_least_m": 337.8,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5217308,
+      33.8777258
+     ],
+     [
+      35.5220044,
+      33.8779152
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/29",
+    "kind": "crossing",
+    "length_m": 32.9,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Elias Al Hrawi Highway",
+    "straight_m": 32.9,
+    "network_m": 323.7,
+    "saved_at_least_m": 290.8,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5408298,
+      33.8814233
+     ],
+     [
+      35.5402303,
+      33.8813061
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/30",
+    "kind": "crossing",
+    "length_m": 57.0,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Avenue President Amine Gemayel",
+    "straight_m": 57.0,
+    "network_m": 344.1,
+    "saved_at_least_m": 287.1,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5150081,
+      33.8787827
+     ],
+     [
+      35.514742,
+      33.8791167
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/31",
+    "kind": "crossing",
+    "length_m": 44.5,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Corniche Pierre Gemayel",
+    "straight_m": 44.5,
+    "network_m": 313.3,
+    "saved_at_least_m": 268.8,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5228346,
+      33.8835017
+     ],
+     [
+      35.5224168,
+      33.8838973
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/32",
+    "kind": "crossing",
+    "length_m": 58.5,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Alfred Naccache Road",
+    "straight_m": 58.5,
+    "network_m": 305.2,
+    "saved_at_least_m": 246.7,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5435529,
+      33.882203
+     ],
+     [
+      35.5433005,
+      33.8817351
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/33",
+    "kind": "crossing",
+    "length_m": 56.9,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Boulevard Antoine Nicolas Chakhtoura",
+    "straight_m": 56.9,
+    "network_m": 301.6,
+    "saved_at_least_m": 244.7,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5446379,
+      33.8883308
+     ],
+     [
+      35.5442338,
+      33.887919
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/34",
+    "kind": "crossing",
+    "length_m": 59.0,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Joseph Chader Bridge",
+    "straight_m": 59.0,
+    "network_m": 294.4,
+    "saved_at_least_m": 235.4,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5250876,
+      33.8717781
+     ],
+     [
+      35.5254622,
+      33.871837
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/35",
+    "kind": "crossing",
+    "length_m": 35.3,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Elias Al Hrawi Highway",
+    "straight_m": 35.3,
+    "network_m": 260.2,
+    "saved_at_least_m": 225.0,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5210509,
+      33.8902957
+     ],
+     [
+      35.5206548,
+      33.8901014
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/36",
+    "kind": "crossing",
+    "length_m": 42.5,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Mar Dimitrious Street",
+    "straight_m": 42.5,
+    "network_m": 266.2,
+    "saved_at_least_m": 223.7,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5210888,
+      33.8828852
+     ],
+     [
+      35.5214488,
+      33.8824596
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/37",
+    "kind": "crossing",
+    "length_m": 57.8,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Alfred Naccache Road",
+    "straight_m": 57.8,
+    "network_m": 281.0,
+    "saved_at_least_m": 223.2,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5415412,
+      33.8779582
+     ],
+     [
+      35.5414414,
+      33.8780978
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/38",
+    "kind": "crossing",
+    "length_m": 18.0,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "",
+    "straight_m": 18.0,
+    "network_m": 202.9,
+    "saved_at_least_m": 184.8,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5245349,
+      33.8690015
+     ],
+     [
+      35.5246735,
+      33.8685487
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/39",
+    "kind": "crossing",
+    "length_m": 51.9,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway_link",
+    "barrier_name": "",
+    "straight_m": 51.9,
+    "network_m": 227.2,
+    "saved_at_least_m": 175.4,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5205282,
+      33.8882667
+     ],
+     [
+      35.5210891,
+      33.8883382
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/40",
+    "kind": "crossing",
+    "length_m": 52.5,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Mar Dimitrious Street",
+    "straight_m": 52.5,
+    "network_m": 226.1,
+    "saved_at_least_m": 173.6,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5165953,
+      33.8918179
+     ],
+     [
+      35.5166913,
+      33.8923101
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/41",
+    "kind": "crossing",
+    "length_m": 55.3,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Charles Malek Avenue",
+    "straight_m": 55.3,
+    "network_m": 224.0,
+    "saved_at_least_m": 168.6,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5395791,
+      33.9023896
+     ],
+     [
+      35.5390949,
+      33.9021658
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/42",
+    "kind": "crossing",
+    "length_m": 51.2,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "river",
+    "barrier_name": "Beirut River",
+    "straight_m": 51.2,
+    "network_m": 214.8,
+    "saved_at_least_m": 163.6,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5246916,
+      33.8917702
+     ],
+     [
+      35.5247691,
+      33.8921259
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/43",
+    "kind": "crossing",
+    "length_m": 40.1,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk_link",
+    "barrier_name": "",
+    "straight_m": 40.1,
+    "network_m": 198.9,
+    "saved_at_least_m": 158.8,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5215028,
+      33.8867158
+     ],
+     [
+      35.5212385,
+      33.8862238
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/44",
+    "kind": "crossing",
+    "length_m": 59.8,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Mar Dimitrious Street",
+    "straight_m": 59.8,
+    "network_m": 200.9,
+    "saved_at_least_m": 141.0,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5346316,
+      33.8911336
+     ],
+     [
+      35.5347518,
+      33.8907843
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/45",
+    "kind": "crossing",
+    "length_m": 40.3,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway_link",
+    "barrier_name": "",
+    "straight_m": 40.3,
+    "network_m": 179.2,
+    "saved_at_least_m": 138.8,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5203196,
+      33.8815411
+     ],
+     [
+      35.5197738,
+      33.8818206
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/46",
+    "kind": "crossing",
+    "length_m": 59.3,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Alfred Naccache Road",
+    "straight_m": 59.3,
+    "network_m": 192.7,
+    "saved_at_least_m": 133.4,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5412933,
+      33.8892028
+     ],
+     [
+      35.5412496,
+      33.8888102
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/47",
+    "kind": "crossing",
+    "length_m": 43.7,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Joseph Chader Bridge",
+    "straight_m": 43.7,
+    "network_m": 164.1,
+    "saved_at_least_m": 120.4,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5415034,
+      33.898267
+     ],
+     [
+      35.5414661,
+      33.8978918
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/48",
+    "kind": "crossing",
+    "length_m": 41.8,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "trunk",
+    "barrier_name": "Sea Road",
+    "straight_m": 41.8,
+    "network_m": 133.7,
+    "saved_at_least_m": 91.9,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5234481,
+      33.8689329
+     ],
+     [
+      35.5235737,
+      33.8688535
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/49",
+    "kind": "crossing",
+    "length_m": 14.6,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway_link",
+    "barrier_name": "",
+    "straight_m": 14.6,
+    "network_m": 86.1,
+    "saved_at_least_m": 71.5,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5281577,
+      33.8669485
+     ],
+     [
+      35.5283097,
+      33.8669346
+     ]
+    ]
+   },
+   "properties": {
+    "id": "crossing/50",
+    "kind": "crossing",
+    "length_m": 14.2,
+    "source": "proposed by dynacity propose-links on 2026-11-20 from OSM walkable ways (mobility.json)",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "barrier": "motorway",
+    "barrier_name": "Elias Al Hrawi Highway",
+    "straight_m": 14.2,
+    "network_m": 64.4,
+    "saved_at_least_m": 50.3,
+    "review_note": "",
+    "rejected": true
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5234487,
+      33.8984887
+     ],
+     [
+      35.5244769,
+      33.8985503
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/0",
+    "kind": "railbed_walkway",
+    "length_m": 95.4,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/0-0",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5244769,
+      33.8985503
+     ],
+     [
+      35.5245968,
+      33.8985575
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/1",
+    "kind": "railbed_walkway",
+    "length_m": 11.1,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/0-1",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5245968,
+      33.8985575
+     ],
+     [
+      35.524704,
+      33.8985639
+     ],
+     [
+      35.5254948,
+      33.8986811
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/2",
+    "kind": "railbed_walkway",
+    "length_m": 84.2,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/0-1",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5254948,
+      33.8986811
+     ],
+     [
+      35.5261028,
+      33.8987712
+     ],
+     [
+      35.5263588,
+      33.8987644
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/3",
+    "kind": "railbed_walkway",
+    "length_m": 80.8,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/0-2",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5263588,
+      33.8987644
+     ],
+     [
+      35.5265159,
+      33.8987602
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/4",
+    "kind": "railbed_walkway",
+    "length_m": 14.5,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/0-2",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5265159,
+      33.8987602
+     ],
+     [
+      35.5265739,
+      33.8987587
+     ],
+     [
+      35.5274548,
+      33.8985283
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/5",
+    "kind": "railbed_walkway",
+    "length_m": 90.8,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/0-3",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5274548,
+      33.8985283
+     ],
+     [
+      35.5275021,
+      33.8985159
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/6",
+    "kind": "railbed_walkway",
+    "length_m": 4.6,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/0-3",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5275021,
+      33.8985159
+     ],
+     [
+      35.5275814,
+      33.8984952
+     ],
+     [
+      35.5278024,
+      33.8984374
+     ],
+     [
+      35.5284905,
+      33.8982719
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/7",
+    "kind": "railbed_walkway",
+    "length_m": 95.4,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/0-4",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5284905,
+      33.8982719
+     ],
+     [
+      35.529481,
+      33.8980337
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/8",
+    "kind": "railbed_walkway",
+    "length_m": 95.4,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/0-5",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.529481,
+      33.8980337
+     ],
+     [
+      35.5304715,
+      33.8977956
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/9",
+    "kind": "railbed_walkway",
+    "length_m": 95.4,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/0-6",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5304715,
+      33.8977956
+     ],
+     [
+      35.5307794,
+      33.8977215
+     ],
+     [
+      35.5314192,
+      33.8974641
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/10",
+    "kind": "railbed_walkway",
+    "length_m": 95.4,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/0-7",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5314192,
+      33.8974641
+     ],
+     [
+      35.53199,
+      33.8972344
+     ],
+     [
+      35.5323019,
+      33.8970296
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/11",
+    "kind": "railbed_walkway",
+    "length_m": 95.4,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/0-8",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5323019,
+      33.8970296
+     ],
+     [
+      35.5327911,
+      33.8967083
+     ],
+     [
+      35.5330301,
+      33.8964324
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/12",
+    "kind": "railbed_walkway",
+    "length_m": 95.4,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/0-9",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5275814,
+      33.8984952
+     ],
+     [
+      35.5279101,
+      33.8984713
+     ],
+     [
+      35.5285774,
+      33.8983131
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/13",
+    "kind": "railbed_walkway",
+    "length_m": 94.7,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/1-0",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5285774,
+      33.8983131
+     ],
+     [
+      35.529562,
+      33.8980796
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/14",
+    "kind": "railbed_walkway",
+    "length_m": 94.7,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/1-1",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.529562,
+      33.8980796
+     ],
+     [
+      35.5305467,
+      33.8978461
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/15",
+    "kind": "railbed_walkway",
+    "length_m": 94.7,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/1-2",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5305467,
+      33.8978461
+     ],
+     [
+      35.5308001,
+      33.897786
+     ],
+     [
+      35.5314716,
+      33.8974889
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/16",
+    "kind": "railbed_walkway",
+    "length_m": 94.7,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/1-3",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5314716,
+      33.8974889
+     ],
+     [
+      35.5320053,
+      33.8972527
+     ],
+     [
+      35.532335,
+      33.8970364
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/17",
+    "kind": "railbed_walkway",
+    "length_m": 94.7,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/1-4",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.532335,
+      33.8970364
+     ],
+     [
+      35.5328115,
+      33.8967239
+     ],
+     [
+      35.5329731,
+      33.8965354
+     ],
+     [
+      35.5330543,
+      33.8964407
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/18",
+    "kind": "railbed_walkway",
+    "length_m": 94.7,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/1-5",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5330301,
+      33.8964324
+     ],
+     [
+      35.5330523,
+      33.89634
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/19",
+    "kind": "railbed_walkway",
+    "length_m": 10.5,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/2-0",
+    "ends_join": [
+     "network",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5330523,
+      33.89634
+     ],
+     [
+      35.5330737,
+      33.8962513
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/20",
+    "kind": "railbed_walkway",
+    "length_m": 10.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/2-0",
+    "ends_join": [
+     "network",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5330543,
+      33.8964407
+     ],
+     [
+      35.5330819,
+      33.8963378
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/21",
+    "kind": "railbed_walkway",
+    "length_m": 11.7,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/3-0",
+    "ends_join": [
+     "network",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5330819,
+      33.8963378
+     ],
+     [
+      35.5331054,
+      33.8962501
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/22",
+    "kind": "railbed_walkway",
+    "length_m": 10.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/3-0",
+    "ends_join": [
+     "network",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5329731,
+      33.8965354
+     ],
+     [
+      35.5327641,
+      33.8969206
+     ],
+     [
+      35.5325846,
+      33.8972293
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/23",
+    "kind": "railbed_walkway",
+    "length_m": 85.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/4-0",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5325846,
+      33.8972293
+     ],
+     [
+      35.5324621,
+      33.8974399
+     ],
+     [
+      35.5324038,
+      33.89754
+     ],
+     [
+      35.5322167,
+      33.8977363
+     ],
+     [
+      35.532095,
+      33.897864
+     ],
+     [
+      35.5320885,
+      33.897868
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/24",
+    "kind": "railbed_walkway",
+    "length_m": 85.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/4-1",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5320885,
+      33.897868
+     ],
+     [
+      35.5317047,
+      33.8981025
+     ],
+     [
+      35.5313058,
+      33.8982627
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/25",
+    "kind": "railbed_walkway",
+    "length_m": 85.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/4-2",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5324621,
+      33.8974399
+     ],
+     [
+      35.5321465,
+      33.8977287
+     ],
+     [
+      35.5317175,
+      33.8979744
+     ],
+     [
+      35.531512,
+      33.8980688
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/26",
+    "kind": "railbed_walkway",
+    "length_m": 113.2,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/5-0",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.531512,
+      33.8980688
+     ],
+     [
+      35.5312758,
+      33.8981773
+     ],
+     [
+      35.5303763,
+      33.8984422
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/27",
+    "kind": "railbed_walkway",
+    "length_m": 113.2,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/5-1",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5303763,
+      33.8984422
+     ],
+     [
+      35.530019,
+      33.8985475
+     ],
+     [
+      35.5292041,
+      33.8987327
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/28",
+    "kind": "railbed_walkway",
+    "length_m": 113.2,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/5-2",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5330737,
+      33.8962513
+     ],
+     [
+      35.5331768,
+      33.8957836
+     ],
+     [
+      35.5332178,
+      33.8954161
+     ],
+     [
+      35.5332152,
+      33.8953684
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/29",
+    "kind": "railbed_walkway",
+    "length_m": 99.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-0",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5332152,
+      33.8953684
+     ],
+     [
+      35.5331882,
+      33.8948698
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/30",
+    "kind": "railbed_walkway",
+    "length_m": 55.4,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-1",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5331882,
+      33.8948698
+     ],
+     [
+      35.5331862,
+      33.8948328
+     ],
+     [
+      35.5331504,
+      33.8945837
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/31",
+    "kind": "railbed_walkway",
+    "length_m": 32.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-1",
+    "ends_join": [
+     "network",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5331504,
+      33.8945837
+     ],
+     [
+      35.5331353,
+      33.8944792
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/32",
+    "kind": "railbed_walkway",
+    "length_m": 11.7,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-1",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5331353,
+      33.8944792
+     ],
+     [
+      35.5331283,
+      33.8944304
+     ],
+     [
+      35.5331065,
+      33.894245
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/33",
+    "kind": "railbed_walkway",
+    "length_m": 26.1,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-2",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5331065,
+      33.894245
+     ],
+     [
+      35.5330587,
+      33.8938394
+     ],
+     [
+      35.5330201,
+      33.8936769
+     ],
+     [
+      35.5329878,
+      33.8935977
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/34",
+    "kind": "railbed_walkway",
+    "length_m": 72.9,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-2",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5329878,
+      33.8935977
+     ],
+     [
+      35.532891,
+      33.8933601
+     ],
+     [
+      35.5326716,
+      33.8930153
+     ],
+     [
+      35.5325103,
+      33.8928033
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/35",
+    "kind": "railbed_walkway",
+    "length_m": 99.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-3",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5325103,
+      33.8928033
+     ],
+     [
+      35.5320582,
+      33.8922088
+     ],
+     [
+      35.5319989,
+      33.8920271
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/36",
+    "kind": "railbed_walkway",
+    "length_m": 99.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-4",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5319989,
+      33.8920271
+     ],
+     [
+      35.5317178,
+      33.8911661
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/37",
+    "kind": "railbed_walkway",
+    "length_m": 99.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-5",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5317178,
+      33.8911661
+     ],
+     [
+      35.5315568,
+      33.8906731
+     ],
+     [
+      35.5314059,
+      33.8903195
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/38",
+    "kind": "railbed_walkway",
+    "length_m": 98.3,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-6",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5314059,
+      33.8903195
+     ],
+     [
+      35.5314035,
+      33.8903138
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/39",
+    "kind": "railbed_walkway",
+    "length_m": 0.7,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-6",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5314035,
+      33.8903138
+     ],
+     [
+      35.5313674,
+      33.8902291
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/40",
+    "kind": "railbed_walkway",
+    "length_m": 10.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-7",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5313674,
+      33.8902291
+     ],
+     [
+      35.5313213,
+      33.8901211
+     ],
+     [
+      35.5313133,
+      33.8899029
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/41",
+    "kind": "railbed_walkway",
+    "length_m": 36.9,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-7",
+    "ends_join": [
+     "network",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5313133,
+      33.8899029
+     ],
+     [
+      35.5312962,
+      33.8894336
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/42",
+    "kind": "railbed_walkway",
+    "length_m": 52.1,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-7",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5312962,
+      33.8894336
+     ],
+     [
+      35.5312921,
+      33.8893198
+     ],
+     [
+      35.5312101,
+      33.888927
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/43",
+    "kind": "railbed_walkway",
+    "length_m": 56.9,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-8",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5312101,
+      33.888927
+     ],
+     [
+      35.5311906,
+      33.8888339
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/44",
+    "kind": "railbed_walkway",
+    "length_m": 10.5,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-8",
+    "ends_join": [
+     "network",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5311906,
+      33.8888339
+     ],
+     [
+      35.5311643,
+      33.8887076
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/45",
+    "kind": "railbed_walkway",
+    "length_m": 14.2,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-8",
+    "ends_join": [
+     "network",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5311643,
+      33.8887076
+     ],
+     [
+      35.5311565,
+      33.8886705
+     ],
+     [
+      35.5311893,
+      33.8885543
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/46",
+    "kind": "railbed_walkway",
+    "length_m": 17.4,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-8",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5311893,
+      33.8885543
+     ],
+     [
+      35.5311922,
+      33.8885442
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/47",
+    "kind": "railbed_walkway",
+    "length_m": 1.2,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-9",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5311922,
+      33.8885442
+     ],
+     [
+      35.5312633,
+      33.8882923
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/48",
+    "kind": "railbed_walkway",
+    "length_m": 28.7,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-9",
+    "ends_join": [
+     "network",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5312633,
+      33.8882923
+     ],
+     [
+      35.5312721,
+      33.8882613
+     ],
+     [
+      35.5314201,
+      33.8879408
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/49",
+    "kind": "railbed_walkway",
+    "length_m": 41.6,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-9",
+    "ends_join": [
+     "network",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5314201,
+      33.8879408
+     ],
+     [
+      35.5314839,
+      33.8878027
+     ],
+     [
+      35.5314916,
+      33.887703
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/50",
+    "kind": "railbed_walkway",
+    "length_m": 27.5,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-9",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5314916,
+      33.887703
+     ],
+     [
+      35.531502,
+      33.8875684
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/51",
+    "kind": "railbed_walkway",
+    "length_m": 15.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-10",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.531502,
+      33.8875684
+     ],
+     [
+      35.531517,
+      33.887374
+     ],
+     [
+      35.53137,
+      33.8868249
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/52",
+    "kind": "railbed_walkway",
+    "length_m": 84.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-10",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.53137,
+      33.8868249
+     ],
+     [
+      35.5313086,
+      33.8865955
+     ],
+     [
+      35.5309751,
+      33.8862929
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/53",
+    "kind": "railbed_walkway",
+    "length_m": 71.7,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-11",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5309751,
+      33.8862929
+     ],
+     [
+      35.5307753,
+      33.8861116
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/54",
+    "kind": "railbed_walkway",
+    "length_m": 27.3,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-11",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5307753,
+      33.8861116
+     ],
+     [
+      35.5306521,
+      33.8859998
+     ],
+     [
+      35.5299184,
+      33.8855827
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/55",
+    "kind": "railbed_walkway",
+    "length_m": 99.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-12",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5299184,
+      33.8855827
+     ],
+     [
+      35.5293976,
+      33.8852865
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/56",
+    "kind": "railbed_walkway",
+    "length_m": 58.3,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-13",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5293976,
+      33.8852865
+     ],
+     [
+      35.5290344,
+      33.88508
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/57",
+    "kind": "railbed_walkway",
+    "length_m": 40.7,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-13",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5290344,
+      33.88508
+     ],
+     [
+      35.5287343,
+      33.8849094
+     ],
+     [
+      35.5285005,
+      33.8844283
+     ],
+     [
+      35.5284796,
+      33.8843602
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/58",
+    "kind": "railbed_walkway",
+    "length_m": 99.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-14",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5284796,
+      33.8843602
+     ],
+     [
+      35.5282574,
+      33.883638
+     ],
+     [
+      35.5282076,
+      33.8834973
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/59",
+    "kind": "railbed_walkway",
+    "length_m": 99.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-15",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5282076,
+      33.8834973
+     ],
+     [
+      35.5279543,
+      33.8827821
+     ],
+     [
+      35.5278703,
+      33.8826533
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/60",
+    "kind": "railbed_walkway",
+    "length_m": 99.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-16",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5278703,
+      33.8826533
+     ],
+     [
+      35.5276161,
+      33.8822632
+     ],
+     [
+      35.5274616,
+      33.88184
+     ],
+     [
+      35.5274611,
+      33.8818341
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/61",
+    "kind": "railbed_walkway",
+    "length_m": 99.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-17",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5274611,
+      33.8818341
+     ],
+     [
+      35.5274587,
+      33.8818071
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/62",
+    "kind": "railbed_walkway",
+    "length_m": 3.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-18",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5274587,
+      33.8818071
+     ],
+     [
+      35.527445,
+      33.8816535
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/63",
+    "kind": "railbed_walkway",
+    "length_m": 17.1,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-18",
+    "ends_join": [
+     "network",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.527445,
+      33.8816535
+     ],
+     [
+      35.5274195,
+      33.8813659
+     ],
+     [
+      35.5274312,
+      33.8809431
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/64",
+    "kind": "railbed_walkway",
+    "length_m": 78.9,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-18",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5274312,
+      33.8809431
+     ],
+     [
+      35.5274361,
+      33.8807663
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/65",
+    "kind": "railbed_walkway",
+    "length_m": 19.6,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-19",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5274361,
+      33.8807663
+     ],
+     [
+      35.5274387,
+      33.8806731
+     ],
+     [
+      35.5273107,
+      33.8800601
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/66",
+    "kind": "railbed_walkway",
+    "length_m": 79.4,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-19",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5273107,
+      33.8800601
+     ],
+     [
+      35.5272206,
+      33.8796288
+     ],
+     [
+      35.5271053,
+      33.8791846
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/67",
+    "kind": "railbed_walkway",
+    "length_m": 99.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-20",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5271053,
+      33.8791846
+     ],
+     [
+      35.5269792,
+      33.8786991
+     ],
+     [
+      35.5269655,
+      33.8785966
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/68",
+    "kind": "railbed_walkway",
+    "length_m": 66.6,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-21",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5269655,
+      33.8785966
+     ],
+     [
+      35.5269267,
+      33.8783059
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/69",
+    "kind": "railbed_walkway",
+    "length_m": 32.5,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-21",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5269267,
+      33.8783059
+     ],
+     [
+      35.5268935,
+      33.878057
+     ],
+     [
+      35.5268615,
+      33.8778176
+     ],
+     [
+      35.5267449,
+      33.8774286
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/70",
+    "kind": "railbed_walkway",
+    "length_m": 99.0,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-22",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5267449,
+      33.8774286
+     ],
+     [
+      35.5266372,
+      33.8770693
+     ],
+     [
+      35.5266168,
+      33.8770013
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/71",
+    "kind": "railbed_walkway",
+    "length_m": 48.9,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-23",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5266168,
+      33.8770013
+     ],
+     [
+      35.5265877,
+      33.8769041
+     ],
+     [
+      35.5264619,
+      33.8765684
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/72",
+    "kind": "railbed_walkway",
+    "length_m": 50.1,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/6-23",
+    "ends_join": [
+     "network",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5268139,
+      33.8768267
+     ],
+     [
+      35.5266865,
+      33.8765037
+     ],
+     [
+      35.526462,
+      33.8760362
+     ],
+     [
+      35.5264613,
+      33.8760164
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/73",
+    "kind": "railbed_walkway",
+    "length_m": 95.8,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/7-0",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5264613,
+      33.8760164
+     ],
+     [
+      35.5264506,
+      33.875692
+     ],
+     [
+      35.526618,
+      33.8752561
+     ],
+     [
+      35.5266808,
+      33.8751939
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/74",
+    "kind": "railbed_walkway",
+    "length_m": 95.8,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/7-1",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5266808,
+      33.8751939
+     ],
+     [
+      35.5269908,
+      33.8748866
+     ],
+     [
+      35.5274625,
+      33.8746592
+     ],
+     [
+      35.5274713,
+      33.8746581
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/75",
+    "kind": "railbed_walkway",
+    "length_m": 95.8,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/7-2",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5274713,
+      33.8746581
+     ],
+     [
+      35.5278432,
+      33.8746112
+     ],
+     [
+      35.5282396,
+      33.8746083
+     ],
+     [
+      35.5284915,
+      33.8746703
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/76",
+    "kind": "railbed_walkway",
+    "length_m": 95.8,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/7-3",
+    "ends_join": [
+     "free",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5284915,
+      33.8746703
+     ],
+     [
+      35.5290897,
+      33.8748175
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/77",
+    "kind": "railbed_walkway",
+    "length_m": 57.7,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/7-4",
+    "ends_join": [
+     "free",
+     "network"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "LineString",
+    "coordinates": [
+     [
+      35.5290897,
+      33.8748175
+     ],
+     [
+      35.5294844,
+      33.8749147
+     ]
+    ]
+   },
+   "properties": {
+    "id": "railbed-walk/78",
+    "kind": "railbed_walkway",
+    "length_m": 38.1,
+    "source": "corridor line (masar-akhdar.geojson), cut where it crosses walkable ways; 2026-11-20",
+    "reviewed_by": "Marc Nadim Zeenny",
+    "site": "railbed/7-4",
+    "ends_join": [
+     "network",
+     "free"
+    ],
+    "review_note": "width not mapped; walkable only if the bed is opened"
+   }
+  }
+ ],
+ "reviewed": {
+  "by": "Marc Nadim Zeenny",
+  "on": "2026-11-20",
+  "how": "Corridor Link Review page (claude.ai artifact WwehSx9AmvreyMnE2Pzmp7): keep, already exists, or drop for each crossing; one decision for the whole rail-bed walkway",
+  "kept": 11,
+  "dropped": 40,
+  "already_exists": 0,
+  "railbed_walkway": "kept"
+ }
+}
