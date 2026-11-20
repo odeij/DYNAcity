@@ -451,11 +451,24 @@ def limit_by_size(sites: list[dict], min_area_m2: dict[str, float]) -> int:
     return removed
 
 
+def _csr(source: np.ndarray, target: np.ndarray, weight: np.ndarray, n: int):
+    """Sparse graph keeping the shortest of any repeated edge. (scipy sums repeated entries, which made an
+    edge shared by two OSM ways count twice its length.)"""
+
+    from scipy.sparse import csr_matrix
+
+    source, target, weight = np.asarray(source), np.asarray(target), np.asarray(weight, dtype=float)
+    order = np.lexsort((weight, target, source))
+    source, target, weight = source[order], target[order], weight[order]
+    first = np.ones(len(source), dtype=bool)
+    first[1:] = (source[1:] != source[:-1]) | (target[1:] != target[:-1])
+    return csr_matrix((weight[first], (source[first], target[first])), shape=(n, n))
+
+
 def _shortest(graph: WalkGraph, origins: list[tuple[int, float]] | None = None, *,
               rows: np.ndarray | None = None, row_snap: np.ndarray | None = None) -> np.ndarray:
     """Walking metres to every node: from the nearest of `origins` (node, snap metres), or per row."""
 
-    from scipy.sparse import coo_matrix
     from scipy.sparse.csgraph import dijkstra
 
     n = len(graph)
@@ -465,9 +478,9 @@ def _shortest(graph: WalkGraph, origins: list[tuple[int, float]] | None = None, 
         source = np.concatenate([graph.source, np.full(len(origins), n)])
         target = np.concatenate([graph.target, [node for node, _ in origins]])
         weight = np.concatenate([graph.length, [max(snap, 1e-6) for _, snap in origins]])
-        matrix = coo_matrix((weight, (source, target)), shape=(n + 1, n + 1)).tocsr()
+        matrix = _csr(source, target, weight, n + 1)
         return dijkstra(matrix, directed=True, indices=n, limit=LIMIT_M)[:n]
-    matrix = coo_matrix((graph.length, (graph.source, graph.target)), shape=(n, n)).tocsr()
+    matrix = _csr(graph.source, graph.target, graph.length, n)
     out = dijkstra(matrix, directed=True, indices=rows, limit=LIMIT_M)
     return out + row_snap[:, None]
 
