@@ -642,6 +642,14 @@ def command_serve(args: argparse.Namespace) -> None:
             print(f"scenario prompts use {provider.name}:{provider.model}")
         except Exception as exc:  # missing SDK or key; the rest of the server still runs
             print(f"scenario prompts disabled until a key is set: {exc}")
+    planner_context = None
+    if getattr(args, 'population', None) or getattr(args, 'places', None):
+        if traffic is None or snapshot is None:
+            raise SystemExit('--population and --places belong to the /planner page: they need --traffic, --snapshot and --bbed')
+        from .planner_context import PlannerContext
+        planner_context = PlannerContext.load(traffic, args.population, args.places)
+        print('planner context layers: ' + ', '.join(
+            n for n, f in (('WorldPop residents', args.population), ('Overture places', args.places)) if f))
     app = create_app(
         engine,
         scenario_provider=provider,
@@ -657,6 +665,7 @@ def command_serve(args: argparse.Namespace) -> None:
         viewer_traffic=traffic,
         point_cloud=point_cloud,
         beirut001=_beirut001_payload(args.beirut001, args.bbed, focus),
+        planner_context=planner_context,
     )
     print(f"language-model requests capped at {args.llm_request_limit} per run, "
           f"{args.llm_requests_per_minute} a minute")
@@ -902,6 +911,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--granite-overlay", help="private corridor bundle manifest; estimated panels, off by default")
     serve.add_argument("--granite-parent", help="matching parent snapshot; required with --granite-overlay")
     serve.add_argument("--corridor", help="GeoJSON line to focus on (e.g. Al Masar al Akhdar); every input is cut to its buffer")
+    serve.add_argument("--population", help="WorldPop residents file from scripts/prepare_planner_context.py; the /planner page then shows residents near streets")
+    serve.add_argument("--places", help="Overture places file from scripts/prepare_planner_context.py; the /planner page then shows shops and services on streets")
     serve.add_argument("--corridor-buffer-m", type=float, default=250.0, help="buffer around --corridor, metres")
     serve.add_argument("--basemap", choices=["carto", "none"], default="carto")
     serve.add_argument("--provider", choices=["anthropic", "gemini"])

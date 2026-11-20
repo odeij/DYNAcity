@@ -285,6 +285,26 @@ html:not(.embed) #to3d kbd { display: none; }
 .embed.leaving #paper, .embed.leaving #frame, .embed.leaving #panel, .embed.leaving #cartouche,
 .embed.leaving #compass, .embed.leaving #sound, .embed.leaving #to3d, .embed.leaving #bare { transition-delay: 0s !important; transition-duration: .45s !important; }
 
+/* Optional context layers: residents near a street, shops and services on it. */
+.ctx { margin: 0 0 12px; padding: 9px 12px; border: 1px solid rgba(91,65,40,.28); border-radius: 10px; background: rgba(255,251,240,.45);
+  display: grid; gap: 7px; font-size: 13px; line-height: 1.4; color: var(--ink); }
+.ctx[hidden], .ctx-src[hidden] { display: none; }
+.ctx p { margin: 0; }
+.ctx b { font-variant-numeric: tabular-nums; }
+.ctx small { display: block; font-size: 11.5px; line-height: 1.4; color: var(--ink-faint); }
+.ctx .names { color: var(--ink-soft); }
+.ctx-loading { color: var(--ink-faint); font-style: italic; }
+.ctx-changes { margin: 10px 0 0; }
+.ctx-src { margin: 14px 0 0; display: grid; gap: 6px; font-size: 11.5px; line-height: 1.45; color: var(--ink-faint); }
+.ctx-src p { margin: 0; }
+.ctx-src a { color: var(--ink-soft); }
+.ctx-src label { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-soft); cursor: pointer; }
+.ctx-src input { accent-color: var(--ink-soft); }
+.maplibregl-popup-content { background: var(--paper); color: var(--ink); font: 600 12px Inter, sans-serif; padding: 5px 9px;
+  border: 1px solid var(--paper-edge); border-radius: 6px; box-shadow: 0 2px 6px rgba(60,35,10,.3); }
+.maplibregl-popup-content i { display: block; font-style: normal; font-weight: 500; color: var(--ink-faint); }
+.maplibregl-popup-tip { display: none; }
+
 /* Tablets and small laptops: a narrower panel, smaller title and compass, so the
    title, corner buttons and panel never overlap. */
 @media (max-width: 1100px) and (min-width: 761px) {
@@ -401,6 +421,7 @@ html:not(.embed) #to3d kbd { display: none; }
 
     <h3>Your changes</h3>
     <ul class="changes" id="changes"></ul>
+    <div class="ctx ctx-changes" id="ctxChanges" hidden></div>
 
     <div id="sim" hidden>
       <h3>What happens</h3>
@@ -423,6 +444,7 @@ html:not(.embed) #to3d kbd { display: none; }
         <span><i style="background:#2b1a0e;width:6px;height:6px;border-radius:50%"></i>A car</span>
       </div>
     </div>
+    <div class="ctx-src" id="ctxSrc" hidden></div>
   </div>
   <div class="foot">
     <button class="seal" id="run" disabled>
@@ -613,8 +635,13 @@ const CLASS_WORDS = { motorway: 'Motorway', trunk: 'Highway', primary: 'Main roa
   residential: 'Residential street', unclassified: 'Street', living_street: 'Living street', service: 'Service road' };
 const classWord = (c) => CLASS_WORDS[String(c).replace('_link', '')] || 'Street';
 
+// Optional context layers (WorldPop residents, Overture places). The server switches them on only
+// when it was started with --population and/or --places; otherwise none of their code runs.
+const CONTEXT = /*PLANNER_CONTEXT*/false;
+
 // ---------------------------------------------------------------- state
 const state = {
+  ctx: null,                   // /v1/planner/context, when the layers are on
   hour: 8,
   roads: null,                 // GeoJSON from the server
   byName: new Map(),           // name -> [road ids]
@@ -653,8 +680,9 @@ const map = new maplibregl.Map({
 });
 map.touchZoomRotate.disableRotation();
 map.addControl(new maplibregl.ScaleControl({ maxWidth: 110, unit: 'metric' }), 'bottom-left');
-map.addControl(new maplibregl.AttributionControl({ compact: true,
-  customAttribution: 'Traffic: SUMO on DynaCITY road model' }), 'bottom-left');
+const BASE_CREDIT = 'Traffic: SUMO on DynaCITY road model';
+let attribCtl = new maplibregl.AttributionControl({ compact: true, customAttribution: BASE_CREDIT });
+map.addControl(attribCtl, 'bottom-left');
 
 // Warm the basemap a little toward old paper while keeping it a normal street map.
 function warmBasemap() {
@@ -760,6 +788,8 @@ map.on('load', async () => {
       'circle-color': ['case', ['<', ['get', 's'], 0.5], '#b0341f', ['<', ['get', 's'], 4], '#a8681a', '#2b1a0e'],
       'circle-opacity': 0.85, 'circle-stroke-color': '#f7ecd3', 'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 13, 0, 16, 0.8] } });
 
+  if (CONTEXT) await loadContext();
+
   // Invisible wide line for easy clicking.
   map.addLayer({ id: 'hit', type: 'line', source: 'roads', filter: ['!', ['has', 'lvl']],
     paint: { 'line-color': '#000', 'line-opacity': 0.01, 'line-width': ['interpolate', ['linear'], ['zoom'], 12, 8, 16, 18, 19, 34] } });
@@ -864,6 +894,7 @@ function renderStreet() {
       <span class="fact">cars reach ${s.free} km/h</span>
       <span class="fact">${pieces}${s.len >= 1000 ? (s.len / 1000).toFixed(1) + ' km' : Math.round(s.len) + ' m'}</span>
     </div>
+    ${CONTEXT && state.ctx ? '<div class="ctx" id="ctxStreet"></div>' : ''}
     ${canWhole ? `<button class="whole" id="whole">Pick the whole of ${esc(s.names[0])} (${wholeIds.length} pieces)</button>` : ''}
     <div class="actions">
       <button class="act close" data-k="close" aria-pressed="${all('close')}">
@@ -875,6 +906,7 @@ function renderStreet() {
       ${any ? `<button class="act undo" data-k="undo"><span class="ic">${ICONS.undo}</span><span><b>Put it back as it was</b><span>Removes the changes on this street.</span></span></button>` : ''}
     </div>`;
   el.querySelectorAll('.act').forEach((b) => b.addEventListener('click', () => applyAction(b.dataset.k)));
+  paintStreetContext();
   const whole = $('whole');
   if (whole) whole.addEventListener('click', () => { select(wholeIds.slice()); fitTo(wholeIds); pencil(3); });
 }
@@ -945,6 +977,107 @@ function fitTo(ids) {
   map.fitBounds([[w, s], [e, n]], { padding: { top: 140 + m, left: 180 + m, right: right + m, bottom: bottom + m }, maxZoom: 17, duration: 1600 });
 }
 
+// ---------------------------------------------------------------- context layers (optional)
+// WorldPop: modelled residents within 200 m of a street. Overture Maps: places within ~25 m of it.
+// The server counts them (a resident near two changed streets is counted once); the page only words them.
+const ctxCache = new Map();
+const ctxToken = { street: 0, changes: 0 };
+async function loadContext() {
+  try {
+    const r = await fetch('/v1/planner/context');
+    if (!r.ok) throw new Error(r.status);
+    state.ctx = await r.json();
+  } catch (err) { state.ctx = null; return; }
+  const { population: pop, places } = state.ctx;
+  const credits = [];
+  if (pop) credits.push(`Residents: WorldPop ${pop.year} (CC BY 4.0)`);
+  if (places) credits.push(`Places: Overture Maps ${places.release} (${places.licence})`);
+  map.removeControl(attribCtl);
+  attribCtl = new maplibregl.AttributionControl({ compact: true, customAttribution: [BASE_CREDIT, ...credits] });
+  map.addControl(attribCtl, 'bottom-left');
+
+  const foot = $('ctxSrc'); foot.hidden = false;
+  foot.innerHTML = [
+    places ? '<label><input type="checkbox" id="ctxDots" checked> Show shops and services as dots (zoom in)</label>' : '',
+    pop ? `<p><b>Residents</b> are a WorldPop modelled estimate for ${esc(pop.year)} (${esc(pop.product)}), not a count: Lebanon has had no census since 1932. ${esc(pop.attribution)} Licence ${esc(pop.licence)}.</p>` : '',
+    places ? `<p><b>Shops and services</b> come from Overture Maps places, release ${esc(places.release)}, within ${state.ctx.places_radius_m} m of a street. ${esc(places.attribution)} Licence ${esc(places.licence)}. The list can be out of date or incomplete.</p>` : '',
+  ].join('');
+
+  if (places) {
+    map.addSource('places', { type: 'geojson', data: { type: 'FeatureCollection', features: places.points.map(([lon, lat, name, cat]) => ({
+      type: 'Feature', properties: { name, cat }, geometry: { type: 'Point', coordinates: [lon, lat] } })) } });
+    map.addLayer({ id: 'places', type: 'circle', source: 'places', minzoom: 15,
+      paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, 1.8, 17, 3.2, 19, 5],
+        'circle-color': '#6b4a1e', 'circle-opacity': 0.85, 'circle-stroke-color': '#f7ecd3', 'circle-stroke-width': 1 } });
+    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 10 });
+    map.on('mousemove', 'places', (e) => {
+      const f = e.features[0];
+      map.getCanvas().style.cursor = 'help';
+      popup.setLngLat(f.geometry.coordinates).setHTML(`${esc(f.properties.name || 'Unnamed place')}<i>${esc(f.properties.cat)}</i>`).addTo(map);
+    });
+    map.on('mouseleave', 'places', () => { popup.remove(); map.getCanvas().style.cursor = ''; });
+    $('ctxDots').addEventListener('change', (e) => map.setLayoutProperty('places', 'visibility', e.target.checked ? 'visible' : 'none'));
+  }
+}
+
+function ctxSummary(ids) {
+  const key = [...new Set(ids)].sort((a, b) => a - b).join(',');
+  if (!ctxCache.has(key)) {
+    const p = fetch('/v1/planner/context/summary', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roads: [...new Set(ids)] }) }).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
+    ctxCache.set(key, p);
+    p.catch(() => ctxCache.delete(key));
+  }
+  return ctxCache.get(key);
+}
+const residentsPhrase = (s) => s.residents < 10 ? 'Fewer than 10 residents' : `About ${fmt(s.residents_rounded)} residents`;
+const placesPhrase = (n) => n === 1 ? '1 shop or service' : `${fmt(n)} shops and services`;
+function ctxHtml(s, where) {
+  const out = [];
+  const { population: pop, places } = state.ctx;
+  if (pop && s.residents !== undefined) {
+    out.push(where === 'street'
+      ? `<p><b>${residentsPhrase(s)}</b> within ${state.ctx.residents_radius_m} m<small>WorldPop modelled estimate, ${esc(pop.year)}</small></p>`
+      : `<p><b>${residentsPhrase(s)}</b> live within ${state.ctx.residents_radius_m} m of the streets you changed.<small>A WorldPop modelled estimate for ${esc(pop.year)}, with nobody counted twice. Lebanon has had no census since 1932.</small></p>`);
+  }
+  if (places && s.places) {
+    const pl = s.places;
+    if (where === 'street') {
+      if (!pl.count) out.push('<p>No shops or services listed on this street<small>Overture Maps places</small></p>');
+      else {
+        const kinds = pl.categories.map(([c, n]) => `${esc(c)} ${n}`).join(' · ') + (pl.other_categories ? ` · ${pl.other_categories} other kind${pl.other_categories > 1 ? 's' : ''}` : '');
+        const more = pl.count - pl.names.length;
+        out.push(`<p><b>${placesPhrase(pl.count)}</b> on ${new Set(state.selected.map((id) => feature(id).properties.name || id)).size > 1 ? 'these streets' : 'this street'}<small>${kinds}</small>`
+          + (pl.names.length ? `<small class="names">${pl.names.map(esc).join(', ')}${more > 0 ? ` and ${more} more` : ''}</small>` : '')
+          + '<small>Overture Maps places</small></p>');
+      }
+    } else {
+      out.push(`<p><b>${placesPhrase(pl.count)}</b> ${pl.count === 1 ? 'is' : 'are'} on the streets you changed.<small>Overture Maps places</small></p>`);
+    }
+  }
+  return out.join('');
+}
+// The selected-street card: a slot is drawn by renderStreet and filled here.
+function paintStreetContext() {
+  if (!CONTEXT || !state.ctx || !$('ctxStreet')) return;
+  const token = ++ctxToken.street;
+  $('ctxStreet').innerHTML = '<p class="ctx-loading">Counting people and places nearby…</p>';
+  ctxSummary(state.selected).then((s) => {
+    if (token === ctxToken.street && $('ctxStreet')) $('ctxStreet').innerHTML = ctxHtml(s, 'street');
+  }).catch(() => { if (token === ctxToken.street && $('ctxStreet')) $('ctxStreet').innerHTML = ''; });
+}
+// Under "Your changes": everything near all the changed streets together.
+function paintChangesContext() {
+  if (!CONTEXT || !state.ctx) return;
+  const box = $('ctxChanges'), token = ++ctxToken.changes;
+  if (!state.edits.size) { box.hidden = true; box.innerHTML = ''; return; }
+  box.hidden = false;
+  if (!box.innerHTML) box.innerHTML = '<p class="ctx-loading">Counting people and places nearby…</p>';
+  ctxSummary([...state.edits.keys()]).then((s) => {
+    if (token === ctxToken.changes) box.innerHTML = ctxHtml(s, 'changes');
+  }).catch(() => { if (token === ctxToken.changes) { box.hidden = true; box.innerHTML = ''; } });
+}
+
 // ---------------------------------------------------------------- the changes list
 function editWords(e) {
   if (e.close) return ['X', 'Pedestrian-only (no cars)', '#8f2213'];
@@ -976,6 +1109,7 @@ function renderChanges() {
       list[+el.dataset.i].ids.forEach((id) => state.edits.delete(id)); pencil(2); afterEdit([], null);
     }));
   }
+  paintChangesContext();
   const n = state.edits.size;
   const run = $('run');
   if (state.sim) { run.disabled = false; $('runLabel').textContent = 'Stop watching'; run.classList.add('stop'); }

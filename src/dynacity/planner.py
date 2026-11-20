@@ -45,5 +45,14 @@ def planner_roads(model: TrafficModel) -> dict[str, Any]:
     return {"type": "FeatureCollection", "features": features}
 
 
-def planner_page() -> str:
-    return files("dynacity").joinpath("planner_template.html").read_text(encoding="utf-8")
+CONTEXT_MARK = "/*PLANNER_CONTEXT*/false"
+
+
+def planner_page(context: bool = False) -> str:
+    """The page. `context` switches on the optional population and places layers (`planner_context.py`).
+
+    Without it the page is the one it always was: the layers' code stays dormant and
+    asks the server for nothing.
+    """
+    page = files("dynacity").joinpath("planner_template.html").read_text(encoding="utf-8")
+    return page.replace(CONTEXT_MARK, "true") if context else page
