@@ -3066,6 +3066,9 @@ NSGA-II's front comes within 0.7% (median) of the exact front on both scores, at
 mostly NSGA-II. (These are the reruns on the fixed models; the first runs gave nearly the same
 figures and are kept under `superseded-duplicate-edge-bug/`.)
 
+Rerun once more at commit `8c35c2c` so the records name committed code: all 960 results, plans
+and fronts came out identical (the runs are seeded), and the scorer check passed again.
+
 **What the optimum does.** With 10 sites and α = 1: medical care within 500 m rises from 14% to
 54% of residents and parks from 36% to 92% (89% without the rail bed), with 7 parks and 3 clinics.
 With α = 2: 5 clinics, medical care 74% (65% without the rail bed). With 30 sites: medical care
