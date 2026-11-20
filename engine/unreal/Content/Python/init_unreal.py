@@ -40,3 +40,6 @@ overture_context.register()
 
 import captured_buildings
 captured_buildings.register()
+
+import open_data_tools
+open_data_tools.register()
