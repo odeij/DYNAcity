@@ -22,6 +22,7 @@ files rather than in-process state:
     search-access   → exact optimum (integer program) and random/greedy/NSGA-II plans, with gaps (.json, .md)
     propose-links   → candidate crossings and the rail bed as a walkway (.geojson), for a person to review
     build-links     → exact walking-distance blocks for reviewed links on an access model (.npz + report)
+    search-joint    → exact optimum and greedy/NSGA-II/Bayesian optimisation for land uses plus links (.json, .md)
     run-plan        → a street plan in SUMO against a paired baseline (.json), without the viewer
     freeze-evidence → registry JSON → content-hashed EvidenceBundle
     compile-scenario→ planner prose → checked ScenarioSpec + audit trail
@@ -823,6 +824,39 @@ def command_search_access(args: argparse.Namespace) -> None:
     print(f"search -> {args.output} ({len(out['results'])} results, {out['record']['wall_seconds']} s)")
 
 
+def command_search_joint(args: argparse.Namespace) -> None:
+    import time
+
+    from .access import AccessModel
+    from .access_gpu import run_record
+    from .access_joint import joint_table, run_joint
+    from .walk_links import LinkModel
+
+    try:
+        import torch
+    except ImportError:
+        raise SystemExit("search-joint needs torch (the rl extra; see docs/rl-planning-gpu-plan.md)") from None
+    started = time.perf_counter()
+    model = AccessModel.load(args.model)
+    links = LinkModel.load(args.links)
+    if links.targets != list(model.services) + list(model.site_ids):
+        raise SystemExit(f"{args.links} was not built on {args.model} (targets differ)")
+    device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    out = run_joint(model, links, args.method, args.budgets, args.link_budgets, args.alpha, bo_budgets=args.bo_budgets,
+                    bo_link_budgets=args.bo_link_budgets, bo_reduced=args.bo_reduced,
+                    bo_max_iterations=args.bo_max_iterations, population=args.population,
+                    generations=args.generations, device=device, seed=args.seed)
+    out["record"] = run_record(args.model, time.perf_counter() - started, seeds=[args.seed], methods=args.method,
+                               device=device, links=str(args.links),
+                               links_sha256=hashlib.sha256(Path(args.links).read_bytes()).hexdigest())
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding="utf-8")
+    if args.summary:
+        Path(args.summary).write_text(joint_table(out, args.label or Path(args.model).stem), encoding="utf-8")
+    print(f"joint -> {args.output} ({len(out['results'])} results, {out['record']['wall_seconds']} s)")
+
+
 def command_propose_links(args: argparse.Namespace) -> None:
     from .access import FIFTEEN_MIN_M, walk_graph
     from .corridor import Corridor
@@ -1386,6 +1420,27 @@ def build_parser() -> argparse.ArgumentParser:
     links.add_argument("--seed", type=int, default=0)
     links.add_argument("--output", required=True, help="distance blocks (.npz); report next to it")
     links.set_defaults(func=command_build_links)
+
+    joint = subparsers.add_parser("search-joint", help="exact optimum and search baselines for land uses plus links")
+    joint.add_argument("--model", required=True, help="build-access model")
+    joint.add_argument("--links", required=True, help="build-links blocks made on that model")
+    joint.add_argument("--output", required=True)
+    joint.add_argument("--method", nargs="+", choices=["exact", "greedy", "nsga2", "bo"],
+                       default=["exact", "greedy", "nsga2", "bo"])
+    joint.add_argument("--budgets", type=int, nargs="+", default=[5, 10, 15, 20, 25, 30], help="sites changed, N")
+    joint.add_argument("--link-budgets", type=int, nargs="+", default=[1, 2, 3], help="link groups opened, K")
+    joint.add_argument("--alpha", type=float, nargs="+", default=[0.5, 1.0, 2.0, 4.0])
+    joint.add_argument("--bo-budgets", type=int, nargs="+", help="N for Bayesian optimisation (default: --budgets)")
+    joint.add_argument("--bo-link-budgets", type=int, nargs="+", help="K for Bayesian optimisation")
+    joint.add_argument("--bo-reduced", type=int, default=40, help="(site, use) pairs kept in the reduced problem")
+    joint.add_argument("--bo-max-iterations", type=int, default=300)
+    joint.add_argument("--population", type=int, default=1024)
+    joint.add_argument("--generations", type=int, default=200)
+    joint.add_argument("--device")
+    joint.add_argument("--summary", help="Markdown table")
+    joint.add_argument("--label")
+    joint.add_argument("--seed", type=int, default=0)
+    joint.set_defaults(func=command_search_joint)
 
     run = subparsers.add_parser("run-plan", help="a street plan in SUMO against a paired baseline, without the viewer")
     run.add_argument("--traffic", required=True, help="traffic model from build-traffic")
