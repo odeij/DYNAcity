@@ -3015,7 +3015,8 @@ requires; work is dropped from the search uses; end points of new links split th
 **Phase 0.** Both access models were rebuilt at `15788cc`, with and without the rail bed, in
 under 2 s each: 1,925 homes, 14,759 network nodes, 135 and 82 sites. Their baselines are the
 same and match the earlier results: service score 0.517 at 500 m, medical care 14.3%, parks
-35.7%. torch 2.11.0+cu128 comes from the shared `~/env` (see the plan's Phase 0 note); pymoo
+35.7%. (Later the same day a distance bug was fixed, which raised the score to 0.520; see phase
+B below. The figures in this entry and the next were rerun on the fixed models.) torch 2.11.0+cu128 comes from the shared `~/env` (see the plan's Phase 0 note); pymoo
 0.6.2, botorch 0.18.1 and gpytorch 1.15.2 are in the repo venv; an `rl` extra lists them.
 
 **Phase A0.** `access_gpu.BatchScorer` scores a batch of plans with one bf16 matrix product per use
@@ -3026,6 +3027,8 @@ and float64 resident-weighted sums. `dynacity bench-access-gpu` checks it agains
 |---|---|---|---|
 | With rail bed | 8.9e-16 / 6.7e-16 | 4.6 M / 6.0 M / 5.3 M | 73,000 |
 | Without | 6.7e-16 / 4.4e-16 | 4.5 M / 6.4 M / 5.7 M | 71,000 |
+
+(Rerun on the fixed models: both checks within 8.9e-16, throughput as above.)
 
 Gate A0 passes on both counts (limit 1e-6; target 10⁶ plans a second). Peak GPU memory was
 2.7 GB. Outputs: `~/private/dynacity-data/access/gpu-20261120/` (`scorer-bench-*.json` with commit,
@@ -3042,8 +3045,8 @@ tests pass.
 Branch `T5.1_RL-access-gpu`, rig5090. `access_search.py` and `dynacity search-access`.
 
 **Method.** The integer program is the plan's coverage program over the five search uses (four
-scored services and parks): 388 binary and 4,178 continuous variables with the rail bed, 282 and
-4,113 without. Baselines on the GPU scorer: random (10⁶ plans per budget and α), greedy (every
+scored services and parks): 388 binary and 4,148 continuous variables with the rail bed, 282 and
+4,083 without. Baselines on the GPU scorer: random (10⁶ plans per budget and α), greedy (every
 candidate step scored in one batch) and NSGA-II (pymoo, population 1,024, 200 generations, on
 service score against parks share; each α takes its best plan from the final front). The exact
 Pareto front comes from 11 ε-constraint solves per budget. Budgets 1–30, α 0.5, 1, 2, 4.
@@ -3053,19 +3056,21 @@ Pareto front comes from 11 ε-constraint solves per budget. Budgets 1–30, α 0
 
 | Method | With rail bed: median / worst | Without: median / worst | Cases over 1% |
 |---|---|---|---|
-| Greedy | 0.56% / 1.02% | 0.39% / 1.90% | 2% and 14% |
-| NSGA-II | 0.23% / 1.15% | 0.07% / 0.70% | 2% and 0% |
-| Random | 8.4% / 12.3% | 9.9% / 13.3% | 89% and 91% |
+| Greedy | 0.56% / 1.16% | 0.37% / 1.90% | 3% and 14% |
+| NSGA-II | 0.24% / 1.13% | 0.07% / 0.62% | 1% and 0% |
+| Random | 8.4% / 12.1% | 9.9% / 13.2% | 89% and 91% |
 
-Greedy exceeds 1% only at α = 4 (service-led), from N = 29 with the rail bed and N = 14 without.
-NSGA-II's front comes within 0.9% (median) of the exact front on both scores, at worst 1.9%
-(relative ε indicator against the computed points, a lower bound). Wall time: 16 and 20 minutes,
-mostly NSGA-II.
+Greedy exceeds 1% only at α = 4 (service-led), from N = 27 with the rail bed and N = 14 without.
+NSGA-II's front comes within 0.7% (median) of the exact front on both scores, at worst 1.4%
+(relative ε indicator against the computed points, a lower bound). Wall time: 17 and 20 minutes,
+mostly NSGA-II. (These are the reruns on the fixed models; the first runs gave nearly the same
+figures and are kept under `superseded-duplicate-edge-bug/`.)
 
 **What the optimum does.** With 10 sites and α = 1: medical care within 500 m rises from 14% to
 54% of residents and parks from 36% to 92% (89% without the rail bed), with 7 parks and 3 clinics.
-With α = 2: 5 clinics, medical care 74%. With 30 sites: medical care 88% with the rail bed and 74%
-without, since the rail-bed parks free other sites for clinics.
+With α = 2: 5 clinics, medical care 74% (65% without the rail bed). With 30 sites: medical care
+90% with the rail bed and 77% without; the rail bed takes the parks (10 against 12 elsewhere),
+leaving other sites for clinics.
 
 **Reading.** The static land-use problem is solved exactly in seconds, so no learned policy can
 improve on it; greedy is close but not within 1% everywhere. Per the plan, phase A2 (RL on this
@@ -3084,4 +3089,49 @@ enumeration on small models) and the 12 access tests pass.
 
 **Next:** decide whether phase A2 is still worth running as a pipeline check, or whether to go to
 phase B, which needs the reviewed candidate links.
+
+### 20 November 2026 — corridor planning on the GPU: phase B, links and exact distances
+
+Branch `T5.1_RL-access-gpu`, rig5090. `walk_links.py`, `dynacity propose-links` and
+`dynacity build-links`.
+
+**Proposals for review.** `datasets/corridor/candidate-links.proposed.geojson`, not yet reviewed:
+- **51 crossings** where walkable nodes 8–60 m apart sit on two sides of a motorway (16, plus 7
+  links), a trunk road (19, plus 6 links) or the Beirut River (3), and the walk between them is over
+  three times the straight line. Ranked by the walk saved, measured up to 2 km: the first ones
+  cross Charles Helou toward the port (no walking connection within 2 km), then the Émile Lahoud
+  and Elias Hrawi motorways and Omar Beyhum Street (0.8–1.5 km around).
+- **The rail bed as a walkway:** 79 pieces (5.0 km), cut where the line crosses a walkable way and
+  at the rail-bed site boundaries, each tied to its rail-bed site; 51 cut points on no way stay
+  free, so a piece helps only through its neighbours.
+
+**Exact distances.** End points that meet a way partway along it split it (30 splits); homes,
+places and sites stay snapped to the original nodes, so splitting changes no base walk. On the
+rail-bed model with all 130 proposals (186 end points), 1,000 random sets of up to 12 links, 910 of
+which shorten some walk, match a full Dijkstra on the network with the links added to 0.24 mm
+(float32 storage); the batched GPU version matches to 0.43 mm. The check takes 2.5 minutes.
+
+**A distance bug found and fixed.** The full-Dijkstra check first disagreed by up to 20 m, with
+the links giving the *shorter* walk. scipy sums repeated entries when it builds a sparse graph, so
+an edge given twice counted its lengths added. In `build_access` this hit two cases: two mapped
+places of one service snapping to the same network node (their snap links were summed), and two
+OSM ways sharing an edge. `access._csr` now keeps the shorter of repeated edges. Effect on the
+models: 994 home–service walks shorter by up to 49 m, in shopping and entertainment only; daily
+shopping within 500 m rises from 65.7% to 67.1%, and the service score at 500 m from 0.5167 to
+0.5203. Medical care, parks and every site distance are unchanged. Both models were rebuilt and
+phases A0 and A1 rerun; the first outputs are kept, with a note, under
+`~/private/dynacity-data/access/gpu-20261120/superseded-duplicate-edge-bug/`. The Zheng doc's
+shopping figure is corrected.
+
+**Also fixed:** `build-access` was split so that `build-links` reuses its input assembly; that
+first broke its report step (missing imports), caught on the rebuild. A new end-to-end test of both
+commands covers it.
+
+**Verification:** 15 tests in `tests/test_walk_links.py` (splitting, free end points, the link
+formula against Dijkstra, the batched version, proposals, rail-bed cuts, review rules, both
+commands), with the 26 access and GPU-scorer tests, all pass.
+
+**Next:** a person reviews the proposals into `datasets/corridor/candidate-links.geojson`
+(`reviewed_by` on each link kept, `rejected: true` on the others). Then the joint search
+(land uses plus links) and Gate B.
 

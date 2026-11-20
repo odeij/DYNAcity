@@ -20,6 +20,8 @@ files rather than in-process state:
     score-access    → one site plan (site → new use) scored on a build-access model (.json)
     bench-access-gpu→ the batch plan scorer checked against AccessModel and timed on CPU/GPU (.json)
     search-access   → exact optimum (integer program) and random/greedy/NSGA-II plans, with gaps (.json, .md)
+    propose-links   → candidate crossings and the rail bed as a walkway (.geojson), for a person to review
+    build-links     → exact walking-distance blocks for reviewed links on an access model (.npz + report)
     run-plan        → a street plan in SUMO against a paired baseline (.json), without the viewer
     freeze-evidence → registry JSON → content-hashed EvidenceBundle
     compile-scenario→ planner prose → checked ScenarioSpec + audit trail
@@ -42,11 +44,13 @@ from __future__ import annotations
 import argparse
 import json
 import hashlib
+import math
 import shutil
 import tempfile
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from .bbed import BBEDClient, write_snapshot
@@ -605,15 +609,16 @@ def _size_rules(values: list[str] | None) -> dict[str, float]:
     return rules
 
 
-def command_build_access(args: argparse.Namespace) -> None:
+def _access_inputs(args: argparse.Namespace) -> dict:
+    """The walking network, homes, places and candidate sites, as build-access assembles them."""
+
     from collections import Counter
 
-    from .access import (FIFTEEN_MIN_M, SCHEMA, SERVICE_KEYS, build_access, destinations, homes_from_pack,
-                         limit_by_size, local_size_rules, sites_from_bbed, sites_from_geojson, sites_from_line,
+    from .access import (FIFTEEN_MIN_M, SERVICE_KEYS, destinations, homes_from_pack, limit_by_size,
+                         local_size_rules, sites_from_bbed, sites_from_geojson, sites_from_line,
                          sites_from_osm_parking, walk_graph)
     from .beirut001_pack import Beirut001Pack
     from .corridor import Corridor
-    from .viewer import utm_to_lonlat
 
     crs = "EPSG:32636"
     corridor = Corridor.load(args.corridor, crs, args.corridor_buffer_m)
@@ -644,6 +649,23 @@ def command_build_access(args: argparse.Namespace) -> None:
     size_rules.update({use: {"m2": m2, "source": "--min-site-m2"} for use, m2 in given.items()})
     rules = {use: rule["m2"] for use, rule in size_rules.items()}
     removed = limit_by_size(sites, rules) if rules else 0
+    return {"crs": crs, "corridor": corridor, "reach_m": reach_m, "reach": reach, "graph": graph,
+            "facilities": facilities, "extracts": extracts, "places": places, "homes": homes, "sites": sites,
+            "size_rules": size_rules, "rules": rules, "removed": removed}
+
+
+def command_build_access(args: argparse.Namespace) -> None:
+    from collections import Counter
+
+    from .access import SCHEMA, SERVICE_KEYS, build_access
+    from .viewer import utm_to_lonlat
+
+    inputs = _access_inputs(args)
+    corridor, reach_m, reach = inputs["corridor"], inputs["reach_m"], inputs["reach"]
+    plan_area = corridor.area
+    graph, facilities, places = inputs["graph"], inputs["facilities"], inputs["places"]
+    homes, sites, size_rules, rules, removed = (inputs["homes"], inputs["sites"], inputs["size_rules"],
+                                                inputs["rules"], inputs["removed"])
     model = build_access(graph, homes, places, sites, score_services=tuple(args.score_service) if args.score_service else None,
                          meta={"corridor": corridor.name, "buffer_m": args.corridor_buffer_m, "reach_m": reach_m})
     destination = Path(args.output)
@@ -799,6 +821,137 @@ def command_search_access(args: argparse.Namespace) -> None:
     if args.summary:
         Path(args.summary).write_text(summary_table(out, args.label or Path(args.model).stem), encoding="utf-8")
     print(f"search -> {args.output} ({len(out['results'])} results, {out['record']['wall_seconds']} s)")
+
+
+def command_propose_links(args: argparse.Namespace) -> None:
+    from .access import FIFTEEN_MIN_M, walk_graph
+    from .corridor import Corridor
+    from .walk_links import LINKS_SCHEMA, barriers, link_feature, propose_crossings, railbed_links
+    from .viewer import lonlat_to_utm, _utm_zone
+
+    crs = "EPSG:32636"
+    corridor = Corridor.load(args.corridor, crs, args.corridor_buffer_m)
+    reach_m = args.reach_m if args.reach_m is not None else FIFTEEN_MIN_M
+    reach = corridor.area.buffer(reach_m)
+    osm = _json(args.network)
+    graph = walk_graph(osm, reach.buffer(300), crs)
+    today = date.today().isoformat()
+    features = []
+    crossings = propose_crossings(graph, barriers(osm, reach, crs), reach, max_gap_m=args.max_gap_m,
+                                  ratio=args.ratio, spacing_m=args.spacing_m)
+    for i, c in enumerate(crossings):
+        features.append(link_feature(
+            f"crossing/{i}", "crossing", [tuple(graph.xy[c["a"]]), tuple(graph.xy[c["b"]])], crs,
+            source=f"proposed by dynacity propose-links on {today} from OSM walkable ways ({Path(args.network).name})",
+            barrier=c["barrier"], barrier_name=c["barrier_name"], straight_m=round(c["gap_m"], 1),
+            network_m=None if c["network_m"] is None else round(c["network_m"], 1),
+            saved_at_least_m=round(c["saved_at_least_m"], 1), review_note=""))
+    zone, north = _utm_zone(crs)
+    lines = [np.array([lonlat_to_utm(lon, lat, zone, north) for lon, lat in line]) for line in corridor.lines]
+    pieces, free = railbed_links(lines, graph, args.railbed_piece_m)
+    for i, piece in enumerate(pieces):
+        joins = ["free" if any(np.hypot(*(np.asarray(end) - np.asarray(f))) <= 0.5 for f in free) else "network"
+                 for end in (piece["xy"][0], piece["xy"][-1])]
+        features.append(link_feature(
+            f"railbed-walk/{i}", "railbed_walkway", [tuple(p) for p in piece["xy"]], crs,
+            source=f"corridor line ({Path(args.corridor).name}), cut where it crosses walkable ways; {today}",
+            site=piece["site"], ends_join=joins, review_note="width not mapped; walkable only if the bed is opened"))
+    collection = {"type": "FeatureCollection", "schema": LINKS_SCHEMA, "status": "proposals: not reviewed",
+                  "rules": {"crossings": f"walkable nodes {8}-{args.max_gap_m:g} m apart across a motorway, trunk road "
+                            f"or river, whose walk along the network is over {args.ratio:g} times as long; one per "
+                            f"{args.spacing_m:g} m, biggest saving first",
+                            "railbed_walkway": "the corridor line cut where it crosses walkable ways (the access "
+                            "points) and at the rail-bed site boundaries"},
+                  "review": "set reviewed_by on each link kept, or rejected: true; only reviewed links enter plans",
+                  "attribution": "© OpenStreetMap contributors, ODbL", "features": features}
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(collection, indent=1, ensure_ascii=False), encoding="utf-8")
+    kinds = {}
+    for c in crossings:
+        kinds[c["barrier"]] = kinds.get(c["barrier"], 0) + 1
+    print(f"links -> {args.output}: {len(crossings)} crossings ({kinds}), {len(pieces)} rail-bed walkway pieces "
+          f"({len(free)} cut points on no way)")
+
+
+def command_build_links(args: argparse.Namespace) -> None:
+    import time
+
+    from .access import AccessModel
+    from .access_gpu import run_record
+    from .walk_links import build_links, full_dijkstra, read_links
+
+    started = time.perf_counter()
+    inputs = _access_inputs(args)
+    model = AccessModel.load(args.access)
+    homes, sites, places, graph = inputs["homes"], inputs["sites"], inputs["places"], inputs["graph"]
+    if list(map(str, homes.ids)) != list(map(str, model.home_ids)) or [s["id"] for s in sites] != model.site_ids:
+        raise SystemExit(f"{args.access} was not built from these inputs (homes or sites differ)")
+    try:
+        links = read_links(_json(args.links), inputs["crs"], require_review=not args.allow_unreviewed)
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
+    free = set()
+    for link in links:
+        for end, join in zip((link.xy[0], link.xy[-1]), link.props.get("ends_join") or ["network", "network"]):
+            if join == "free":
+                free.add((float(end[0]), float(end[1])))
+    blocks, ends = build_links(graph, homes, places, sites, model.services, links, free_points=free,
+                               meta={"access_model": str(args.access), "links_file": str(args.links),
+                                     "unreviewed_allowed": bool(args.allow_unreviewed)})
+    base = np.vstack([model.base, model.site_dist])
+    check = {}
+    if args.check:
+        rng = np.random.default_rng(args.seed)
+        worst_np = worst_gpu = 0.0
+        changed = 0
+        batch_sets = []
+        for i in range(args.check):
+            size = int(rng.integers(1, min(args.check_max_links, len(links)) + 1))
+            active = sorted(rng.choice(len(links), size, replace=False).tolist())
+            fast = blocks.distances(model, active)
+            slow = full_dijkstra(ends, homes, places, sites, model.services, active, graph)
+            both = np.isfinite(fast) | np.isfinite(slow)
+            if not np.array_equal(np.isfinite(fast), np.isfinite(slow)):
+                worst_np = math.inf
+            else:
+                worst_np = max(worst_np, float(np.abs(fast[both] - slow[both]).max(initial=0)))
+            changed += bool((fast < base - 1e-6).any())
+            batch_sets.append((active, fast))
+        check = {"link_sets": args.check, "max_links": args.check_max_links, "seed": args.seed,
+                 "max_abs_diff_m_vs_dijkstra": worst_np, "sets_that_change_a_walk": changed}
+        try:
+            import torch
+
+            from .walk_links import BatchLinks
+
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            gpu = BatchLinks(blocks, model, device)
+            active = np.zeros((len(batch_sets), len(links)), dtype=bool)
+            for row, (sel, _) in enumerate(batch_sets):
+                active[row, sel] = True
+            for start in range(0, len(batch_sets), 64):
+                out = gpu.distances(active[start:start + 64]).cpu().numpy()
+                for row, (_, fast) in enumerate(batch_sets[start:start + 64]):
+                    ok = np.isfinite(fast)
+                    if not np.array_equal(ok, np.isfinite(out[row])):
+                        worst_gpu = math.inf
+                    else:
+                        rel = np.abs(out[row][ok] - fast[ok]).max(initial=0)
+                        worst_gpu = max(worst_gpu, float(rel))
+            check["batched_device"] = device
+            check["max_abs_diff_m_batched_vs_reference"] = worst_gpu
+        except ImportError:
+            check["batched_device"] = None
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    blocks.save(destination)
+    report = {"model": str(destination), "access_model": str(args.access), "links": len(links), **blocks.meta,
+              "check": check, "record": run_record(args.access, time.perf_counter() - started, seeds=[args.seed])}
+    report_path = destination.with_suffix(".report.json")
+    report_path.write_text(json.dumps(report, indent=1), encoding="utf-8")
+    print(f"links -> {args.output} ({len(links)} links, {blocks.meta['end_points']} end points, "
+          f"{blocks.meta['split_nodes']} split ways); check {check}")
 
 
 def _facilities_view(path: str | None, bounds: tuple[float, float, float, float] | None = None) -> dict | None:
@@ -965,6 +1118,30 @@ def command_serve(args: argparse.Namespace) -> None:
         print('Traffic network ready in memory' if retained else
               'Traffic network exceeds the in-memory cache; first connection will convert it again')
     uvicorn.run(app, host=args.host, port=args.port)
+
+
+
+def _add_access_inputs(access: argparse.ArgumentParser) -> None:
+    access.add_argument("--corridor", required=True, help="GeoJSON line, as `serve --corridor`")
+    access.add_argument("--corridor-buffer-m", type=float, default=250.0, help="planning area: homes and sites inside it")
+    access.add_argument("--reach-m", type=float, help="services count out to this far beyond the planning area "
+                        "(default a 15-minute walk, 1,170 m)")
+    access.add_argument("--network", required=True, help="saved Overpass JSON with highway ways (out geom, with nodes)")
+    access.add_argument("--places", action="append", help="saved Overpass JSON with shops, leisure, parks, offices (repeat)")
+    access.add_argument("--facilities", help="build-facilities output: education, medical care, government offices")
+    access.add_argument("--beirut001", required=True, help="pack-beirut001 output: homes")
+    access.add_argument("--bbed", help="BBED GeoJSON: empty, parking, stalled and vacant sites become candidates")
+    access.add_argument("--sites", help="extra candidate sites (GeoJSON; properties id, allowed, name, owner, source)")
+    access.add_argument("--add-parking", action="store_true", help="surface parking lots mapped in the --places extracts "
+                        "become candidate sites")
+    access.add_argument("--add-railbed", action="store_true", help="the corridor line, cut into pieces, becomes candidate "
+                        "sites for parks and play")
+    access.add_argument("--railbed-piece-m", type=float, default=100.0)
+    access.add_argument("--size-rules", choices=("local", "none"), default="local",
+                        help="local: smallest site per use from Beirut's mapped schools, parks and playgrounds "
+                        "in the --places extracts")
+    access.add_argument("--min-site-m2", action="append", metavar="USE=M2", help="smallest site a use may take "
+                        "(repeat; overrides --size-rules)")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1140,26 +1317,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     access = subparsers.add_parser("build-access", help="walking access to the 15-minute services on a corridor, "
                                    "and what candidate sites would add (after Zheng et al. 2023)")
-    access.add_argument("--corridor", required=True, help="GeoJSON line, as `serve --corridor`")
-    access.add_argument("--corridor-buffer-m", type=float, default=250.0, help="planning area: homes and sites inside it")
-    access.add_argument("--reach-m", type=float, help="services count out to this far beyond the planning area "
-                        "(default a 15-minute walk, 1,170 m)")
-    access.add_argument("--network", required=True, help="saved Overpass JSON with highway ways (out geom, with nodes)")
-    access.add_argument("--places", action="append", help="saved Overpass JSON with shops, leisure, parks, offices (repeat)")
-    access.add_argument("--facilities", help="build-facilities output: education, medical care, government offices")
-    access.add_argument("--beirut001", required=True, help="pack-beirut001 output: homes")
-    access.add_argument("--bbed", help="BBED GeoJSON: empty, parking, stalled and vacant sites become candidates")
-    access.add_argument("--sites", help="extra candidate sites (GeoJSON; properties id, allowed, name, owner, source)")
-    access.add_argument("--add-parking", action="store_true", help="surface parking lots mapped in the --places extracts "
-                        "become candidate sites")
-    access.add_argument("--add-railbed", action="store_true", help="the corridor line, cut into pieces, becomes candidate "
-                        "sites for parks and play")
-    access.add_argument("--railbed-piece-m", type=float, default=100.0)
-    access.add_argument("--size-rules", choices=("local", "none"), default="local",
-                        help="local: smallest site per use from Beirut's mapped schools, parks and playgrounds "
-                        "in the --places extracts")
-    access.add_argument("--min-site-m2", action="append", metavar="USE=M2", help="smallest site a use may take "
-                        "(repeat; overrides --size-rules)")
+    _add_access_inputs(access)
     access.add_argument("--score-service", action="append", help="services in the score (repeat; default education, "
                         "medical, shopping, entertainment)")
     access.add_argument("--alpha", type=float, default=1.0, help="weight of services against parks, as the paper's alpha")
@@ -1204,6 +1362,30 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--label")
     search.add_argument("--seed", type=int, default=0)
     search.set_defaults(func=command_search_access)
+
+    propose = subparsers.add_parser("propose-links", help="candidate crossings and the rail bed as a walkway, for review")
+    propose.add_argument("--corridor", required=True)
+    propose.add_argument("--corridor-buffer-m", type=float, default=250.0)
+    propose.add_argument("--reach-m", type=float)
+    propose.add_argument("--network", required=True, help="saved Overpass JSON with highway and waterway ways")
+    propose.add_argument("--max-gap-m", type=float, default=60.0, help="longest straight crossing proposed")
+    propose.add_argument("--ratio", type=float, default=3.0, help="network walk over straight line, at least")
+    propose.add_argument("--spacing-m", type=float, default=100.0, help="one crossing per this distance")
+    propose.add_argument("--railbed-piece-m", type=float, default=100.0)
+    propose.add_argument("--output", required=True, help="candidate-links GeoJSON (unreviewed)")
+    propose.set_defaults(func=command_propose_links)
+
+    links = subparsers.add_parser("build-links", help="exact distance blocks for reviewed candidate links")
+    _add_access_inputs(links)
+    links.add_argument("--score-service", action="append")
+    links.add_argument("--access", required=True, help="the build-access model made from the same inputs")
+    links.add_argument("--links", required=True, help="reviewed candidate-links GeoJSON")
+    links.add_argument("--allow-unreviewed", action="store_true", help="accept unreviewed links (for testing only)")
+    links.add_argument("--check", type=int, default=0, help="random link sets checked against full Dijkstra")
+    links.add_argument("--check-max-links", type=int, default=8)
+    links.add_argument("--seed", type=int, default=0)
+    links.add_argument("--output", required=True, help="distance blocks (.npz); report next to it")
+    links.set_defaults(func=command_build_links)
 
     run = subparsers.add_parser("run-plan", help="a street plan in SUMO against a paired baseline, without the viewer")
     run.add_argument("--traffic", required=True, help="traffic model from build-traffic")

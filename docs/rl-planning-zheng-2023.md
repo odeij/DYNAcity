@@ -235,7 +235,7 @@ New dependencies go in an `rl` extra: `torch`, `pymoo`, and `libsumo` for the tr
 under 1.6 s per solve) and runs random, greedy and NSGA-II on the GPU scorer (`dynacity
 search-access`). With 10 sites and α = 1 the optimum takes medical care within 500 m from 14% to
 54% of residents and parks from 36% to 92% (89% without the rail bed): 7 parks and 3 clinics.
-Greedy is within 1% of the optimum in 92% of cases, NSGA-II in 99%. RL on this static problem can
+Greedy is within 1% of the optimum in 91% of cases, NSGA-II in over 99%. RL on this static problem can
 only check the pipeline; see [rl-planning-gpu-plan.md](rl-planning-gpu-plan.md#phase-a1-the-exact-optimum-and-the-baselines-access_searchpy).
 
 ### GPU scorer, phases 0 and A0 of the GPU plan (20 November 2026)
@@ -281,13 +281,14 @@ dynacity score-access --model ~/private/dynacity-data/access/corridor-access.npz
 |---|---|---|---|---|
 | Education | 59 | 62% | 98% | 706 m |
 | Medical care | 28 | **14%** | 78% | **1,203 m** |
-| Daily shopping | 239 | 66% | 97% | 659 m |
+| Daily shopping | 239 | 67% | 97% | 657 m |
 | Entertainment | 66 | 64% | 98% | 602 m |
 | Work (not scored) | 25 | 35% | 92% | 794 m |
 | Parks | 63 | 36% | 96% | 945 m |
 
 - **Service score** (the paper's measure, four services): 0.52 at 500 m, 0.93 at 15
-  minutes. At 15 minutes nearly every home reaches everything, so plans are compared at
+  minutes. (Corrected 20 November 2026: a bug counted some walks to shops and play places too
+  long; daily shopping within 500 m was 66%, the score 0.517 rather than 0.520. See the work log.) At 15 minutes nearly every home reaches everything, so plans are compared at
   the paper's 500 m.
 - **Medical care is the gap.** Hospitals and clinics are the least reachable service on
   the corridor. Part of this may be mapping: OSM records doctors' practices unevenly.

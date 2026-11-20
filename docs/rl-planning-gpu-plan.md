@@ -168,10 +168,10 @@ everywhere, say so plainly: the static problem then needs no RL. That is a resul
 failure.
 
 **Gate A1 result (rig5090, 20 November 2026).** The integer program proved the optimum in every
-case (budgets 1–30, α 0.5–4, both site sets), each in under 1.6 s. Greedy is within 1% in 92% of
-cases (median 0.56% with the rail bed, 0.39% without), but not everywhere: at α = 4 without the
-rail bed it drifts to 1.9% from N = 14. NSGA-II (population 1,024, 200 generations) is closer
-(median 0.23% and 0.07%, worst 1.15%); random search is 8–13% short. The static problem is
+case (budgets 1–30, α 0.5–4, both site sets), each in under 1.6 s. Greedy is within 1% in 91% of
+cases (median 0.56% with the rail bed, 0.37% without), but not everywhere: at α = 4 it drifts past
+1%, from N = 27 with the rail bed and from N = 14 without (worst 1.9%). NSGA-II (population 1,024,
+200 generations) is closer (median 0.24% and 0.07%, worst 1.13%); random search is 8–13% short. The static problem is
 therefore solved exactly in seconds, and RL there can only be a check of the pipeline. Details:
 [work log](beirut-simulation-work-log.md).
 
@@ -238,7 +238,9 @@ the person who reviewed it.
   along it splits that way at the meeting point first: two edges with the original lengths in
   proportion, plus the new node. The splits for all candidate links are applied once, before the
   distance blocks are computed, so that the base network, the blocks and the full-Dijkstra test
-  all use the same split graph. Splitting changes no base distance.
+  all use the same split graph. Homes, places and sites stay snapped to the original nodes (split
+  nodes only carry link end points); otherwise a split node could become a home's nearest node and
+  change base distances.
 - **For a plan with links L:**
   - shortest paths between the active end points, by Floyd–Warshall over at most 2·|L| nodes;
   - then d'(h, t) = min(d(h, t), min over a, b of D(h, a) + D'(a, b) + D(b, t)).
@@ -249,6 +251,23 @@ the person who reviewed it.
 - **Test:** compare with a full Dijkstra on the split network with the links added, on 1,000
   random link sets. Include links whose end points fall partway along a way, and sets in which
   walks use two or more new links.
+
+**Status, 20 November 2026 (rig5090).** Built: `walk_links.py`, `dynacity propose-links` and
+`dynacity build-links`.
+- **Proposals** (`datasets/corridor/candidate-links.proposed.geojson`, unreviewed): 51 crossings
+  (19 trunk, 6 trunk link, 16 motorway, 7 motorway link, 3 river), ranked by the walk they save,
+  up to 2 km; and the rail bed as 79 walkway pieces (5.0 km), cut where the line crosses a
+  walkable way (the access points) and at the rail-bed site boundaries, each tied to its site.
+  Cut points on no way stay free, joined only through the walkway.
+- **Exactness:** on the rail-bed model with all 130 proposals (186 end points, 30 split ways),
+  1,000 random sets of up to 12 links (910 of them shorten some walk) match a full Dijkstra to
+  0.24 mm (float32 storage); the batched GPU version matches to 0.43 mm. Two rules had to match
+  `build_access` exactly: walks over 4 km (`LIMIT_M`) are cut on the network part, before the home
+  and site snaps are added; and a repeated graph edge keeps its shorter length (see the work log
+  for the bug this exposed).
+- **Next:** a person reviews the proposals into `datasets/corridor/candidate-links.geojson`
+  (`reviewed_by` on each kept link, `rejected: true` on the rest). Until then `build-links`
+  refuses them, except with `--allow-unreviewed` for testing. The joint search follows.
 
 **Joint search.** A plan is land uses plus links, under a budget on the count of each.
 - greedy and NSGA-II;
