@@ -14,9 +14,13 @@ from pathlib import Path
 
 import unreal
 
+import importlib
+
 import canopy_unreal as cu
 import city_world
 import explore_city
+
+importlib.reload(cu)  # the dispatcher reloads this module on every call; keep the pure planning module in step
 
 RUN = Path('C:/private/dynacity-data/open-sources-20261120/canopy/unreal-run')
 MESH = '/Game/Beirut/LibraryAssets/Meshes/tree_small_02_e381adfb18.tree_small_02_e381adfb18'
@@ -172,39 +176,51 @@ def apply(placement_name='placement.json', save=True, mesh_path=None):
     if before['osm_tree_groups_loaded'] != before['osm_tree_groups_in_world_partition']:
         raise RuntimeError('OSM tree groups are not all loaded: %s' % before)
     data = json.loads((RUN / placement_name).read_text(encoding='utf-8'))
-    mesh = unreal.load_asset(mesh_path or data['mesh'])
-    base_box, box = unreal.load_asset(data['mesh']).get_bounding_box(), mesh.get_bounding_box()
-    if abs(base_box.max.z - box.max.z) > 1e-3 or abs(box.min.z) > 1e-3:
-        raise RuntimeError('Override mesh does not match the library tree height/pivot')
+    # Rows may name their own mesh (assign_meshes); otherwise every row uses the file's mesh (or the override).
+    default_mesh = mesh_path or data['mesh']
+    groups = {}
+    for r in data['placed']:
+        groups.setdefault(r.get('mesh') or default_mesh, []).append(r)
+    for path in groups:
+        box = unreal.load_asset(path).get_bounding_box()
+        if abs(box.min.z) > 1e-3:
+            raise RuntimeError('Tree pivot is not at the trunk base: ' + path)
     cls = _cls()
     subsystem = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
-    actor = subsystem.spawn_actor_from_class(cls, unreal.Vector())
+    spawned, index = [], []
     try:
-        actor.modify()
-        actor.set_actor_label(cu.LABEL_PREFIX)
-        actor.set_folder_path(FOLDER)
-        actor.tags = list(cu.TAGS)
-        actor.set_editor_property('is_spatially_loaded', True)
-        actor.set_editor_property('layer_kind', 'tree_broadleaf')
-        actor.set_editor_property('production_area', 'Corridor canopy estimate')
-        actor.set_editor_property('source_manifest', data['plan'])
-        actor.set_street_mesh(mesh)
-        actor.clear_street_instances()
-        actor.set_street_collision(False)
-        actor.set_street_cull_distance(18000, 50000)
-        index = []
-        for r in data['placed']:
-            t = unreal.Transform(location=unreal.Vector(r['unreal_x_cm'], r['unreal_y_cm'], r['ground_z_cm']),
-                                 rotation=unreal.Rotator(0.0, r['yaw_deg'], 0.0),
-                                 scale=unreal.Vector(r['scale'], r['scale'], r['scale']))
-            i = actor.add_street_instance(t, r['id'])
-            if i < 0:
-                raise RuntimeError('Could not add instance ' + r['id'])
-            index.append(r['id'])
-        if actor.get_street_instance_count() != len(data['placed']):
-            raise RuntimeError('Instance count differs from the placement file')
+        for path, rows in groups.items():
+            actor = subsystem.spawn_actor_from_class(cls, unreal.Vector())
+            spawned.append(actor)
+            label = cu.LABEL_PREFIX if len(groups) == 1 else '%s - %s' % (cu.LABEL_PREFIX, path.rsplit('/', 1)[-1].split('.')[0])
+            actor.modify()
+            actor.set_actor_label(label)
+            actor.set_folder_path(FOLDER)
+            actor.tags = list(cu.TAGS)
+            actor.set_editor_property('is_spatially_loaded', True)
+            actor.set_editor_property('layer_kind', 'tree_conifer' if 'conifer' in path else 'tree_broadleaf')
+            actor.set_editor_property('production_area', 'Corridor canopy estimate')
+            actor.set_editor_property('source_manifest', data['plan'])
+            actor.set_street_mesh(unreal.load_asset(path))
+            actor.clear_street_instances()
+            actor.set_street_collision(False)
+            actor.set_street_cull_distance(18000, 50000)
+            ids = []
+            for r in rows:
+                t = unreal.Transform(location=unreal.Vector(r['unreal_x_cm'], r['unreal_y_cm'], r['ground_z_cm']),
+                                     # unreal.Rotator takes (roll, pitch, yaw): pass yaw by keyword. Round 1 passed it positionally,
+                                     # which set PITCH to the yaw angle and tilted every tree by an arbitrary 0-360 degrees.
+                                     rotation=unreal.Rotator(roll=0.0, pitch=0.0, yaw=float(r['yaw_deg'])),
+                                     scale=unreal.Vector(r['scale'], r['scale'], r['scale']))
+                if actor.add_street_instance(t, r['id']) < 0:
+                    raise RuntimeError('Could not add instance ' + r['id'])
+                ids.append(r['id'])
+            if actor.get_street_instance_count() != len(rows):
+                raise RuntimeError('Instance count differs from the placement file')
+            index.append({'label': label, 'mesh': path, 'ids': ids})
     except Exception:
-        subsystem.destroy_actor(actor)
+        for a in spawned:
+            subsystem.destroy_actor(a)
         raise
     (RUN / 'instance-index.json').write_text(json.dumps(index), encoding='utf-8')
     saved = None
@@ -246,38 +262,75 @@ def verify(placement_name='placement.json', sample=20, seed=20261121):
     """Re-read the saved group and check each sampled instance against its source row and a fresh ground trace."""
     data = json.loads((RUN / placement_name).read_text(encoding='utf-8'))
     index = json.loads((RUN / 'instance-index.json').read_text(encoding='utf-8'))
-    actors = _canopy_actors()
-    if len(actors) != 1:
-        return {'canopy_groups': len(actors), 'passed': False}
-    actor = actors[0]
-    comp = actor.get_component_by_class(unreal.HierarchicalInstancedStaticMeshComponent)
+    if index and not isinstance(index[0], dict):
+        index = [{'label': cu.LABEL_PREFIX, 'mesh': data['mesh'], 'ids': index}]       # round-1 single-group format
+    actors = {a.get_actor_label(): a for a in _canopy_actors()}
+    if sorted(actors) != sorted(g['label'] for g in index):
+        return {'canopy_groups': len(actors), 'labels': sorted(actors), 'expected_labels': [g['label'] for g in index], 'passed': False}
     by_id = {r['id']: r for r in data['placed']}
+    entries = []                                      # (actor component, instance index, id)
+    total_instances, mesh_counts = 0, {}
+    for g in index:
+        actor = actors[g['label']]
+        comp = actor.get_component_by_class(unreal.HierarchicalInstancedStaticMeshComponent)
+        total_instances += int(actor.get_street_instance_count())
+        mesh_counts[comp.static_mesh.get_path_name()] = int(actor.get_street_instance_count())
+        entries.extend((comp, i, rid) for i, rid in enumerate(g['ids']))
     rows = []
-    for rid in cu.random_sample(index, sample, seed):
-        i = index.index(rid)
+    for comp, i, rid in cu.random_sample(entries, sample, seed):
         t = comp.get_instance_transform(i, True)
         loc = t.translation
         z_ground, surface = _trace_z(loc.x, loc.y)
         src = by_id[rid]
         base = float(loc.z)
-        rows.append({'id': rid, 'instance': i, 'source_lon_lat': [src['lon'], src['lat']], 'source_local_m': [src['local_e_m'], src['local_n_m']],
+        rows.append({'id': rid, 'instance': i, 'mesh': comp.static_mesh.get_path_name(), 'source_lon_lat': [src['lon'], src['lat']],
+                     'source_local_m': [src['local_e_m'], src['local_n_m']],
                      'unreal_xyz_cm': [round(loc.x, 2), round(loc.y, 2), round(base, 2)], 'ground_z_cm': None if z_ground is None else round(z_ground, 2),
                      'ground_surface': surface, 'height_m': src['height_m'], 'scale': round(float(t.scale3d.z), 4),
                      'matches_plan_xy': abs(loc.x - src['unreal_x_cm']) < 0.5 and abs(loc.y - src['unreal_y_cm']) < 0.5,
                      'base_minus_ground_cm': None if z_ground is None else round(base - z_ground, 3),
                      'floating_or_sunken': None if z_ground is None else abs(base - z_ground) >= 10.0})
     # Full-population check, cheap: every instance against a fresh trace.
-    worst, bad = 0.0, 0
-    for i, rid in enumerate(index):
-        loc = comp.get_instance_transform(i, True).translation
+    worst, bad, max_tilt = 0.0, 0, 0.0
+    for comp, i, rid in entries:
+        tr = comp.get_instance_transform(i, True)
+        loc = tr.translation
+        rot = tr.rotation.rotator()
+        max_tilt = max(max_tilt, abs(rot.pitch), abs(rot.roll))   # instance tilt away from vertical, degrees (yaw is free)
         z_ground, _ = _trace_z(loc.x, loc.y)
         d = 1e9 if z_ground is None else abs(loc.z - z_ground)
         worst = max(worst, d)
         bad += d >= 10.0
-    return {'canopy_groups': 1, 'instances': int(actor.get_street_instance_count()), 'plan_instances': len(data['placed']),
-            'sample': rows, 'all_instances_checked': len(index), 'worst_abs_base_minus_ground_cm': round(worst, 3),
-            'floating_or_sunken_count': int(bad), 'tags': [str(t) for t in actor.tags], 'label': actor.get_actor_label(),
-            'passed': int(actor.get_street_instance_count()) == len(data['placed']) and bad == 0 and all(r['matches_plan_xy'] for r in rows)}
+    return {'canopy_groups': len(actors), 'instances': total_instances, 'plan_instances': len(data['placed']), 'instances_per_mesh': mesh_counts,
+            'sample': rows, 'all_instances_checked': len(entries), 'worst_abs_base_minus_ground_cm': round(worst, 3),
+            'floating_or_sunken_count': int(bad), 'max_instance_tilt_deg': round(max_tilt, 4), 'tags': sorted({str(t) for a in actors.values() for t in a.tags}), 'labels': sorted(actors),
+            'passed': total_instances == len(data['placed']) and bad == 0 and all(r['matches_plan_xy'] for r in rows)}
+
+
+def assign_meshes(mesh_paths, src='placement.json', out='placement2.json'):
+    """Re-scale and assign meshes to the SAME placed candidates (positions, ground Z, yaw, skip results unchanged).
+
+    With several meshes the choice is a stable hash of the source id (sha256 of id + '|mesh'), never random.  The scale of
+    each row is its estimated crown-top height divided by that mesh's height."""
+    data = json.loads((RUN / src).read_text(encoding='utf-8'))
+    heights = {}
+    for p in mesh_paths:
+        box = unreal.load_asset(p).get_bounding_box()
+        if abs(box.min.z) > 1e-3:
+            raise RuntimeError('Pivot is not at the trunk base: ' + p)
+        heights[p] = float(box.max.z - box.min.z)
+    counts_ = Counter()
+    for r in data['placed']:
+        p = mesh_paths[cu.stable_choice(r['id'], len(mesh_paths))]
+        r['mesh'] = p
+        r['scale'] = round(cu.mesh_scale(r['height_m'], heights[p]), 4)
+        counts_[p] += 1
+    data['mesh'] = mesh_paths[0]
+    data['meshes'] = {p: {'height_cm': heights[p], 'assigned': counts_[p]} for p in mesh_paths}
+    data['mesh_assignment'] = 'sha256(id + "|mesh") mod %d' % len(mesh_paths)
+    (RUN / out).write_text(json.dumps(data), encoding='utf-8')
+    scales = [r['scale'] for r in data['placed']]
+    return {'placed': len(data['placed']), 'assigned': dict(counts_), 'scale_range': [min(scales), max(scales)], 'out': out}
 
 
 def status():
@@ -289,6 +342,90 @@ def trace(points_xy_cm):
     for x, y in points_xy_cm:
         z, label = _trace_z(x, y)
         out.append({'xy_cm': [x, y], 'hit': z is not None, 'z_cm': z, 'actor': label})
+    return out
+
+
+TREE_WORDS = ('tree', 'palm', 'conifer', 'pine', 'cypress', 'olive', 'oak', 'poplar', 'shrub', 'bush', 'foliage', 'plant', 'fig', 'eucalypt')
+
+
+def list_tree_meshes(words=TREE_WORDS, roots=('/Game',)):
+    """Static meshes in the project whose asset name contains a tree-like word (street covers excluded); read-only survey."""
+    out = []
+    for root in roots:
+        for p in unreal.EditorAssetLibrary.list_assets(root, recursive=True, include_folder=False):
+            name = p.lower().rsplit('/', 1)[-1]
+            if 'streetcover' in p.lower() or 'street_' in name:
+                continue
+            if any(w in name for w in words):
+                a = unreal.load_asset(p)
+                if isinstance(a, unreal.StaticMesh):
+                    b = a.get_bounding_box()
+                    out.append({'path': p, 'size_cm': [round(b.max.x - b.min.x, 1), round(b.max.y - b.min.y, 1), round(b.max.z - b.min.z, 1)],
+                                'min': [round(b.min.x, 1), round(b.min.y, 1), round(b.min.z, 1)], 'tris_lod0': int(a.get_num_triangles(0))})
+    return out
+
+
+def mesh_lean(path, base_fraction=0.06, crown_fraction=0.25):
+    """Lean of a tree mesh from its LOD0 vertices: horizontal offset between the trunk-base centroid (lowest slice)
+    and the centroid of the vertices in the top slice, over their height difference, as an angle. Also the horizontal
+    extent of the bottom slice (debris on the ground widens it) and the pivot-to-crown offset."""
+    import math
+    m = unreal.load_asset(path)
+    verts = []
+    for s in range(m.get_num_sections(0)):
+        v = unreal.ProceduralMeshLibrary.get_section_from_static_mesh(m, 0, s)[0]
+        verts.extend((p.x, p.y, p.z) for p in v)
+    zs = [v[2] for v in verts]
+    z0, z1 = min(zs), max(zs)
+    h = z1 - z0
+    base = [v for v in verts if v[2] <= z0 + base_fraction * h]
+    top = [v for v in verts if v[2] >= z1 - crown_fraction * h]
+    bx = sum(v[0] for v in base) / len(base)
+    by = sum(v[1] for v in base) / len(base)
+    tx = sum(v[0] for v in top) / len(top)
+    ty = sum(v[1] for v in top) / len(top)
+    tz = sum(v[2] for v in top) / len(top)
+    bz = sum(v[2] for v in base) / len(base)
+    horizontal = math.hypot(tx - bx, ty - by)
+    base_spread = max(math.hypot(v[0] - bx, v[1] - by) for v in base)
+    return {'path': path, 'height_cm': round(h, 1), 'vertices': len(verts), 'base_centroid_xy_cm': [round(bx, 1), round(by, 1)],
+            'crown_centroid_xy_cm': [round(tx, 1), round(ty, 1)], 'pivot_to_crown_offset_cm': round(math.hypot(tx, ty), 1),
+            'lean_deg': round(math.degrees(math.atan2(horizontal, tz - bz)), 2), 'base_slice_max_radius_cm': round(base_spread, 1),
+            'base_slice_vertices': len(base)}
+
+
+def trunk_lean(path):
+    """Per material section: lean of the lowest 55 percent of that section's vertices (a trunk leans visibly there), the
+    horizontal extent of everything within 25 cm of the ground (debris at the base), and the section's bounds.
+    Lean = angle from vertical of the line between the centroids of the 0-12 percent and 35-50 percent height slices."""
+    import math
+    m = unreal.load_asset(path)
+    slots = [str(s.material_slot_name) for s in m.static_materials]
+    allv = []
+    secs = []
+    for s in range(m.get_num_sections(0)):
+        v = unreal.ProceduralMeshLibrary.get_section_from_static_mesh(m, 0, s)[0]
+        pts = [(p.x, p.y, p.z) for p in v]
+        secs.append(pts)
+        allv.extend(pts)
+    z0 = min(p[2] for p in allv)
+    z1 = max(p[2] for p in allv)
+    h = z1 - z0
+    out = {'path': path, 'height_cm': round(h, 1), 'slots': slots, 'sections': []}
+    for i, pts in enumerate(secs):
+        if not pts:
+            continue
+        lo = [p for p in pts if p[2] <= z0 + .12 * h]
+        mid = [p for p in pts if z0 + .35 * h <= p[2] <= z0 + .50 * h]
+        row = {'slot': slots[i] if i < len(slots) else str(i), 'vertices': len(pts), 'z_range_cm': [round(min(p[2] for p in pts) - z0, 1), round(max(p[2] for p in pts) - z0, 1)]}
+        if lo and mid:
+            cl = (sum(p[0] for p in lo) / len(lo), sum(p[1] for p in lo) / len(lo), sum(p[2] for p in lo) / len(lo))
+            cm = (sum(p[0] for p in mid) / len(mid), sum(p[1] for p in mid) / len(mid), sum(p[2] for p in mid) / len(mid))
+            row['lean_deg_0_12_to_35_50_pct'] = round(math.degrees(math.atan2(math.hypot(cm[0] - cl[0], cm[1] - cl[1]), cm[2] - cl[2])), 1)
+        ground = [p for p in pts if p[2] <= z0 + 25]
+        row['vertices_within_25cm_of_ground'] = len(ground)
+        row['max_horizontal_reach_at_ground_cm'] = round(max((math.hypot(p[0], p[1]) for p in ground), default=0.0), 1)
+        out['sections'].append(row)
     return out
 
 
@@ -350,4 +487,4 @@ def actor_info(label):
 
 
 ACTIONS = {'load_all': load_all, 'counts': counts, 'prepare': prepare, 'apply': apply, 'rollback': rollback,
-           'set_visible': set_visible, 'verify': verify, 'status': status, 'trace': trace, 'actor_info': actor_info, 'tree_descs': tree_descs, 'mesh_info': mesh_info, 'los': los, 'game_view': game_view, 'reload_map': reload_map}
+           'set_visible': set_visible, 'verify': verify, 'status': status, 'trace': trace, 'actor_info': actor_info, 'tree_descs': tree_descs, 'mesh_info': mesh_info, 'los': los, 'list_tree_meshes': list_tree_meshes, 'mesh_lean': mesh_lean, 'trunk_lean': trunk_lean, 'assign_meshes': assign_meshes, 'game_view': game_view, 'reload_map': reload_map}

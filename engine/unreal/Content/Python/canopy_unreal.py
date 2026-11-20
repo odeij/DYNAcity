@@ -190,6 +190,14 @@ def on_carriageway(index, x: float, y: float, margin_m: float = 0.0) -> bool:
     return False
 
 
+def stable_choice(source_id: str, n: int, salt: str = "|mesh") -> int:
+    """Index in range(n) from a stable hash of the source id (never random; the same id always gets the same mesh)."""
+    if n < 1:
+        raise ValueError("n must be at least 1")
+    import hashlib
+    return int.from_bytes(hashlib.sha256((source_id + salt).encode()).digest()[:4], "little") % n
+
+
 def height_distribution(heights: Sequence[float]) -> dict:
     h = sorted(float(v) for v in heights)
     if not h:

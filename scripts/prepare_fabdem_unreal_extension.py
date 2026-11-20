@@ -49,9 +49,11 @@ class Mask:
         return out
 
 
-def extension_triangles(ground, original_cells, origin, mask):
+def extension_triangles(ground, original_cells, origin, mask, land_cells=None):
     """Triangles of the extension (valid cells not in the original ground), clipped to the mask by triangle centre.
 
+    ``land_cells`` (cell-shaped bool, optional): keep only cells that are also land in this other source's land mask, so
+    FABDEM does not add land where GLO-30 has sea (those cells showed as dark islets in the water).
     Returns (mesh dict for export, boolean per-cell footprint of kept triangles, per-triangle plan area in m2).
     Triangle layout matches `terrain_mesh`: per valid cell, (a, e, b) then (b, e, d).
     """
@@ -63,6 +65,8 @@ def extension_triangles(ground, original_cells, origin, mask):
     r, c = np.nonzero(good)
     cell = ground.cell_m
     keep_cell = ~original_cells[good]
+    if land_cells is not None:
+        keep_cell = keep_cell & land_cells[good]
     # Triangle centres in metres (EPSG:32636), then Unreal cm about the origin (X east, Y south).
     xa, ya = ground.x0 + (c + .5) * cell, ground.y0 - (r + .5) * cell
     xb, yb = xa + cell, ya
@@ -138,7 +142,12 @@ def main():
     r0 = int(round((fab_merged.y0 - primary.y0) / fab_merged.cell_m))
     base[r0:r0 + primary.ground.shape[0], c0:c0 + primary.ground.shape[1]] = primary.ground
     glo_mesh, glo_foot, glo_area, glo_tris = extension_triangles(glo_merged, glo_original, origin, mask)
-    fab_mesh, fab_foot, fab_area, fab_tris = extension_triangles(fab_merged, fab_original, origin, mask)
+    fab_mesh_all, fab_foot_all, fab_area_all, fab_tris_all = extension_triangles(fab_merged, fab_original, origin, mask)
+    # Land cells of the GLO-30 merge (all four corners finite): FABDEM cells outside it are coastal sea in GLO-30.
+    gv = np.isfinite(glo_merged.ground)
+    glo_land = gv[:-1, :-1] & gv[1:, :-1] & gv[:-1, 1:] & gv[1:, 1:]
+    fab_mesh, fab_foot, fab_area, fab_tris = extension_triangles(fab_merged, fab_original, origin, mask, land_cells=glo_land)
+    dropped_cells = int(fab_foot_all.sum() - fab_foot.sum())
     # Elevation difference over the clipped footprint cells (FABDEM merged minus GLO-30 merged).
     diff = (fab_merged.ground - glo_merged.ground)
     dcell = diff[:-1, :-1]  # a footprint cell is represented by its north-west vertex
@@ -148,7 +157,9 @@ def main():
         'grid_shared': bool(same_grid), 'grid': {'x0': fab_merged.x0, 'y0': fab_merged.y0, 'cell_m': fab_merged.cell_m, 'shape': list(fab_merged.ground.shape)},
         'installed_glo_grid_matches_recomputed': bool(np.allclose(np.nan_to_num(glo_installed.ground, nan=-9999), np.nan_to_num(glo_merged.ground, nan=-9999), atol=1e-6)) if glo_installed.ground.shape == glo_merged.ground.shape else False,
         'glo30_clipped_extension': {'triangles': glo_tris, 'plan_area_m2': glo_area},
-        'fabdem_clipped_extension': {'triangles': fab_tris, 'plan_area_m2': fab_area},
+        'fabdem_clipped_extension': {'triangles': fab_tris, 'plan_area_m2': fab_area,
+                                     'before_glo30_sea_mask': {'triangles': fab_tris_all, 'plan_area_m2': fab_area_all},
+                                     'footprint_cells_dropped_because_sea_in_glo30': dropped_cells},
         'alignment': {'glo30': {k: glo_report[k] for k in ('median_alignment_offset_m', 'overlap_absolute_residual_p90_m', 'overlap_samples')},
                       'fabdem': {k: fab_report[k] for k in ('median_alignment_offset_m', 'overlap_absolute_residual_p90_m', 'overlap_samples')}},
         'seam': {'glo30': seam_statistics(glo_merged.ground, base, glo_original), 'fabdem': seam_statistics(fab_merged.ground, base, fab_original)},
@@ -161,6 +172,7 @@ def main():
     fab_mesh['id'] = 'StreetCover_TerrainExtensionFabdem'
     fab_mesh['metadata'].update({'source': 'FABDEM V1-2 (CC BY-NC-SA 4.0), extension only; Beirut 001 ground preserved', 'clip': 'municipal Beirut mask, triangle centre'})
     path = out / 'StreetCover_TerrainExtensionFabdem.glb'
+    path.unlink(missing_ok=True)  # export_glb refuses to overwrite; a rerun replaces the asset
     export_glb({'coordinates': {'origin_utm_m': origin}, 'meshes': [fab_mesh], 'trees': [], 'roads': [], 'bounds_lonlat': [],
                 'limitations': ['Visual terrain estimate; FABDEM CC BY-NC-SA 4.0; alignment to the Beirut 001 datum inferred']}, path, include_calibration=False)
     _colour_glb(path, (.49, .48, .43))

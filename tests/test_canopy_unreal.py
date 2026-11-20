@@ -133,6 +133,24 @@ def test_height_distribution_percentiles():
     assert cu.height_distribution([]) == {'count': 0}
 
 
+def test_stable_choice_is_a_pure_function_of_the_source_id():
+    ids = ['canopy-122112210-%05d' % i for i in range(300)]
+    first = [cu.stable_choice(i, 3) for i in ids]
+    assert first == [cu.stable_choice(i, 3) for i in ids]          # same ids, same meshes, every run
+    assert set(first) == {0, 1, 2} and all(150 > first.count(k) > 50 for k in (0, 1, 2))
+    assert all(cu.stable_choice(i, 1) == 0 for i in ids)
+    with pytest.raises(ValueError):
+        cu.stable_choice('a', 0)
+
+
+def test_instance_rotation_must_be_built_by_keyword_not_position():
+    """Regression for round 1: unreal.Rotator is (roll, pitch, yaw); Rotator(0, yaw, 0) set pitch=yaw and tilted every tree.
+    Guard the editor script source so the positional form cannot come back."""
+    source = (_PATH.parent / 'corridor_canopy_estimate.py').read_text(encoding='utf-8')
+    assert 'unreal.Rotator(0.0, r[' not in source and 'Rotator(0.0, ' not in source
+    assert 'Rotator(roll=0.0, pitch=0.0, yaw=' in source
+
+
 def test_random_sample_is_reproducible_and_bounded():
     items = list(range(100))
     assert cu.random_sample(items, 20, seed=1) == cu.random_sample(items, 20, seed=1)

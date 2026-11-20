@@ -147,6 +147,22 @@ def finish_import(save=True):
             'triangles_lod0': int(mesh.get_num_triangles(0)), 'old_mesh_nanite_enabled': bool(old_nanite), 'saved': saved, 'status': status()}
 
 
+def remove_fabdem(save=True):
+    """Delete ONLY the FABDEM actor and its imported assets (to re-import a rebuilt GLB). Refuses unless GLO-30 is the active one."""
+    old, new = _find(OLD_LABEL), _find(NEW_LABEL)
+    if old is None:
+        raise RuntimeError('GLO-30 extension not loaded')
+    if not _comp(old).is_visible() or str(_comp(old).get_collision_profile_name()) != ACTIVE_PROFILE:
+        raise RuntimeError('Switch to glo30 first; refusing to remove the FABDEM actor while it may be the active surface')
+    removed_actor = False
+    if new is not None:
+        unreal.get_editor_subsystem(unreal.EditorActorSubsystem).destroy_actor(new)
+        removed_actor = True
+    deleted = bool(unreal.EditorAssetLibrary.delete_directory(NEW_FOLDER)) if unreal.EditorAssetLibrary.does_directory_exist(NEW_FOLDER) else None
+    saved = bool(unreal.EditorLoadingAndSavingUtils.save_dirty_packages(True, True)) if save else None
+    return {'removed_actor': removed_actor, 'deleted_asset_folder': deleted, 'saved': saved, 'status': status()}
+
+
 def switch(to, save=True):
     """Make exactly one extension active. Only visibility and collision flags change; no mesh is edited or deleted."""
     if to not in ('glo30', 'fabdem'):
@@ -215,5 +231,5 @@ def game_view(on=True):
     return {'game_view': bool(on)}
 
 
-ACTIONS = {'dump_actor': dump_actor, 'status': status, 'start_import': start_import, 'finish_import': finish_import, 'switch': switch,
+ACTIONS = {'dump_actor': dump_actor, 'status': status, 'start_import': start_import, 'finish_import': finish_import, 'switch': switch, 'remove_fabdem': remove_fabdem,
            'trace': trace, 'reload_and_load': reload_and_load, 'game_view': game_view}

@@ -61,6 +61,21 @@ def test_extension_triangles_keep_only_extension_cells_inside_the_mask():
     assert none_count == 0 and not none_foot.any() and none_area == 0.0
 
 
+def test_land_cells_filter_drops_extension_cells_that_are_sea_in_the_other_source():
+    ground = synthetic_grid()
+    original = np.zeros((7, 7), dtype=bool)
+    origin = [1000.0, 2000.0, 0.0]
+    mask = SimpleNamespace(inside=lambda x, y: np.ones(x.shape, dtype=bool))
+    land = np.ones((7, 7), dtype=bool)
+    land[2, 3] = False                                         # a coastal cell GLO-30 treats as sea
+    land[5, 0] = False
+    _, foot_all, _, count_all = module.extension_triangles(ground, original, origin, mask)
+    mesh, foot, area, count = module.extension_triangles(ground, original, origin, mask, land_cells=land)
+    assert count_all == 2 * 49 and count == 2 * 47
+    assert foot_all.sum() == 49 and foot.sum() == 47 and not foot[2, 3] and not foot[5, 0]
+    assert area == pytest.approx(count * 50.0) and len(mesh['triangles']) == count
+
+
 def test_seam_statistics_separate_the_seam_pairs_from_the_inside_pairs():
     base = np.full((6, 6), np.nan)
     base[:, :3] = 10.0                                         # known ground on the west half
