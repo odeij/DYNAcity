@@ -2971,3 +2971,34 @@ Verification: 9 new tests (`tests/test_access.py`). The full suite was run on Li
 `test_triangulate_corners.py` cannot be collected here because it reads a Windows-only path.
 Outputs are private (`~/private/dynacity-data/access/`). The visual work page was not
 regenerated (Windows-only paths).
+
+### 20 November 2026 — more candidate sites, and site sizes from published sources
+
+Branch `T5.1_RL-sumo-plans`.
+
+**Web search** for Lebanese site standards and land ownership:
+- No minimum plot size for schools or clinics is published.
+- The Ministry of Public Health's primary care standards (2015) set no floor area.
+- Rail land is public railway property, managed by the Railway and Public Transport
+  Authority, but per-piece owners are not published.
+- Parking lots are mostly private parcels.
+- Mar Mikhael station: 10,000 m² of the complex is being restored as a public space,
+  due early 2027.
+
+**Size rules:** read from Beirut's mapped places instead: schools 868 m², parks 383 m²,
+play 253 m². Medical care, shopping and work have none.
+
+**New sites in `build-access`:**
+- 41 OSM parking lots (`--add-parking`);
+- 53 rail-bed pieces, parks and play only (`--add-railbed`);
+- the funded station space (`datasets/corridor/committed-sites.geojson`).
+
+That makes 135 sites.
+
+**Result:** the rail bed leads the greedy plan. A ten-step plan raises residents within
+500 m of medical care from 14% to 54% and of a park from 36% to 92%; the parks figure is
+optimistic, since the rail bed's width is not mapped.
+
+**Verification:** 12 access tests and 110 tests touching the command line pass.
+Details: [rl-planning-zheng-2023.md](rl-planning-zheng-2023.md#more-sites-and-site-sizes-from-published-sources-20-november-2026).
+

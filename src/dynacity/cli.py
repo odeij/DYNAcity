@@ -607,7 +607,8 @@ def command_build_access(args: argparse.Namespace) -> None:
     from collections import Counter
 
     from .access import (FIFTEEN_MIN_M, SCHEMA, SERVICE_KEYS, build_access, destinations, homes_from_pack,
-                         limit_by_size, sites_from_bbed, sites_from_geojson, walk_graph)
+                         limit_by_size, local_size_rules, sites_from_bbed, sites_from_geojson, sites_from_line,
+                         sites_from_osm_parking, walk_graph)
     from .beirut001_pack import Beirut001Pack
     from .corridor import Corridor
     from .viewer import utm_to_lonlat
@@ -624,12 +625,22 @@ def command_build_access(args: argparse.Namespace) -> None:
     places = destinations(facilities, extracts, reach, crs)
     homes = homes_from_pack(Beirut001Pack.load(args.beirut001), plan_area)
     sites = sites_from_bbed(_json(args.bbed), plan_area, crs) if args.bbed else []
+    if args.add_parking:
+        sites += sites_from_osm_parking(extracts, plan_area, crs)
+    if args.add_railbed:
+        sites += sites_from_line(corridor.lines, crs, args.railbed_piece_m)
     if args.sites:
         sites += sites_from_geojson(_json(args.sites), crs)
-    rules = _size_rules(args.min_site_m2)
-    unknown = set(rules) - set(SERVICE_KEYS)
+    ids = Counter(s["id"] for s in sites)
+    if any(n > 1 for n in ids.values()):
+        raise SystemExit(f"duplicate site ids: {sorted(k for k, n in ids.items() if n > 1)[:5]}")
+    size_rules = local_size_rules(extracts, crs) if args.size_rules == "local" else {}
+    given = _size_rules(args.min_site_m2)
+    unknown = set(given) - set(SERVICE_KEYS)
     if unknown:
         raise SystemExit(f"--min-site-m2: unknown uses {sorted(unknown)}; use {list(SERVICE_KEYS)}")
+    size_rules.update({use: {"m2": m2, "source": "--min-site-m2"} for use, m2 in given.items()})
+    rules = {use: rule["m2"] for use, rule in size_rules.items()}
     removed = limit_by_size(sites, rules) if rules else 0
     model = build_access(graph, homes, places, sites, score_services=tuple(args.score_service) if args.score_service else None,
                          meta={"corridor": corridor.name, "buffer_m": args.corridor_buffer_m, "reach_m": reach_m})
@@ -657,10 +668,17 @@ def command_build_access(args: argparse.Namespace) -> None:
     if model.meta["homes_off_main_network"]:
         warnings.append(f"{model.meta['homes_off_main_network']} homes sit on a piece of the walking network that "
                         "is not joined to the rest.")
-    small = sum(1 for s in sites if (s.get("area_m2") or 0) < 200)
+    small = sum(1 for s in sites if s.get("area_m2") is not None and s["area_m2"] < 200)
     if sites and not rules:
         warnings.append(f"No minimum site size applied: {small} of {len(sites)} sites are under 200 m2. "
                         "Pass --min-site-m2 USE=M2 once sizes are known.")
+    elif rules:
+        unruled = sorted(set(SERVICE_KEYS) - set(rules))
+        warnings.append(f"Minimum site sizes are read from Beirut's mapped places, not a Lebanese standard (none was "
+                        f"found): {', '.join(f'{u} {m:,.0f} m2' for u, m in rules.items())}. No minimum for "
+                        f"{', '.join(unruled)}.")
+    if not any(s["allowed"] for s in sites if s.get("area_m2") is not None) and sites:
+        warnings.append("No sized site can take any use under the size rules.")
     if any(s["allowed_source"].startswith("not yet known") for s in sites):
         warnings.append("Allowed uses are not known for most sites: every use is allowed until the government "
                         "information gives ownership and rules.")
@@ -675,7 +693,8 @@ def command_build_access(args: argparse.Namespace) -> None:
         "places": {k: {"count": model.destination_counts.get(k, 0),
                        "sources": dict(Counter(p.source for p in places if p.service == k))} for k in model.services},
         "sites": {"count": len(sites), "by_state": dict(Counter(s.get("state") for s in sites)),
-                  "uses_removed_by_size": removed},
+                  "by_source": dict(Counter(s.get("source") for s in sites)), "size_rules": size_rules,
+                  "uses_removed_by_size": removed, "without_any_use": sum(1 for s in sites if not s["allowed"])},
         "baseline": model.score(alpha=args.alpha),
         "greedy": model.greedy(args.steps, alpha=args.alpha),
         "site_gains": model.gains(alpha=args.alpha),
@@ -1069,7 +1088,16 @@ def build_parser() -> argparse.ArgumentParser:
     access.add_argument("--beirut001", required=True, help="pack-beirut001 output: homes")
     access.add_argument("--bbed", help="BBED GeoJSON: empty, parking, stalled and vacant sites become candidates")
     access.add_argument("--sites", help="extra candidate sites (GeoJSON; properties id, allowed, name, owner, source)")
-    access.add_argument("--min-site-m2", action="append", metavar="USE=M2", help="smallest site a use may take (repeat)")
+    access.add_argument("--add-parking", action="store_true", help="surface parking lots mapped in the --places extracts "
+                        "become candidate sites")
+    access.add_argument("--add-railbed", action="store_true", help="the corridor line, cut into pieces, becomes candidate "
+                        "sites for parks and play")
+    access.add_argument("--railbed-piece-m", type=float, default=100.0)
+    access.add_argument("--size-rules", choices=("local", "none"), default="local",
+                        help="local: smallest site per use from Beirut's mapped schools, parks and playgrounds "
+                        "in the --places extracts")
+    access.add_argument("--min-site-m2", action="append", metavar="USE=M2", help="smallest site a use may take "
+                        "(repeat; overrides --size-rules)")
     access.add_argument("--score-service", action="append", help="services in the score (repeat; default education, "
                         "medical, shopping, entertainment)")
     access.add_argument("--alpha", type=float, default=1.0, help="weight of services against parks, as the paper's alpha")

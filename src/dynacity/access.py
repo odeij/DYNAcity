@@ -291,7 +291,7 @@ def sites_from_bbed(bbed: dict, area: BaseGeometry, crs: str) -> list[dict]:
             continue
         out.append({"id": f"bbed/{props.get('OBJECTID')}", "x": point.x, "y": point.y,
                     "area_m2": round(outline.area, 1), "state": state.value, "parcel": props.get("ParcelID"),
-                    "recorded_use": props.get("Building_Use"), "source": "BBED 2024",
+                    "recorded_use": props.get("Building_Use"), "source": "BBED 2024", "owner": None,
                     "allowed": list(SERVICE_KEYS), "allowed_source": "not yet known: every use allowed"})
     return out
 
@@ -320,17 +320,122 @@ def sites_from_geojson(collection: dict, crs: str) -> list[dict]:
             raise ValueError(f"site {props['id']}: unknown uses {sorted(unknown)}")
         out.append({"id": str(props["id"]), "x": x, "y": y, "area_m2": area,
                     "name": props.get("name", ""), "owner": props.get("owner"), "state": props.get("state"),
-                    "source": props.get("source", "extra sites"), "allowed": list(allowed),
+                    "source": props.get("source", "extra sites"), "references": props.get("references", []),
+                    "allowed": list(allowed),
                     "allowed_source": props.get("allowed_source", "given" if props.get("allowed") else
                                                 "not yet known: every use allowed")})
     return out
 
 
+# Parking that is not a lot on the ground cannot take another use.
+NOT_A_LOT = {"underground", "multi-storey", "rooftop", "street_side", "lane", "on_street"}
+RAILBED_OWNER = ("railway land: the Railway and Public Transport Authority maintains it and counts it as public "
+                 "railway property; the registered owner of each piece is not confirmed")
+PARKING_OWNER = "not known: most Beirut parking lots are private parcels, some belong to institutions"
+
+
+def _polygon(element: dict, zone: int, north: bool):
+    points = [p for p in element.get("geometry") or [] if p]
+    if len(points) < 4:
+        return None
+    outline = shapely.Polygon([lonlat_to_utm(p["lon"], p["lat"], zone, north) for p in points])
+    return outline if outline.is_valid and outline.area > 0 else None
+
+
+def sites_from_osm_parking(osm_extracts: Iterable[dict], area: BaseGeometry, crs: str) -> list[dict]:
+    """Surface parking lots mapped in OSM inside `area`, as candidate sites of their mapped size.
+
+    Ownership is not mapped; per-lot ownership needs the land registry.
+    """
+
+    zone, north = _utm_zone(crs)
+    prepare(area)
+    out, seen = [], set()
+    for osm in osm_extracts:
+        for element in osm.get("elements", []):
+            tags = element.get("tags") or {}
+            if (element.get("type") != "way" or tags.get("amenity") != "parking" or element["id"] in seen
+                    or tags.get("parking") in NOT_A_LOT):
+                continue
+            outline = _polygon(element, zone, north)
+            if outline is None:
+                continue
+            point = outline.representative_point()
+            if not contains_xy(area, point.x, point.y):
+                continue
+            seen.add(element["id"])
+            out.append({"id": f"osm/way/{element['id']}", "x": point.x, "y": point.y,
+                        "area_m2": round(outline.area, 1), "state": "parking_lot", "name": tags.get("name", ""),
+                        "owner": PARKING_OWNER, "source": "OpenStreetMap", "allowed": list(SERVICE_KEYS),
+                        "allowed_source": "not yet known: every use allowed"})
+    return out
+
+
+# The rail bed is a narrow strip: the Badawi linear park designed on it holds gardens, play areas,
+# fitness equipment and walkways (UN-Habitat and Arcadis), not schools or clinics.
+RAILBED_USES = ["parks", "entertainment"]
+
+
+def sites_from_line(lines: Iterable[Iterable[tuple[float, float]]], crs: str, piece_m: float = 100.0) -> list[dict]:
+    """The rail bed along the corridor line, cut into pieces of `piece_m`, each a candidate site.
+
+    The bed's width is not mapped, so pieces have no area and size rules do not
+    apply to them; their uses are limited to RAILBED_USES instead.
+    """
+
+    zone, north = _utm_zone(crs)
+    out = []
+    for k, line in enumerate(lines):
+        metric = shapely.LineString([lonlat_to_utm(lon, lat, zone, north) for lon, lat in line])
+        pieces = max(1, round(metric.length / piece_m))
+        for i in range(pieces):
+            point = metric.interpolate((i + 0.5) / pieces, normalized=True)
+            out.append({"id": f"railbed/{k}-{i}", "x": point.x, "y": point.y, "area_m2": None,
+                        "length_m": round(metric.length / pieces, 1), "state": "rail_bed", "owner": RAILBED_OWNER,
+                        "source": "corridor line (OSM railway=abandoned)", "allowed": list(RAILBED_USES),
+                        "allowed_source": "rail bed: parks and play, as in the Badawi linear park design"})
+    return out
+
+
+# Smallest site for a use, read from the places Beirut already has: a new place should have
+# at least the land that most existing ones of its kind have. (use, OSM test, percentile)
+LOCAL_SIZE_RULES = (
+    ("education", lambda t: t.get("amenity") == "school", 25, "a quarter of Beirut's mapped school grounds are smaller"),
+    ("parks", lambda t: t.get("leisure") == "park", 10, "a tenth of Beirut's mapped parks are smaller"),
+    ("entertainment", lambda t: t.get("leisure") == "playground", 50, "half of Beirut's mapped playgrounds are smaller"),
+)
+
+
+def local_size_rules(osm_extracts: Iterable[dict], crs: str, min_count: int = 5) -> dict[str, dict]:
+    """Minimum site size per use from the mapped outlines of existing places (any extent).
+
+    No Lebanese plot standard was found for schools, clinics or parks (search of
+    20 November 2026); the Ministry of Public Health's primary care standards
+    (2015) set none. Uses with fewer than `min_count` mapped outlines get no rule,
+    and medical care, shopping and work get none: they occupy floors of ordinary
+    buildings.
+    """
+
+    zone, north = _utm_zone(crs)
+    elements = {}
+    for osm in osm_extracts:
+        for element in osm.get("elements", []):
+            if element.get("type") == "way":
+                elements[element["id"]] = element
+    rules = {}
+    for use, test, percentile, meaning in LOCAL_SIZE_RULES:
+        areas = [a.area for e in elements.values() if test(e.get("tags") or {})
+                 for a in [_polygon(e, zone, north)] if a is not None]
+        if len(areas) >= min_count:
+            rules[use] = {"m2": round(float(np.percentile(areas, percentile))), "mapped": len(areas),
+                          "percentile": percentile, "meaning": meaning, "source": "OpenStreetMap outlines"}
+    return rules
+
+
 def limit_by_size(sites: list[dict], min_area_m2: dict[str, float]) -> int:
     """Drop uses from sites smaller than the use's minimum; sites of unknown size keep them.
 
-    Returns how many (site, use) pairs were removed. There is no default: no
-    Lebanese size standard has been given yet.
+    Returns how many (site, use) pairs were removed.
     """
 
     removed = 0

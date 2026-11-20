@@ -6,8 +6,9 @@ import pytest
 from shapely.geometry import Polygon, box
 
 from dynacity.access import (
-    AccessModel, Homes, Place, build_access, destinations, homes_from_pack, limit_by_size, osm_service,
-    sites_from_bbed, sites_from_geojson, walk_graph,
+    RAILBED_USES, AccessModel, Homes, Place, build_access, destinations, homes_from_pack, limit_by_size,
+    local_size_rules, osm_service, sites_from_bbed, sites_from_geojson, sites_from_line, sites_from_osm_parking,
+    walk_graph,
 )
 from dynacity.cli import main
 from dynacity.viewer import utm_to_lonlat
@@ -197,3 +198,39 @@ def test_sites_come_from_bbed_states_and_extra_files_and_respect_sizes():
     with pytest.raises(ValueError, match="unknown uses"):
         sites_from_geojson({"features": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.5, 33.9]},
                                           "properties": {"id": "x", "allowed": ["casino"]}}]}, CRS)
+
+
+def outline(identifier, x, size, tags):
+    ring = [geo(X0 + x + dx, Y0 + dy) for dx, dy in ((0, 0), (size, 0), (size, size), (0, size), (0, 0))]
+    return {"type": "way", "id": identifier, "geometry": ring, "tags": tags}
+
+
+def test_parking_lots_on_the_ground_become_sites_of_their_mapped_size():
+    osm = {"elements": [
+        outline(1, 0, 30, {"amenity": "parking"}),
+        outline(2, 100, 30, {"amenity": "parking", "parking": "underground"}),
+        outline(3, 9000, 30, {"amenity": "parking"}),  # outside the area
+        outline(4, 200, 30, {"amenity": "school"}),
+        {"type": "node", "id": 5, **geo(X0, Y0), "tags": {"amenity": "parking"}},  # no outline
+    ]}
+    sites = sites_from_osm_parking([osm, osm], AREA, CRS)
+    assert [s["id"] for s in sites] == ["osm/way/1"], "kept once; underground, outside, non-parking and points dropped"
+    assert sites[0]["area_m2"] == pytest.approx(900, rel=0.01) and "private" in sites[0]["owner"]
+
+
+def test_the_rail_bed_is_cut_into_pieces_for_parks_and_play_only():
+    line = [tuple(geo(X0, Y0).values()), tuple(geo(X0 + 1000, Y0).values())]
+    pieces = sites_from_line([line], CRS, piece_m=250)
+    assert len(pieces) == 4 and [round(p["x"] - X0) for p in pieces] == [125, 375, 625, 875]
+    assert all(p["allowed"] == RAILBED_USES and p["area_m2"] is None for p in pieces)
+    assert limit_by_size(pieces, {"parks": 10_000}) == 0, "no mapped width, so no size rule"
+
+
+def test_size_rules_come_from_the_places_beirut_already_has():
+    osm = {"elements": [outline(10 + i, 100 * i, size, {"amenity": "school"})
+                        for i, size in enumerate((10, 20, 30, 40, 50))]
+           + [outline(30, 0, 20, {"leisure": "park"})]}
+    rules = local_size_rules([osm], CRS)
+    assert set(rules) == {"education"}, "too few parks mapped for a rule"
+    assert rules["education"]["m2"] == pytest.approx(400, rel=0.01)  # 25th percentile of 100..2500 m2
+    assert rules["education"]["mapped"] == 5

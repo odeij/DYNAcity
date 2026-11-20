@@ -294,6 +294,80 @@ dynacity score-access --model ~/private/dynacity-data/access/corridor-access.npz
 - **Work is not scored.** OSM maps few offices here.
 - **Parks of any size count,** and so does a new park on a small lot.
 
+### More sites, and site sizes from published sources (20 November 2026)
+
+**What a web search found (20 November 2026):**
+
+- **No Lebanese minimum plot size for schools or clinics is published online.**
+  - The closest Lebanese figures are about classrooms. The emergency education standards
+    written with the Ministry of Education ask for 1.25 m² per pupil in elementary and
+    intermediate classes and 1.5 m² in secondary
+    ([INEE, Lebanon, 2014](https://inee.org/sites/default/files/resources/INEE_MS_Contextualized_Lebanon_English_2014.pdf)).
+    The research centre (CRDP) proposes classrooms of about 40 m².
+  - A regional example, Qatar's 2017 rules for private schools, asks for 1,250 m² for a
+    kindergarten, 2,750 m² for a primary school and 3,500 m² for a secondary school. It
+    does not apply to Lebanon.
+- **The Ministry of Public Health's primary care standards** ([Accreditation Canada, May
+  2015](https://www.moph.gov.lb/en/Pages/6/755/accreditation-primary-health-care-centers))
+  set no floor area. They only require that "the clinic's physical space meets applicable
+  legislation".
+- **Parks.** WHO Europe's "Urban green spaces: a brief for action" (2017) is widely cited
+  for green space of 0.5–1 ha within 300 m of home. The PDF could not be read, so the exact
+  wording is unchecked. Pocket parks have no official minimum; published ranges start
+  from a few tens of m².
+- **Ownership.**
+  - The rail bed is railway land, which the Railway and Public Transport Authority
+    counts as public property. Its director describes encroachment on more than 10
+    million m² of it nationally, including parking lots
+    ([The New Arab, Nov 2025](https://www.newarab.com/features/mar-mikhael-train-station-revival-sees-hope-and-doubt-collide)).
+    The registered owner of each piece is not published.
+  - The corridor strip is used today as "a makeshift parking lot, a storage space, and a
+    neglected walkway" (Arcadis, on the Badawi linear park, 2025).
+  - Most of Beirut's parking lots are private empty parcels, and some belong to
+    institutions such as hospitals and universities
+    ([Salam wa Kalam, 2022](https://www.salamwakalam.com/articles/611/parking-lots-in-beirut-a-pattern-of-singular-space/en)).
+    No list by owner is published.
+  - Mar Mikhael station: 10,000 m² of the 62,000 m² complex is being restored as a
+    public space with green areas, due in early 2027. The Railways Authority maintains
+    it, and the Directorate General of Antiquities runs its programme.
+
+**Size rules from Beirut's own places (`--size-rules local`, the default).** Since no
+standard was found, a new place must have at least the land that most places of its kind
+in Beirut already have. The figures come from OSM outlines in the saved extracts:
+
+| Use | Smallest site | Read from |
+|---|---|---|
+| Education | 868 m² | a quarter of Beirut's 70 mapped school grounds are smaller |
+| Parks | 383 m² | a tenth of Beirut's 84 mapped parks are smaller |
+| Entertainment | 253 m² | half of Beirut's 6 mapped playgrounds are smaller (few mapped) |
+| Medical care, shopping, work | none | they take a floor of an ordinary building; clinics are mapped as points |
+
+`--min-site-m2 USE=M2` replaces any of these once an official figure is known.
+
+**New candidate sites:**
+- `--add-parking`: the 41 mapped surface lots in the buffer, median about 1,000 m².
+- `--add-railbed`: the corridor line in 53 pieces of about 100 m. These are limited to
+  parks and play, as in the Badawi linear park design, and have no size because the
+  bed's width is not mapped.
+- `datasets/corridor/committed-sites.geojson`: the funded Mar Mikhael station public
+  space, with its sources.
+
+There are now 135 sites in all, and the size rules remove 125 site–use pairs.
+
+**Results:**
+- **The rail bed leads the greedy plan:** parks on four of its pieces first, then a park
+  and clinics on parking lots and BBED lots.
+- **Over 20 steps (α = 1):** 9 parks, 6 clinics, 3 play spaces, 1 school, 1 shop.
+- **A ten-step plan** raises residents within 500 m of medical care from 14% to 54%, and
+  of a park from 36% to 92%. The paper's service score rises from 0.52 to 0.62. The parks
+  figure is optimistic: each rail-bed piece counts as a full park whatever its width.
+- **The station park alone barely moves the score.** The corridor homes near it already
+  have a park within 500 m. Homes outside the buffer are not counted.
+
+**Still open:** the width and ownership of each rail-bed piece; per-lot ownership of the
+parking lots (land registry); official size standards; and whether each piece of the
+line is still open ground.
+
 ## What would be new
 
 - **A planning agent for a real corridor** that scores services, green space, walking,

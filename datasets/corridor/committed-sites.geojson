@@ -1,0 +1,35 @@
+{
+  "type": "FeatureCollection",
+  "name": "Funded projects on the Al Masar al Akhdar corridor",
+  "note": "Sites already funded for a public use. Read with `dynacity build-access --sites`. Point at the corridor's Mar Mikhael station stop; the restored area's outline is not published.",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          35.5234487,
+          33.8984887
+        ]
+      },
+      "properties": {
+        "id": "station/mar-mikhael",
+        "name": "Mar Mikhael railway station (restored part)",
+        "state": "funded_project",
+        "area_m2": 10000,
+        "allowed": [
+          "parks",
+          "entertainment"
+        ],
+        "allowed_source": "funded public space: green areas and a cultural zone on the railway's history",
+        "owner": "Railway and Public Transport Authority maintains it; the Directorate General of Antiquities runs its cultural programme",
+        "source": "funded project (UNESCO, Italy, UN-Habitat)",
+        "references": [
+          "The New Arab, 17 Nov 2025: restoration of 10,000 m2 of the station, completion planned early 2027; the Railways Authority maintains it, the Directorate General of Antiquities runs its programme. https://www.newarab.com/features/mar-mikhael-train-station-revival-sees-hope-and-doubt-collide",
+          "UNESCO press release, July 2023: Italy funds the restoration (EUR 2 million)",
+          "Station complex of about 62,000 m2 with workshop and yards (Wikipedia, Beirut railway station)"
+        ]
+      }
+    }
+  ]
+}
