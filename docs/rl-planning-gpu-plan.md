@@ -13,8 +13,12 @@ is a *maximum-coverage problem*:
 - each home is either served or not for each service;
 - a site given a use serves a fixed set of homes.
 
-An integer program solves this exactly. With 135 sites × 6 uses there are at most 810 binary
-choices, and scipy's HiGHS solver should handle that in seconds to minutes (measure it).
+An integer program solves this exactly. With 135 sites × 5 uses there are at most 675 binary
+choices, fewer after the size rules (which remove 125 site–use pairs) and the rail bed's two uses.
+Work is not among them: it is not in the default score, so giving a site that use can never raise
+the objective (see phase A1). The program also has one continuous variable per (service, home) pair
+that a site could newly serve, possibly tens of thousands. scipy's HiGHS solver should still handle
+it in seconds to minutes (measure it, and record the variable and constraint counts).
 
 So on the static land-use problem, **no search and no RL can beat the exact optimum**. Running RL
 there tests the pipeline, and the honest measure is its gap to the optimum. This is stricter than
@@ -41,16 +45,27 @@ SUMO stays on the CPU cores.
 ```sh
 git fetch origin && git switch -c T5.1_RL-access-gpu origin/T5.1_RL-sumo-plans
 python -m venv .venv && . .venv/bin/activate
-python -m pip install -e '.[dev,access,sumo]'
-# Blackwell (sm_120) needs a CUDA 12.8+ build of torch
+# Blackwell (sm_120) needs a CUDA 12.8+ build of torch. Install it first, from the PyTorch index,
+# so that no later install pulls a different torch build from PyPI.
 python -m pip install torch --index-url https://download.pytorch.org/whl/cu128
-python -m pip install pymoo
+python -m pip install -e '.[dev,access,sumo]'
+python -m pip install pymoo botorch gpytorch
 python -c "import torch; print(torch.__version__, torch.cuda.get_device_name(0), torch.cuda.get_device_capability(0))"
 nvidia-smi
 ```
 
-- Add an `rl` extra to `pyproject.toml` (`torch`, `pymoo`). Note in a comment that the CUDA
-  wheel comes from the PyTorch index.
+On rig5090 (20 November 2026) the repo's `.venv` was made with uv and has no pip, so use
+`uv pip install --python .venv/bin/python …` instead. The CUDA torch download ran at about 4 MB/s,
+so the repo venv borrows torch 2.11.0+cu128 from the fleet's shared env (`~/env`) through one file,
+`.venv/lib/python3.12/site-packages/zz-shared-env-torch.pth`, which puts `~/env`'s packages *after*
+the venv's own: only what the venv lacks (torch, the nvidia libraries, triton) comes from there.
+botorch and gpytorch were installed with `--no-deps` so that uv would not fetch a second torch.
+Deleting the `.pth` file undoes it; a change to torch in `~/env` changes it here too.
+
+- Add an `rl` extra to `pyproject.toml` (`torch`, `pymoo`, `botorch`, `gpytorch`). Note in a comment that the CUDA
+  wheel comes from the PyTorch index and must be installed before the extra; installing
+  `.[rl]` on its own may fetch a torch build without sm_120 support. After any install, re-run
+  the `torch.cuda.get_device_capability` check above.
 - Rebuild the access model at the current commit and keep its report next to it. Do two builds,
   with and without the rail bed, because the rail bed's width is not mapped and its parks count in
   full:
@@ -65,15 +80,22 @@ for RB in railbed no-railbed; do
     --beirut001 datasets/beirut001/beirut001-pack.npz --bbed datasets/buildings/bbed-2024.geojson \
     --add-parking $([ $RB = railbed ] && echo --add-railbed) \
     --sites datasets/corridor/committed-sites.geojson \
-    --output $A/corridor-access-$RB.npz
+    --output $A/corridor-access-$RB.npz --report $A/corridor-access-$RB.report.json
 done
 ```
 
-- Long runs go in `tmux`. Log `nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv -l 30`
-  next to each run.
+- Check the data roots before the first build: the OSM extracts are read from `~/dynacity-data`
+  and the facilities from `~/private/dynacity-data`. Adjust `O` if the extracts live under
+  `~/private` on the rig. Both roots must stay outside the repository.
 
-**Gate 0.** torch sees the 5090. Both models build. Their baselines match the results in
-`rl-planning-zheng-2023.md`: service score 0.52 at 500 m, and medical care 14%.
+- Long runs go in `tmux`. Log `nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv -l 30`
+  next to each run. When the work is started from the controller rather than on rig5090 itself,
+  dispatch and collect it with the `rig` CLI (the fleet setup), so the shared `~/env` and the
+  results stay in sync.
+
+**Gate 0.** torch sees the 5090. Both models build. Their baselines, read from the two report
+files, match the results in `rl-planning-zheng-2023.md`: service score 0.52 at 500 m, and medical
+care 14%. (The rail bed adds only sites, so the baselines must be the same in both builds.)
 
 ## Phase A0: the GPU scorer (`access_gpu.py`)
 
@@ -83,11 +105,15 @@ done
   - resident weights;
   - the allowed-use mask (sites × uses).
 - **A plan** is an `int8` row over the sites: 0 means unchanged, k means the k-th use. A batch is
-  (B, sites).
+  (B, sites). Only the scored services and parks are uses in the search; work stays out of the
+  allowed-use mask while it is not scored.
 - **Reach for service k:** `R_base[k] | (onehot_k(plans) @ R_site > 0)`.
-  - The product runs in bf16. The counts are small integers, so it stays exact.
+  - The product runs in bf16 with fp32 accumulation. The counts are integers of at most N ≤ 30,
+    well inside bf16's exact range (up to 256), so it stays exact.
   - The objective is then exactly `AccessModel.objective`: α × the mean over the scored services,
-    plus the parks share, all resident-weighted.
+    plus the parks share, all resident-weighted. The resident-weighted sums over homes are taken
+    in float64: in float32, summing thousands of weights can already err by about 1e-6 on an
+    objective of 1–3.
 - **The decay-based access index and the p80 walk** need distances, not reach. They are computed
   only for finalists, by gathering each chosen site's row, never inside the search loop.
 - **`dynacity bench-access-gpu --model --output`** records plans per second for B = 1k, 16k and
@@ -96,7 +122,9 @@ done
 
 **Gate A0.**
 - **Correctness:** the GPU scorer matches `AccessModel.objective` on 10,000 random valid plans,
-  with a maximum absolute difference under 1e-6, on both CPU and GPU.
+  with a maximum absolute difference under 1e-6, on both CPU and GPU. This holds only with the
+  float64 sums above. If they are dropped for speed, the tolerance becomes 1e-5 and the plan
+  rankings must still agree.
 - **Speed:** throughput is written down. If it is under 10⁶ plans a second, find out why before
   going on.
 
@@ -104,7 +132,8 @@ done
 
 **The integer program (scipy `milp`, HiGHS).**
 - **Variables:**
-  - `x[s,u]`, binary, only for allowed (site, use) pairs;
+  - `x[s,u]`, binary, only for allowed (site, use) pairs whose use is scored or parks (work is
+    left out: its coefficient in the objective is zero);
   - `y[k,h]` in [0, 1], only for homes not already served for k that some site could serve.
 - **Maximise:** Σ_h w_h (α/|scored| Σ_{k∈scored} y[k,h] + y[parks,h]).
 - **Subject to:**
@@ -130,9 +159,13 @@ done
 - residents within 500 m of each service;
 - the uses chosen and the sites used.
 
-Greedy should land close to the optimum, because coverage is submodular (guaranteed at least 63%,
-and usually much closer). If greedy is already within about 1% everywhere, say so plainly: the
-static problem then needs no RL. That is a result, not a failure.
+Greedy should land close to the optimum, because coverage is submodular. The guarantee is weaker
+than the familiar 63%, though: that bound (1 − 1/e) holds when the only limit is a count of N
+choices. Here each site also takes at most one use, so the feasible plans form a matroid, not a
+plain count limit, and greedy is guaranteed only half the optimum. In practice it is usually much
+closer, and the integer program gives the actual gap. If greedy is already within about 1%
+everywhere, say so plainly: the static problem then needs no RL. That is a result, not a
+failure.
 
 ## Phase A2: RL on the static problem (`access_rl.py`)
 
@@ -140,7 +173,7 @@ The paper's agent, but now checked against a known optimum.
 
 - **Environment:** E copies on the GPU, with E = 1,024–4,096.
   - **State:** the current plan, steps left, α and N.
-  - **Action:** one (site, use) from the masked set of at most 810.
+  - **Action:** one (site, use) from the masked set of at most 675 (5 uses; work is left out).
   - **Episode:** N steps. The reward is the gain in objective at the end, as in the paper, with an
     option for the per-step gain.
   - **Pre-assigned sites:** an option to start with some sites fixed. This is the paper's
@@ -193,6 +226,11 @@ the person who reviewed it.
   - D(end, target), where targets are places and sites;
   - D(end, end);
   - D(home, target).
+- **End points must be network nodes.** A crossing or rail-bed piece that meets a way partway
+  along it splits that way at the meeting point first: two edges with the original lengths in
+  proportion, plus the new node. The splits for all candidate links are applied once, before the
+  distance blocks are computed, so that the base network, the blocks and the full-Dijkstra test
+  all use the same split graph. Splitting changes no base distance.
 - **For a plan with links L:**
   - shortest paths between the active end points, by Floyd–Warshall over at most 2·|L| nodes;
   - then d'(h, t) = min(d(h, t), min over a, b of D(h, a) + D'(a, b) + D(b, t)).
@@ -200,18 +238,31 @@ the person who reviewed it.
   This is exact, because walks can change only through the new links. It is a min-plus product
   that batches across plans. Its cost grows with the number of active end points, not with the
   14,759-node network.
-- **Test:** compare with a full Dijkstra on the network with the links added, on 1,000 random
-  link sets.
+- **Test:** compare with a full Dijkstra on the split network with the links added, on 1,000
+  random link sets. Include links whose end points fall partway along a way, and sets in which
+  walks use two or more new links.
 
 **Joint search.** A plan is land uses plus links, under a budget on the count of each.
 - greedy and NSGA-II;
+- Bayesian optimisation on the same scorer, set up as in Costa et al. (arXiv 2603.06278, §4.2),
+  the study behind the repo rule: botorch and gpytorch, a Gaussian process with a Matérn 5/2
+  kernel and automatic relevance determination, batch log expected improvement (qLogEI), 1,000
+  random feasible plans to start, and stopping when the best objective has not improved over 100
+  iterations. That paper does not say how its discrete actions were encoded, so record ours: one
+  binary input per allowed (site, use) pair and per candidate link, with the acquisition optimised
+  over feasible plans only (one use per site, the budgets). A Gaussian process over several hundred
+  binary inputs is hard; Costa et al. ran theirs only on reduced problems and called the comparison
+  methodological, not a benchmark. So run it on the full problem and also on a reduced one (the
+  top sites and links by single-step gain), and report the evaluations each method used next to
+  its result;
 - RL: the A2 policy plus link actions, the paper's second stage;
 - a reference: the integer program over land uses with the links fixed, alternated with link
   search.
 
-**Gate B.** Does RL beat NSGA-II and greedy on the joint problem, for held-out weights, across five
-seeds? This is the first place where the repository's rule (RL must beat Bayesian optimisation and
-a genetic algorithm on the same evaluator) is a real test.
+**Gate B.** Does RL beat Bayesian optimisation, NSGA-II and greedy on the joint problem, for
+held-out weights, across five seeds? This is the first place where the repository's rule (RL must
+beat Bayesian optimisation and a genetic algorithm on the same evaluator) is a real test. Losing to
+either one is reported as such.
 
 ## Phase C: plans staged over the years (later; it needs inputs)
 
@@ -229,7 +280,9 @@ a genetic algorithm on the same evaluator) is a real test.
 
 **A change it needs.** `build-access` must also save per-place distances (places × homes, about a
 million values), as schema `dynacity-access/2`. Today it keeps only the nearest place for each
-service.
+service. The new schema must keep the site × home distances too: varying the threshold between 400
+and 600 m means recomputing reach from distances, for places and sites alike, not reusing the 0/1
+matrices built at 500 m. `AccessModel` must still read `dynacity-access/1` files.
 
 **For each finalist from A1, A2 and B, 10,000 draws in one batch:**
 - residents per building × a log-normal factor (σ = 0.3);
