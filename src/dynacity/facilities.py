@@ -2,8 +2,8 @@
 
 Health, education, safety (police, fire, ambulance), government services
 (municipality, courts, post, government offices), welfare and other public
-buildings. Display only: they never feed the transition model or the traffic
-demand.
+buildings. Shown on the map, and read by `access.py` as the places people walk
+to; they never feed the transition model or the traffic demand.
 OpenStreetMap gives the currently mapped set (ODbL). The Ministry of Education's
 public-school list (May 2017, CC0 on HDX) confirms OSM schools within
 `OFFICIAL_MATCH_M` and adds the ones OSM lacks. Neither source says whether a

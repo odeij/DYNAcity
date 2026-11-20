@@ -2907,3 +2907,67 @@ Confirmed original PID35100 ended at16turncap after read-only investigation. Res
 ### 8 November 2026 — Codex usage reduction requested by user
 
 Paused the recurring automation through the app and verified its persisted PAUSED state. Its future cadence is hourly instead of every10minutes, with a compact checkpoint-first prompt, one review of a changed completed handoff, and no automatic agent launches/resumes or repair loops. Existing workerPID76968 was active and left to finish without coordinator polling. New coordination entrypoint: `D:/private/dynacity-data/web-appearance-20261108/coordinator-compact.json`. Full evidence remains intact; pilot acceptance still awaits tests and browser access. No product changes, commit, push or deployment. The user must explicitly resume the schedule.
+
+### 20 November 2026 — RL planning paper (Zheng et al. 2023) applied to the corridor
+
+Branch `T5.1_RL-sumo-plans`. Documentation only; no code or data changed. Read Zheng et al.,
+*Nature Computational Science* 3, 748–762 (2023): a GNN and PPO that lay out land use and
+roads for 15-minute communities, scored by static map measures. The user then set the scope:
+the green corridor only, and every kind of measure, not only mobility, with key buildings and
+government information as inputs. Key buildings are the paper's 15-minute services (education,
+medical care, shopping, work, entertainment), plus parks. Recommended, to confirm with Marc:
+plan inside the 250 m buffer, and count services out to a 15-minute walk beyond it (4 education
+facilities inside the buffer, 34 within 500 m of it).
+
+New [rl-planning-zheng-2023.md](rl-planning-zheng-2023.md) gives:
+- the paper's method, results and limits;
+- what the corridor holds, counted in the 250 m buffer: 176 BBED buildings on 136 parcels
+  (40 empty, parking, stalled or vacant), 20 mapped facilities, 3,773 Beirut 001 buildings,
+  1,426 roads;
+- where key buildings and government information enter: fixed buildings, candidate sites,
+  allowed uses, costs and targets;
+- how each domain is scored and how fast;
+- an order of work: site inventory, fast scoring, reference plans and simple search, RL,
+  then SUMO checks of the shortlisted plans for car traffic.
+
+The scope change is recorded under "Decided" in
+[simulator-learning-layer.md](simulator-learning-layer.md#decided).
+
+Verification: figures checked against the paper's text; code licence (MIT) checked on GitHub;
+corridor counts computed from `bbed-2024.geojson`, `beirut-facilities.json` and
+`masar-akhdar.geojson` with a 250 m buffer in EPSG:32636. Not verified: the corridor boundary
+(250 m buffer or the 2.66 km² VR boundary) is still to be confirmed; facility operation is
+unverified. The key-building and government files were not found on rig5090. The visual work
+page was not regenerated: its script reads Windows-only private paths.
+
+### 20 November 2026 — walking access to the 15-minute services on the corridor (`build-access`)
+
+Branch `T5.1_RL-sumo-plans`. New `access.py` and the `build-access` / `score-access` commands:
+steps 1–2 of [rl-planning-zheng-2023.md](rl-planning-zheng-2023.md#progress) for services
+and parks.
+- **Homes and sites:** 1,925 Beirut 001 homes (about 26,300 residents, proxy) and 40 BBED
+  candidate sites inside the 250 m buffer.
+- **Services:** counted out to a 15-minute walk beyond the buffer. Education and medical
+  care come from the new key-buildings layer; shops, entertainment, offices and parks from
+  the 4 November OSM extracts.
+- **Distances:** along OSM walkable ways.
+
+Results:
+- **Medical care is the gap:** 14% of corridor residents within 500 m of a hospital or
+  clinic, against 62–66% for education, daily shopping and entertainment.
+- **Greedy plan:** mostly parks, plus clinics.
+- **Example:** two clinics and one park raise residents within 500 m of medical care from
+  14% to 40%.
+- **Speed:** build 2 s; one plan about 12 µs.
+
+Choices: trunk roads walkable (cut-off homes 145 → 20); work reported but not scored.
+
+Limits:
+- 28 of 40 sites are under 200 m², and there is no size rule yet.
+- Allowed uses are unknown.
+- The key-buildings layer stops short to the east and north.
+
+Verification: 9 new tests (`tests/test_access.py`). The full suite was run on Linux;
+`test_triangulate_corners.py` cannot be collected here because it reads a Windows-only path.
+Outputs are private (`~/private/dynacity-data/access/`). The visual work page was not
+regenerated (Windows-only paths).

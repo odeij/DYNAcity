@@ -16,6 +16,8 @@ files rather than in-process state:
     build-traffic   → OSM road graph + Tari'ak hourly speeds (.json) for traffic and road closures
     build-zones     → decision zones (.json) over the roads from OSM boundaries, for adaptation policies
     build-facilities → key buildings (.json): the public services people go to, from OSM and the MEHE school list
+    build-access    → walking access to the 15-minute services on a corridor (.npz + report), and what candidate sites would add
+    score-access    → one site plan (site → new use) scored on a build-access model (.json)
     run-plan        → a street plan in SUMO against a paired baseline (.json), without the viewer
     freeze-evidence → registry JSON → content-hashed EvidenceBundle
     compile-scenario→ planner prose → checked ScenarioSpec + audit trail
@@ -590,6 +592,134 @@ def command_build_facilities(args: argparse.Namespace) -> None:
           + (f"; MEHE list: {merged['confirmed']} schools matched in OSM, {merged['added']} added" if merged else "") + ")")
 
 
+def _size_rules(values: list[str] | None) -> dict[str, float]:
+    rules = {}
+    for value in values or []:
+        use, _, metres = value.partition("=")
+        try:
+            rules[use.strip()] = float(metres)
+        except ValueError:
+            raise SystemExit(f"--min-site-m2 takes USE=M2, got {value!r}") from None
+    return rules
+
+
+def command_build_access(args: argparse.Namespace) -> None:
+    from collections import Counter
+
+    from .access import (FIFTEEN_MIN_M, SCHEMA, SERVICE_KEYS, build_access, destinations, homes_from_pack,
+                         limit_by_size, sites_from_bbed, sites_from_geojson, walk_graph)
+    from .beirut001_pack import Beirut001Pack
+    from .corridor import Corridor
+    from .viewer import utm_to_lonlat
+
+    crs = "EPSG:32636"
+    corridor = Corridor.load(args.corridor, crs, args.corridor_buffer_m)
+    reach_m = args.reach_m if args.reach_m is not None else FIFTEEN_MIN_M
+    plan_area, reach = corridor.area, corridor.area.buffer(reach_m)
+    graph = walk_graph(_json(args.network), reach.buffer(300), crs)
+    facilities = _json(args.facilities) if args.facilities else None
+    if facilities is not None and facilities.get("schema") != "dynacity-facilities/1":
+        raise SystemExit(f"{args.facilities} is not a build-facilities output")
+    extracts = [_json(path) for path in args.places or []]
+    places = destinations(facilities, extracts, reach, crs)
+    homes = homes_from_pack(Beirut001Pack.load(args.beirut001), plan_area)
+    sites = sites_from_bbed(_json(args.bbed), plan_area, crs) if args.bbed else []
+    if args.sites:
+        sites += sites_from_geojson(_json(args.sites), crs)
+    rules = _size_rules(args.min_site_m2)
+    unknown = set(rules) - set(SERVICE_KEYS)
+    if unknown:
+        raise SystemExit(f"--min-site-m2: unknown uses {sorted(unknown)}; use {list(SERVICE_KEYS)}")
+    removed = limit_by_size(sites, rules) if rules else 0
+    model = build_access(graph, homes, places, sites, score_services=tuple(args.score_service) if args.score_service else None,
+                         meta={"corridor": corridor.name, "buffer_m": args.corridor_buffer_m, "reach_m": reach_m})
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    model.save(destination)
+
+    warnings = []
+    if facilities is not None and facilities.get("features"):
+        lon = [f["geometry"]["coordinates"][0] for f in facilities["features"]]
+        lat = [f["geometry"]["coordinates"][1] for f in facilities["features"]]
+        x0, y0, x1, y1 = reach.bounds
+        (w, s), (e, n) = utm_to_lonlat(x0, y0, 36), utm_to_lonlat(x1, y1, 36)
+        beyond = [side for side, out in (("west", w < min(lon) - 0.002), ("south", s < min(lat) - 0.002),
+                                         ("east", e > max(lon) + 0.002), ("north", n > max(lat) + 0.002)) if out]
+        if beyond:
+            warnings.append(f"The reach area extends past the key-buildings layer to the {', '.join(beyond)}; "
+                            "schools and clinics there are missing, not absent.")
+    scored = model.meta["score_services"]
+    if "work" not in scored:
+        warnings.append(f"Work is reported but not scored: {model.destination_counts.get('work', 0)} mapped offices "
+                        "and government offices in reach, and OSM maps few offices here.")
+    if model.meta["home_snap_over_100m"]:
+        warnings.append(f"{model.meta['home_snap_over_100m']} homes are over 100 m from the nearest walkable way.")
+    if model.meta["homes_off_main_network"]:
+        warnings.append(f"{model.meta['homes_off_main_network']} homes sit on a piece of the walking network that "
+                        "is not joined to the rest.")
+    small = sum(1 for s in sites if (s.get("area_m2") or 0) < 200)
+    if sites and not rules:
+        warnings.append(f"No minimum site size applied: {small} of {len(sites)} sites are under 200 m2. "
+                        "Pass --min-site-m2 USE=M2 once sizes are known.")
+    if any(s["allowed_source"].startswith("not yet known") for s in sites):
+        warnings.append("Allowed uses are not known for most sites: every use is allowed until the government "
+                        "information gives ownership and rules.")
+    report = {
+        "schema": SCHEMA + "-report",
+        "model": str(destination),
+        "corridor": {"name": corridor.name, "buffer_m": args.corridor_buffer_m, "reach_m": reach_m,
+                     "planning_area_km2": round(plan_area.area / 1e6, 2), "reach_area_km2": round(reach.area / 1e6, 2)},
+        "network": model.meta["network"],
+        "homes": {"buildings": int(len(homes.ids)), "residents_est": round(float(homes.residents.sum())),
+                  "source": homes.source},
+        "places": {k: {"count": model.destination_counts.get(k, 0),
+                       "sources": dict(Counter(p.source for p in places if p.service == k))} for k in model.services},
+        "sites": {"count": len(sites), "by_state": dict(Counter(s.get("state") for s in sites)),
+                  "uses_removed_by_size": removed},
+        "baseline": model.score(alpha=args.alpha),
+        "greedy": model.greedy(args.steps, alpha=args.alpha),
+        "site_gains": model.gains(alpha=args.alpha),
+        "warnings": warnings,
+        "assumptions": "Walking distances on OSM ways; homes are model buildings with residents from floor area; "
+                       "destinations are mapped places with unknown operation and capacity; a site's new use is "
+                       "assumed to serve like any mapped place of its kind. Plans are compared with each other, "
+                       "not measured outcomes.",
+    }
+    report_path = Path(args.report) if args.report else destination.with_suffix(".report.json")
+    report_path.write_text(json.dumps(report, indent=1, ensure_ascii=False), encoding="utf-8")
+    base = report["baseline"]
+    print(f"access -> {args.output} ({len(homes.ids)} homes, {len(sites)} sites, {len(graph)} network nodes); "
+          f"service score {base['service_score']}; report -> {report_path}")
+    for warning in warnings:
+        print(f"warning: {warning}")
+
+
+def command_score_access(args: argparse.Namespace) -> None:
+    from .access import AccessModel
+
+    model = AccessModel.load(args.model)
+    plan = _json(args.plan)
+    unknown = set(plan) - {"plan_id", "uses"}
+    if unknown:
+        raise SystemExit(f"unknown plan fields: {sorted(unknown)}")
+    try:
+        scored = model.score(plan.get("uses", {}), alpha=args.alpha)
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
+    baseline = model.score(alpha=args.alpha)
+    change = {"objective": round(scored["objective"] - baseline["objective"], 4),
+              "service_score": {k: round(v - baseline["service_score"][k], 4) for k, v in scored["service_score"].items()},
+              "residents_within": {s: {k: round(v - baseline["services"][s]["residents_within"][k], 4)
+                                       for k, v in row["residents_within"].items()}
+                                   for s, row in scored["services"].items()}}
+    result = {"plan": {"plan_id": plan.get("plan_id", "plan"), "uses": plan.get("uses", {})},
+              "scenario": scored, "baseline": baseline, "change": change}
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(result, indent=1, ensure_ascii=False), encoding="utf-8")
+    print(f"scored -> {args.output} (objective {baseline['objective']} -> {scored['objective']})")
+
+
 def _facilities_view(path: str | None, bounds: tuple[float, float, float, float] | None = None) -> dict | None:
     if not path:
         return None
@@ -926,6 +1056,34 @@ def build_parser() -> argparse.ArgumentParser:
     facilities.add_argument("--osm", help="saved Overpass JSON (out center); fetched from Overpass when omitted")
     facilities.add_argument("--official-schools", help="MEHE public and UNRWA schools list (.xlsx needs openpyxl, or .csv)")
     facilities.set_defaults(func=command_build_facilities)
+
+    access = subparsers.add_parser("build-access", help="walking access to the 15-minute services on a corridor, "
+                                   "and what candidate sites would add (after Zheng et al. 2023)")
+    access.add_argument("--corridor", required=True, help="GeoJSON line, as `serve --corridor`")
+    access.add_argument("--corridor-buffer-m", type=float, default=250.0, help="planning area: homes and sites inside it")
+    access.add_argument("--reach-m", type=float, help="services count out to this far beyond the planning area "
+                        "(default a 15-minute walk, 1,170 m)")
+    access.add_argument("--network", required=True, help="saved Overpass JSON with highway ways (out geom, with nodes)")
+    access.add_argument("--places", action="append", help="saved Overpass JSON with shops, leisure, parks, offices (repeat)")
+    access.add_argument("--facilities", help="build-facilities output: education, medical care, government offices")
+    access.add_argument("--beirut001", required=True, help="pack-beirut001 output: homes")
+    access.add_argument("--bbed", help="BBED GeoJSON: empty, parking, stalled and vacant sites become candidates")
+    access.add_argument("--sites", help="extra candidate sites (GeoJSON; properties id, allowed, name, owner, source)")
+    access.add_argument("--min-site-m2", action="append", metavar="USE=M2", help="smallest site a use may take (repeat)")
+    access.add_argument("--score-service", action="append", help="services in the score (repeat; default education, "
+                        "medical, shopping, entertainment)")
+    access.add_argument("--alpha", type=float, default=1.0, help="weight of services against parks, as the paper's alpha")
+    access.add_argument("--steps", type=int, default=10, help="greedy search steps in the report")
+    access.add_argument("--output", required=True, help="model (.npz)")
+    access.add_argument("--report", help="report JSON (default: next to the model)")
+    access.set_defaults(func=command_build_access)
+
+    score_access = subparsers.add_parser("score-access", help="score one site plan on a build-access model")
+    score_access.add_argument("--model", required=True)
+    score_access.add_argument("--plan", required=True, help='JSON: {"plan_id": ..., "uses": {"bbed/123": "parks"}}')
+    score_access.add_argument("--alpha", type=float, default=1.0)
+    score_access.add_argument("--output", required=True)
+    score_access.set_defaults(func=command_score_access)
 
     run = subparsers.add_parser("run-plan", help="a street plan in SUMO against a paired baseline, without the viewer")
     run.add_argument("--traffic", required=True, help="traffic model from build-traffic")

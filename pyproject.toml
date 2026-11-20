@@ -60,6 +60,9 @@ overture = [
 graph = [
   "torch>=2.5,<3",
 ]
+access = [
+  "scipy>=1.14,<2",
+]
 
 sumo = [
   "eclipse-sumo==1.22.0",

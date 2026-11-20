@@ -101,7 +101,10 @@ checked come from the papers' abstracts and the search results.
   - Tree search beat earlier RL methods at adding links to a network (Darvariu et al.,
     Proc. R. Soc. A 2023).
   - RL did beat a genetic algorithm and human planners at laying out urban communities
-    (Zheng et al., Nature Computational Science 2023).
+    (Zheng et al., Nature Computational Science 2023). Its reward is a static map
+    measure that costs microseconds, which is why it can try a million plans. The paper,
+    and how to apply it to the corridor across every domain, are in
+    [rl-planning-zheng-2023.md](rl-planning-zheng-2023.md).
 
 **For the corridor:** for a one-off plan, search the learned model with Bayesian
 optimisation or a genetic algorithm. It is simpler and about as good. For staged plans,
@@ -182,6 +185,11 @@ traffic-plan work depends on them.
 - **Scale: the Al Masar al Akhdar corridor** ([green-corridor.md](green-corridor.md); 1,426
   of 10,818 roads at the 250 m buffer), not citywide.
 - **Traffic plans are the core.** Floods are an optional what-if.
+  - **Widened on 20 November 2026:** plans are no longer limited to mobility. They also
+    cover land use, services, green and public space, and walking and cycling, still
+    only on the corridor. Key buildings and government information feed the plan. The
+    traffic work here becomes one of the domains. See
+    [rl-planning-zheng-2023.md](rl-planning-zheng-2023.md#scope-decided-on-20-november-2026).
 - **Plans staged over several years must be evaluable**, not only one-off plans.
 - **RL is the intended method, not a requirement.** If another search over plans does
   better on the corridor, use it: Bayesian optimisation, evolutionary search, or
