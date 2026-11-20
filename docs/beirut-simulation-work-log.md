@@ -3002,3 +3002,38 @@ optimistic, since the rail bed's width is not mapped.
 **Verification:** 12 access tests and 110 tests touching the command line pass.
 Details: [rl-planning-zheng-2023.md](rl-planning-zheng-2023.md#more-sites-and-site-sizes-from-published-sources-20-november-2026).
 
+### 20 November 2026 — corridor planning on the GPU: phases 0 and A0
+
+Branch `T5.1_RL-access-gpu`, on rig5090 (RTX 5090). Plan:
+[rl-planning-gpu-plan.md](rl-planning-gpu-plan.md).
+
+**Plan review first.** The plan was corrected before any code: greedy is guaranteed half the
+optimum here, not 63% (one use per site makes the feasible plans a matroid); Gate B now includes
+Bayesian optimisation, set up as in Costa et al. (arXiv 2603.06278, §4.2), as the repo rule
+requires; work is dropped from the search uses; end points of new links split the ways they meet.
+
+**Phase 0.** Both access models were rebuilt at `15788cc`, with and without the rail bed, in
+under 2 s each: 1,925 homes, 14,759 network nodes, 135 and 82 sites. Their baselines are the
+same and match the earlier results: service score 0.517 at 500 m, medical care 14.3%, parks
+35.7%. torch 2.11.0+cu128 comes from the shared `~/env` (see the plan's Phase 0 note); pymoo
+0.6.2, botorch 0.18.1 and gpytorch 1.15.2 are in the repo venv; an `rl` extra lists them.
+
+**Phase A0.** `access_gpu.BatchScorer` scores a batch of plans with one bf16 matrix product per use
+and float64 resident-weighted sums. `dynacity bench-access-gpu` checks it against
+`AccessModel.objective` and times it.
+
+| Model | Max difference, 10,000 plans (CPU / GPU) | GPU plans per second, B = 1k / 16k / 256k | CPU, B = 256k |
+|---|---|---|---|
+| With rail bed | 8.9e-16 / 6.7e-16 | 4.6 M / 6.0 M / 5.3 M | 73,000 |
+| Without | 6.7e-16 / 4.4e-16 | 4.5 M / 6.4 M / 5.7 M | 71,000 |
+
+Gate A0 passes on both counts (limit 1e-6; target 10⁶ plans a second). Peak GPU memory was
+2.7 GB. Outputs: `~/private/dynacity-data/access/gpu-20261120/` (`scorer-bench-*.json` with commit,
+model hash, versions and wall time; build reports and logs). These runs were made before the code
+was committed, which the records note (`uncommitted_changes`).
+
+**Verification:** 9 new scorer tests (CPU, plus one CPU-against-GPU test) and the 12 access
+tests pass.
+
+**Next:** phase A1 (integer program and baselines), after review of this gate.
+

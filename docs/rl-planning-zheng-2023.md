@@ -229,6 +229,18 @@ New dependencies go in an `rl` extra: `torch`, `pymoo`, and `libsumo` for the tr
 
 ## Progress
 
+### GPU scorer, phases 0 and A0 of the GPU plan (20 November 2026)
+
+`access_gpu.py` scores batches of plans as in [rl-planning-gpu-plan.md](rl-planning-gpu-plan.md#phase-a0-the-gpu-scorer-access_gpupy).
+On rig5090 it matches `AccessModel.objective` to within 9e-16 on 10,000 random plans and scores
+4.5–6.4 million plans a second on the GPU (about 50,000–73,000 on the CPU). Search uses are the four
+scored services and parks; work is left out while it is not scored.
+
+```sh
+dynacity bench-access-gpu --model ~/private/dynacity-data/access/gpu-20261120/corridor-access-railbed.npz \
+  --output ~/private/dynacity-data/access/gpu-20261120/scorer-bench-railbed.json
+```
+
 ### `dynacity build-access`: services and parks (20 November 2026)
 
 `access.py` builds steps 1 and 2 for services and parks.

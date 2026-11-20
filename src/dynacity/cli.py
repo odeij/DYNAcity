@@ -18,6 +18,7 @@ files rather than in-process state:
     build-facilities → key buildings (.json): the public services people go to, from OSM and the MEHE school list
     build-access    → walking access to the 15-minute services on a corridor (.npz + report), and what candidate sites would add
     score-access    → one site plan (site → new use) scored on a build-access model (.json)
+    bench-access-gpu→ the batch plan scorer checked against AccessModel and timed on CPU/GPU (.json)
     run-plan        → a street plan in SUMO against a paired baseline (.json), without the viewer
     freeze-evidence → registry JSON → content-hashed EvidenceBundle
     compile-scenario→ planner prose → checked ScenarioSpec + audit trail
@@ -739,6 +740,36 @@ def command_score_access(args: argparse.Namespace) -> None:
     print(f"scored -> {args.output} (objective {baseline['objective']} -> {scored['objective']})")
 
 
+def command_bench_access_gpu(args: argparse.Namespace) -> None:
+    import time
+
+    from .access import AccessModel
+    from .access_gpu import bench, check, run_record
+
+    try:
+        import torch
+    except ImportError:
+        raise SystemExit("bench-access-gpu needs torch (the rl extra; see docs/rl-planning-gpu-plan.md)") from None
+    started = time.perf_counter()
+    model = AccessModel.load(args.model)
+    devices = args.devices or (["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"])
+    result = {"check": [], "bench": []}
+    for device in devices:
+        if args.check:
+            result["check"].append(check(model, device, n=args.check, alpha=args.alpha, seed=args.seed))
+        result["bench"].extend(bench(model, device, batches=args.batches, budget=args.budget, alpha=args.alpha))
+    result["record"] = run_record(args.model, time.perf_counter() - started, seeds=[args.seed])
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(result, indent=1), encoding="utf-8")
+    for row in result["check"]:
+        print(f"check {row['device']}: max |diff| {row['max_abs_diff']:.2e} over {row['plans']} plans "
+              f"({'pass' if row['passed'] else 'FAIL'})")
+    for row in result["bench"]:
+        print(f"bench {row['device']} B={row['batch']}: {row['plans_per_second']:,} plans/s")
+    print(f"bench -> {args.output}")
+
+
 def _facilities_view(path: str | None, bounds: tuple[float, float, float, float] | None = None) -> dict | None:
     if not path:
         return None
@@ -1112,6 +1143,17 @@ def build_parser() -> argparse.ArgumentParser:
     score_access.add_argument("--alpha", type=float, default=1.0)
     score_access.add_argument("--output", required=True)
     score_access.set_defaults(func=command_score_access)
+
+    bench_gpu = subparsers.add_parser("bench-access-gpu", help="check and time the batch plan scorer on CPU and GPU")
+    bench_gpu.add_argument("--model", required=True)
+    bench_gpu.add_argument("--output", required=True)
+    bench_gpu.add_argument("--devices", nargs="+", help="default: cpu, and cuda when available")
+    bench_gpu.add_argument("--batches", type=int, nargs="+", default=[1_000, 16_000, 256_000])
+    bench_gpu.add_argument("--budget", type=int, default=10, help="sites changed per timed plan")
+    bench_gpu.add_argument("--alpha", type=float, default=1.0)
+    bench_gpu.add_argument("--check", type=int, default=10_000, help="random plans compared with AccessModel (0: skip)")
+    bench_gpu.add_argument("--seed", type=int, default=0)
+    bench_gpu.set_defaults(func=command_bench_access_gpu)
 
     run = subparsers.add_parser("run-plan", help="a street plan in SUMO against a paired baseline, without the viewer")
     run.add_argument("--traffic", required=True, help="traffic model from build-traffic")

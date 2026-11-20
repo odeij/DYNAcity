@@ -63,6 +63,17 @@ graph = [
 access = [
   "scipy>=1.14,<2",
 ]
+# Search and RL on access plans (docs/rl-planning-gpu-plan.md). On the RTX 5090 (sm_120), install a CUDA
+# 12.8+ torch from the PyTorch index first, before this extra; on its own it may fetch a torch build
+# without sm_120 support:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu128
+rl = [
+  "torch>=2.7,<3",
+  "pymoo>=0.6,<1",
+  "botorch>=0.12,<1",
+  "gpytorch>=1.13,<2",
+  "scipy>=1.14,<2",
+]
 
 sumo = [
   "eclipse-sumo==1.22.0",
