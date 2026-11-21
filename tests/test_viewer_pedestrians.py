@@ -67,3 +67,30 @@ def test_untagged_osm_dependency_does_not_erase_existing_mapped_object(tmp_path)
     second.write_text(json.dumps({'elements': [{k: v for k, v in tree.items() if k != 'tags'}]}), encoding='utf-8')
     result = _landscape_view(str(first), overlays=[str(second)])
     assert any(f['properties']['kind'] == 'tree' for f in result['features'])
+
+
+def test_only_pages_with_pedestrians_embed_the_rocketbox_people():
+    import base64
+    import json
+    from importlib.resources import files
+
+    import numpy as np
+
+    from dynacity.viewer import render_viewer
+
+    doc = json.loads(files("dynacity").joinpath("assets/people/meshes.json").read_text(encoding="utf-8"))
+    frames = doc["frames_per_cycle"]
+    assert doc["people"] and "MIT" in doc["source"] and frames >= 4
+    for person in doc["people"]:
+        assert len(person["frames"]) == frames
+        n = person["vertices"]
+        assert n % 3 == 0 and len(base64.b64decode(person["colors"])) == n * 3
+        for f in person["frames"]:
+            xyz = np.frombuffer(base64.b64decode(f), "<i2").reshape(-1, 3)
+            assert len(xyz) == n and xyz[:, 2].min() >= 0 and 1400 < xyz[:, 2].max() < 2100  # feet on the ground, a person's height in mm
+    assert "LICENSE.txt" in [p.name for p in files("dynacity").joinpath("assets/people").iterdir()]
+
+    with_people = render_viewer({"buildings": [], "pedestrians": {"segments": []}})
+    without = render_viewer({"buildings": []})
+    assert "const IMPORTED_PEOPLE = {" in with_people
+    assert "const IMPORTED_PEOPLE = null;" in without

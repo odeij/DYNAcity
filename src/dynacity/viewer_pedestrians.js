@@ -33,10 +33,104 @@ function pedestrianRows(bounds) {
       const direction=j%2?1:-1,side=(j%4<2)?1:-1;
       const u=((j+.5)/count+direction*s.phase/s.length)%1;
       const pose=pedestrianPosition(s,((u+1)%1)*s.length,side);
-      rows.push({id:`${s.id}:${j}`,s,position:pose.position,yaw:pose.yaw+(direction<0?180:0),paint:(s.id+j)%4});
+      // Stable person per walker; the walk pose follows the distance walked, each walker offset in its stride.
+      const k=(s.id*7919+j*104729)>>>0,person=k%PEOPLE_COUNT(),step=(s.phase/walkStrideM(person)+((k%1000)/1000))%1;
+      // `pose` runs continuously over the walk cycle's FRAMES poses; the shader blends neighbours.
+      const posePos=((step+1)%1)*PEOPLE_FRAMES();
+      rows.push({id:`${s.id}:${j}`,s,position:pose.position,yaw:pose.yaw+(direction<0?180:0),paint:(s.id+j)%4,
+        person,pose:posePos,frame:Math.floor(posePos)%PEOPLE_FRAMES()});
     }
   }
   return rows;
+}
+// Rocketbox people (scripts/prepare_people_models.py): per person a triangle soup with shared
+// colours and FRAMES poses of one in-place walk cycle, int16 millimetres, +x forward, +z up.
+const peopleModels=()=>(typeof IMPORTED_PEOPLE!=='undefined'&&IMPORTED_PEOPLE?.people?.length)?IMPORTED_PEOPLE:null;
+const PEOPLE_COUNT=()=>peopleModels()?.people.length??1;
+const PEOPLE_FRAMES=()=>peopleModels()?.frames_per_cycle??1;
+// One walk cycle (two steps) covers walking speed x cycle time on the pavement.
+// Each person keeps their own clip's cycle (the women's walk is 37 frames, the men's 32).
+const walkStrideM=(p=0)=>Math.max(.5,(mobilityLab.speed||1.3)*(peopleModels()?.people[p]?.cycle_s??peopleModels()?.cycle_s??1.07));
+const PERSON_MATERIAL={ambient:.55,diffuse:.7,shininess:4,specularColor:[30,30,30]},PERSON_WHITE=[255,255,255];
+const peopleBytes=v=>Uint8Array.from(atob(v),c=>c.charCodeAt(0));
+function personMesh(p,f) {
+  const src=peopleModels().people[p];
+  const raw=peopleBytes(src.frames[f]),q=new Int16Array(raw.buffer,raw.byteOffset,raw.byteLength/2),n=q.length/3;
+  const pos=new Float32Array(n*3),nor=new Float32Array(n*3);
+  for(let i=0;i<q.length;i++)pos[i]=q[i]/1000;
+  // Flat normals per triangle: the baked colours are per triangle too.
+  for(let t=0;t<n;t+=3) {
+    const a=t*3,ux=pos[a+3]-pos[a],uy=pos[a+4]-pos[a+1],uz=pos[a+5]-pos[a+2],vx=pos[a+6]-pos[a],vy=pos[a+7]-pos[a+1],vz=pos[a+8]-pos[a+2];
+    let nx=uy*vz-uz*vy,ny=uz*vx-ux*vz,nz=ux*vy-uy*vx;const l=Math.hypot(nx,ny,nz)||1;nx/=l;ny/=l;nz/=l;
+    for(let k=0;k<3;k++){nor[a+k*3]=nx;nor[a+k*3+1]=ny;nor[a+k*3+2]=nz;}
+  }
+  const col=Float32Array.from(peopleBytes(src.colors),c=>c/255);
+  return {positions:{value:pos,size:3},normals:{value:nor,size:3},colors:{value:col,size:3},texCoords:{value:new Float32Array(n*2),size:2}};
+}
+// Every walker in ONE instanced layer. In this viewer each extra layer costs several ms a
+// frame (96 person x pose layers ran at 1-2 fps), so the poses live in textures instead:
+// row person*FRAMES+frame, column vertex. Shorter people are padded with zero-area triangles.
+function peopleAtlas() {
+  if(peopleAtlas.cache)return peopleAtlas.cache;
+  const M=peopleModels(),F=M.frames_per_cycle,P=M.people.length,W=Math.max(...M.people.map(p=>p.vertices));
+  const pos=new Float32Array(W*P*F*4),nor=new Float32Array(W*P*F*4),col=new Uint8Array(W*P*4);
+  M.people.forEach((src,p)=>{
+    const c=peopleBytes(src.colors);
+    for(let v=0;v<src.vertices;v++){const o=(p*W+v)*4;col[o]=c[v*3];col[o+1]=c[v*3+1];col[o+2]=c[v*3+2];col[o+3]=255;}
+    for(let f=0;f<F;f++) {
+      const m=personMesh(p,f),row=(p*F+f)*W,mp=m.positions.value,mn=m.normals.value;
+      for(let v=0;v<src.vertices;v++)for(let k=0;k<3;k++){pos[(row+v)*4+k]=mp[v*3+k];nor[(row+v)*4+k]=mn[v*3+k];}
+    }
+  });
+  return peopleAtlas.cache={W,P,F,pos,nor,col};
+}
+function peopleTextures(device) {
+  if(peopleTextures.cache?.device===device)return peopleTextures.cache;
+  const a=peopleAtlas(),sampler={minFilter:'nearest',magFilter:'nearest',addressModeU:'clamp-to-edge',addressModeV:'clamp-to-edge'};
+  const make=(format,height,data)=>device.createTexture({format,width:a.W,height,data,mipmaps:false,sampler});
+  return peopleTextures.cache={device,pos:make('rgba32float',a.P*a.F,a.pos),nor:make('rgba32float',a.P*a.F,a.nor),col:make('rgba8unorm',a.P,a.col)};
+}
+const PeopleLayer=(typeof deck!=='undefined'&&deck.SimpleMeshLayer)?class PeopleLayer extends deck.SimpleMeshLayer {
+  getShaders() {
+    const s=super.getShaders(),F=this.props.frames;
+    if(typeof s.vs!=='string')return s;
+    const fetch=(tex,f)=>`texelFetch(${tex},ivec2(gl_VertexID,pplRow+${f}),0).xyz`;
+    const vs=s.vs
+      .replace('in vec3 instanceTranslation;',`in vec3 instanceTranslation;
+in float instancePerson;
+in float instancePose;
+uniform highp sampler2D peoplePos;
+uniform highp sampler2D peopleNor;
+uniform highp sampler2D peopleCol;`)
+      .replace('void main(void) {',`void main(void) {
+int pplF0=int(floor(instancePose))%${F};int pplF1=(pplF0+1)%${F};float pplT=fract(instancePose);
+int pplRow=int(instancePerson+0.5)*${F};
+vec3 pplPos=mix(${fetch('peoplePos','pplF0')},${fetch('peoplePos','pplF1')},pplT);
+vec3 pplNor=normalize(mix(${fetch('peopleNor','pplF0')},${fetch('peopleNor','pplF1')},pplT)+vec3(0.0,0.0,1e-4));
+vec3 pplCol=texelFetch(peopleCol,ivec2(gl_VertexID,int(instancePerson+0.5)),0).rgb;`)
+      .replace('vColor = vec4(colors * instanceColors.rgb','vColor = vec4(pplCol * instanceColors.rgb')
+      .split('* positions)').join('* pplPos)').split('* normals)').join('* pplNor)');
+    return {...s,vs};
+  }
+  initializeState() {
+    super.initializeState();
+    this.getAttributeManager().addInstanced({instancePerson:{size:1,accessor:'getPerson'},instancePose:{size:1,accessor:'getPose'}});
+  }
+  draw(opts) {
+    const t=peopleTextures(this.context.device);
+    this.state.model?.setBindings({peoplePos:t.pos,peopleNor:t.nor,peopleCol:t.col});
+    super.draw(opts);
+  }
+}:null;
+if(PeopleLayer){
+  PeopleLayer.layerName='PeopleLayer';
+  PeopleLayer.defaultProps={getPerson:{type:'accessor',value:0},getPose:{type:'accessor',value:0},frames:{type:'number',value:8}};
+}
+// The layer's own mesh only sets how many vertices each walker draws; positions come from the atlas.
+function peopleCarrierMesh() {
+  const n=peopleAtlas().W;
+  return {positions:{value:new Float32Array(n*3),size:3},normals:{value:new Float32Array(n*3).fill(1),size:3},
+    colors:{value:new Float32Array(n*3).fill(1),size:3},texCoords:{value:new Float32Array(n*2),size:2}};
 }
 function pedestrianMesh() {
   const v=[],skin=[.65,.43,.3],shirt=[.9,.91,.89],trousers=[.22,.27,.3];
@@ -61,10 +155,18 @@ function pedestrianLayers(now) {
     pickable:false,updateTriggers:{getWidth:lab.demand,getColor:[...lab.blocked].join(',')}}));
   const bounds=trafficView();
   if(lab.people) {
-    const rows=pedestrianRows(bounds),palette=[[232,190,113],[76,151,163],[197,100,87],[140,155,116]];
-    out.push(new deck.SimpleMeshLayer({id:'pedestrian-walkers',data:rows,mesh:mesh('pedestrian-person',pedestrianMesh),
-      getPosition:d=>d.position,getOrientation:d=>[0,d.yaw,0],getColor:d=>palette[d.paint],sizeScale:1,
-      material:MATERIAL,pickable:false,updateTriggers:{getPosition:lab.time,getOrientation:lab.time}}));
+    const rows=pedestrianRows(bounds);
+    if(peopleModels()&&PeopleLayer) {
+      out.push(new PeopleLayer({id:'pedestrian-walkers',data:rows,mesh:mesh('people-carrier',peopleCarrierMesh),frames:PEOPLE_FRAMES(),
+        getPosition:d=>d.position,getOrientation:d=>[0,d.yaw,0],getPerson:d=>d.person,getPose:d=>d.pose,
+        getColor:PERSON_WHITE,sizeScale:1,material:PERSON_MATERIAL,pickable:false,
+        updateTriggers:{getPosition:lab.time,getOrientation:lab.time,getPose:lab.time}}));
+    } else {
+      const palette=[[232,190,113],[76,151,163],[197,100,87],[140,155,116]];
+      out.push(new deck.SimpleMeshLayer({id:'pedestrian-walkers',data:rows,mesh:mesh('pedestrian-person',pedestrianMesh),
+        getPosition:d=>d.position,getOrientation:d=>[0,d.yaw,0],getColor:d=>palette[d.paint],sizeScale:1,
+        material:MATERIAL,pickable:false,updateTriggers:{getPosition:lab.time,getOrientation:lab.time}}));
+    }
   }
   // Transparent picking paths only while the pavement tool is active.
   if(ui.traffic&&ui.roadTool==='pavement')out.push(new deck.PathLayer({id:'pedestrian-edit',data:paths,
