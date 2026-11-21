@@ -3227,3 +3227,87 @@ script `run-joint.sh`.
 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`; then decide whether RL is still worth building
 when the joint optimum is known.
 
+### 21 November 2026 — the Access plans lens: the planning graph in the 3D viewer
+
+Branch `T5.1_RL-access-gpu`. `access_view.py`, `dynacity build-access-view`, `serve --access-view` and
+`viewer_access.js`.
+
+**What it shows.** A new lens, **Access plans**, draws the corridor results as a graph above the city:
+- **Nodes:** homes stay on the ground. The reviewed walking links, the candidate sites and the mapped
+  services float 48, 95 and 150 m up, each on a stem down to where it is.
+- **Edges:** every home is joined to the nearest provider that serves it within 500 m, through the link
+  its walk crosses, if any.
+- **Animation:** new edges grow out from their provider in order of distance, then a pulse runs along
+  them. Reduced motion shows the final picture at once.
+- **Home colours:** orange when a plan brings a home within reach, gold when only a new link does.
+
+Six guided steps follow, then free controls over every result (site set, service, N, K, α, method, and
+a graph-above-the-city or on-the-ground layout):
+1. Today.
+2. The choices: every candidate site, by kind, and the homes it could serve.
+3. The proven best plan (10 sites, α = 1).
+4. What the links add (crossings #9 and #24).
+5. How close each method gets, on the case greedy misses most, with greedy's other sites ringed.
+6. What's next: recorded buildings that may free up, from the building forecast.
+
+Every number on the page comes from the bundle, none is written into the code. Deep links work:
+`#lens=access&step=4`.
+
+**The bundle.** `build-access-view` rebuilds the build-access inputs and attaches the reviewed links.
+For the baseline and every exact, greedy and NSGA-II plan in a `search-joint` result, it runs one
+multi-source Dijkstra per service, with predecessors, on the network with the plan's links added.
+- **Gate:** before writing, every home's distance is checked against `LinkModel.distances` and every
+  scenario's resident shares against the search result. Which homes count as served is the scorer's
+  decision.
+- **Both site sets:** 241 scenarios each, home distances within 0.021 mm, every share equal; 2.4 and
+  2.3 MB gzipped; 26 s each.
+- **Forecast:** the deployed model is the empirical Markov table, so every building in a state gets the
+  same chance. A stable building has a 1.7%, 2.8% and 3.5% chance of being empty, stalled or vacant
+  after 2, 4 and 6 years; the page says so.
+
+**Privacy.** Home positions come from Beirut 001, so the bundle is served only on a loopback host
+(`serve` refuses otherwise), with `Cache-Control: private, no-store`. The page embeds only the site-set
+names. The bundle carries no BBED, OSM or Beirut 001 ids.
+
+**Also:** `walk_links.augmented_graph`, now shared with `full_dijkstra`, and `cli._link_inputs`, now
+shared with `build-links`.
+
+**Build and serve:**
+
+```sh
+O=~/dynacity-data/traffic/osm-beirut-context-sources
+A=~/private/dynacity-data/access/gpu-20261120
+for RB in railbed no-railbed; do
+  dynacity build-access-view --corridor datasets/corridor/masar-akhdar.geojson \
+    --network $O/mobility.json --places $O/places.json --places $O/landscape.json \
+    --facilities ~/private/dynacity-data/facilities/beirut-facilities.json \
+    --beirut001 datasets/beirut001/beirut001-pack.npz --bbed datasets/buildings/bbed-2024.geojson \
+    --add-parking $([ $RB = railbed ] && echo --add-railbed) --sites datasets/corridor/committed-sites.geojson \
+    --access $A/corridor-access-$RB.npz --links datasets/corridor/candidate-links.geojson \
+    --link-model $A/links-$RB.npz --joint $A/joint-$RB.json \
+    --label "$([ $RB = railbed ] && echo With || echo Without) rail bed" \
+    --forecast-model ~/private/dynacity-artifacts/model.joblib --snapshot datasets/buildings/snapshot-2024-located.json \
+    --output $A/access-view-$RB.json.gz
+done
+# then add to the usual serve command:
+#   --access-view $A/access-view-railbed.json.gz $A/access-view-no-railbed.json.gz
+```
+
+**Outputs:** `~/private/dynacity-data/access/gpu-20261120/access-view-{railbed,no-railbed}.json.gz`.
+
+**Verification:**
+- **Python:** 7 tests in `tests/test_access_view.py`:
+  - served homes equal the scorer's;
+  - each home's provider is the nearest, by an independent single-source Dijkstra;
+  - a walk marked as crossing a link is shorter with it, and an unmarked one is not;
+  - mismatched results stop the build;
+  - the forecast chances;
+  - the endpoints, gzip, no-store and the loopback refusal.
+- **JS:** 12 tests in `tests/viewer_access.test.cjs`: steps and comparisons, applying the differences,
+  reveal and arrival timing, reduced motion, tiers and routing through link hubs, label merging, panel
+  text from the bundle, tooltips, and the template hooks.
+- **Suites:** all 155 JS tests and 1,275 Python tests pass. The 7 Python failures (granite parapet,
+  LGB pilot geometry and granite overlay tests) fail the same way at the previous commit.
+- **In the running app:** checked with headless-Chrome screenshots of each step, on a second server
+  (127.0.0.1:8014) with the same inputs as the main one.
+

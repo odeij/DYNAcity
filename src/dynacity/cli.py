@@ -23,6 +23,7 @@ files rather than in-process state:
     propose-links   → candidate crossings and the rail bed as a walkway (.geojson), for a person to review
     build-links     → exact walking-distance blocks for reviewed links on an access model (.npz + report)
     search-joint    → exact optimum and greedy/NSGA-II/Bayesian optimisation for land uses plus links (.json, .md)
+    build-access-view→ the planning graph of those results for the viewer's Access plans lens (.json.gz, private)
     run-plan        → a street plan in SUMO against a paired baseline (.json), without the viewer
     freeze-evidence → registry JSON → content-hashed EvidenceBundle
     compile-scenario→ planner prose → checked ScenarioSpec + audit trail
@@ -50,6 +51,7 @@ import shutil
 import tempfile
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -915,21 +917,20 @@ def command_propose_links(args: argparse.Namespace) -> None:
           f"({len(free)} cut points on no way)")
 
 
-def command_build_links(args: argparse.Namespace) -> None:
-    import time
+def _link_inputs(args: argparse.Namespace) -> tuple[dict, Any, list, set]:
+    """The build-access inputs, the access model built from them, the reviewed links, and the link ends
+    marked free (joined only through other links)."""
 
     from .access import AccessModel
-    from .access_gpu import run_record
-    from .walk_links import build_links, full_dijkstra, read_links
+    from .walk_links import read_links
 
-    started = time.perf_counter()
     inputs = _access_inputs(args)
     model = AccessModel.load(args.access)
-    homes, sites, places, graph = inputs["homes"], inputs["sites"], inputs["places"], inputs["graph"]
+    homes, sites = inputs["homes"], inputs["sites"]
     if list(map(str, homes.ids)) != list(map(str, model.home_ids)) or [s["id"] for s in sites] != model.site_ids:
         raise SystemExit(f"{args.access} was not built from these inputs (homes or sites differ)")
     try:
-        links = read_links(_json(args.links), inputs["crs"], require_review=not args.allow_unreviewed)
+        links = read_links(_json(args.links), inputs["crs"], require_review=not getattr(args, "allow_unreviewed", False))
     except ValueError as error:
         raise SystemExit(str(error)) from None
     free = set()
@@ -937,6 +938,18 @@ def command_build_links(args: argparse.Namespace) -> None:
         for end, join in zip((link.xy[0], link.xy[-1]), link.props.get("ends_join") or ["network", "network"]):
             if join == "free":
                 free.add((float(end[0]), float(end[1])))
+    return inputs, model, links, free
+
+
+def command_build_links(args: argparse.Namespace) -> None:
+    import time
+
+    from .access_gpu import run_record
+    from .walk_links import build_links, full_dijkstra
+
+    started = time.perf_counter()
+    inputs, model, links, free = _link_inputs(args)
+    homes, sites, places, graph = inputs["homes"], inputs["sites"], inputs["places"], inputs["graph"]
     blocks, ends = build_links(graph, homes, places, sites, model.services, links, free_points=free,
                                meta={"access_model": str(args.access), "links_file": str(args.links),
                                      "unreviewed_allowed": bool(args.allow_unreviewed)})
@@ -993,6 +1006,42 @@ def command_build_links(args: argparse.Namespace) -> None:
     report_path.write_text(json.dumps(report, indent=1), encoding="utf-8")
     print(f"links -> {args.output} ({len(links)} links, {blocks.meta['end_points']} end points, "
           f"{blocks.meta['split_nodes']} split ways); check {check}")
+
+
+def command_build_access_view(args: argparse.Namespace) -> None:
+    import time
+
+    from .access_gpu import run_record
+    from .access_view import build_access_view, forecast_section, save_view
+    from .walk_links import LinkModel, attach
+
+    started = time.perf_counter()
+    inputs, model, links, free = _link_inputs(args)
+    link_model = LinkModel.load(args.link_model)
+    ends = attach(inputs["graph"], links, free_points=free)
+    forecast = None
+    if args.forecast_model:
+        if not args.snapshot:
+            raise SystemExit("--forecast-model needs --snapshot (the BBED snapshot the forecast reads)")
+        forecaster = ModelBundle.load(args.forecast_model).forecaster
+        forecast = forecast_section(forecaster, _json(args.snapshot), inputs["corridor"].area, model.site_ids,
+                                    inputs["crs"])
+        if forecast is None:
+            print("the forecast model has no 2-year transition table; the last step shows no buildings")
+    try:
+        view = build_access_view(model=model, link_model=link_model, links=links, ends=ends, original=inputs["graph"],
+                                 places=inputs["places"], joint=_json(args.joint), crs=inputs["crs"],
+                                 label=args.label or Path(args.access).stem, forecast=forecast)
+    except ValueError as error:
+        raise SystemExit(str(error)) from None
+    view["record"] = run_record(args.access, time.perf_counter() - started, link_model=str(args.link_model),
+                                joint=str(args.joint), joint_sha256=hashlib.sha256(Path(args.joint).read_bytes()).hexdigest())
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    size = save_view(view, destination)
+    check = view["check"]
+    print(f"access view -> {destination} ({size / 1e6:.1f} MB; {check['scenarios']} scenarios; home distances within "
+          f"{check['max_abs_diff_m']:.6f} m of LinkModel.distances; shares match the search result)")
 
 
 def _facilities_view(path: str | None, bounds: tuple[float, float, float, float] | None = None) -> dict | None:
@@ -1056,6 +1105,16 @@ def command_serve(args: argparse.Namespace) -> None:
         point_cloud = PointCloudView.load(args.point_cloud_dir)
     if args.beirut001 and args.host not in {"127.0.0.1", "::1", "localhost"}:
         raise SystemExit("--beirut001 requires a loopback host: the model names no licence for web serving")
+    access_views = None
+    if getattr(args, "access_view", None):
+        if args.host not in {"127.0.0.1", "::1", "localhost"}:
+            raise SystemExit("--access-view requires a loopback host: its homes come from the Beirut 001 model, "
+                             "which names no licence for web serving")
+        from .access_view import load_view
+        try:
+            access_views = [load_view(path) for path in args.access_view]
+        except ValueError as error:
+            raise SystemExit(str(error)) from None
     viewer_html = snapshot = baseline = corridor = None
     if getattr(args, 'corridor', None) and not (args.snapshot and args.bbed):
         raise SystemExit('--corridor needs --snapshot and --bbed')
@@ -1122,6 +1181,9 @@ def command_serve(args: argparse.Namespace) -> None:
                 "buildings": len(snapshot.objects), "roads": len(traffic) if traffic is not None else 0})
             print(f"corridor {corridor.name}: {len(snapshot.objects)} buildings, "
                   f"{len(traffic) if traffic is not None else 0} roads within {corridor.buffer_m:g} m")
+        if access_views:
+            # Only the names go into the page; the graph is fetched from the loopback-only endpoint.
+            payload["access"] = {"views": [label for label, _ in access_views]}
         viewer_html = render_viewer(payload)
         print(f"3D viewer at http://{args.host}:{args.port}/")
     provider = None
@@ -1146,6 +1208,7 @@ def command_serve(args: argparse.Namespace) -> None:
         viewer_traffic=traffic,
         point_cloud=point_cloud,
         beirut001=_beirut001_payload(args.beirut001, args.bbed, focus),
+        access_views=access_views,
     )
     print(f"language-model requests capped at {args.llm_request_limit} per run, "
           f"{args.llm_requests_per_minute} a minute")
@@ -1428,6 +1491,18 @@ def build_parser() -> argparse.ArgumentParser:
     links.add_argument("--output", required=True, help="distance blocks (.npz); report next to it")
     links.set_defaults(func=command_build_links)
 
+    view = subparsers.add_parser("build-access-view", help="the planning graph for the viewer's Access plans lens")
+    _add_access_inputs(view)
+    view.add_argument("--access", required=True, help="the build-access model made from the same inputs")
+    view.add_argument("--links", required=True, help="reviewed candidate-links GeoJSON")
+    view.add_argument("--link-model", required=True, help="build-links output for these links on --access")
+    view.add_argument("--joint", required=True, help="search-joint output on the same models")
+    view.add_argument("--label", help="name of this site set on the page, e.g. 'With rail bed'")
+    view.add_argument("--forecast-model", help="trained model bundle; its 2-year table gives the chance buildings free up")
+    view.add_argument("--snapshot", help="BBED snapshot JSON for --forecast-model")
+    view.add_argument("--output", required=True, help="gzip JSON bundle (private), served with serve --access-view")
+    view.set_defaults(func=command_build_access_view)
+
     joint = subparsers.add_parser("search-joint", help="exact optimum and search baselines for land uses plus links")
     joint.add_argument("--model", required=True, help="build-access model")
     joint.add_argument("--links", required=True, help="build-links blocks made on that model")
@@ -1541,6 +1616,8 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--facilities", help="build-facilities output: the Key buildings view (public services) on the map")
     serve.add_argument("--corridor", help="GeoJSON line to focus on (e.g. Al Masar al Akhdar); every input is cut to its buffer")
     serve.add_argument("--corridor-buffer-m", type=float, default=250.0, help="buffer around --corridor, metres")
+    serve.add_argument("--access-view", nargs="+", help="build-access-view bundles (one per site set): the Access "
+                       "plans lens; loopback only")
     serve.add_argument("--basemap", choices=["carto", "none"], default="carto")
     serve.add_argument("--provider", choices=["anthropic", "gemini"])
     serve.add_argument("--llm-model")

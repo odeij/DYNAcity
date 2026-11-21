@@ -85,6 +85,7 @@ def create_app(
     viewer_traffic: TrafficModel | None = None,
     point_cloud: Any | None = None,
     beirut001: dict | None = None,
+    access_views: list[tuple[str, bytes]] | None = None,
 ) -> FastAPI:
     def spend_llm_call() -> None:
         # Checked before any model call; a refused request costs nothing.
@@ -224,6 +225,21 @@ def create_app(
         if beirut001 is None:
             raise HTTPException(status_code=404, detail="No Beirut 001 pack loaded")
         return JSONResponse(beirut001, headers={"Cache-Control": "private, no-store"})
+
+    # The Access plans lens: planning-graph bundles from build-access-view, stored gzipped and sent as
+    # they are. Their homes come from Beirut 001, so they are private and never cached, like the pack.
+    @app.get("/v1/access/views")
+    def access_view_list():
+        if not access_views:
+            raise HTTPException(status_code=404, detail="No access views loaded")
+        return JSONResponse({"views": [label for label, _ in access_views]}, headers={"Cache-Control": "private, no-store"})
+
+    @app.get("/v1/access/view/{index}")
+    def access_view(index: int):
+        if not access_views or not 0 <= index < len(access_views):
+            raise HTTPException(status_code=404, detail="No such access view")
+        return Response(content=access_views[index][1], media_type="application/json",
+                        headers={"Content-Encoding": "gzip", "Cache-Control": "private, no-store"})
 
     # Viewer mode: the 3D page is served from the same origin as the API, and
     # scenarios run against the snapshot held here. The browser only ever sends

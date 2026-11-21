@@ -540,6 +540,35 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
   .leftcol { bottom: 88px; }
 }
 @media (prefers-reduced-motion: reduce) { button, summary, select { transition: none; } }
+/* Access plans lens (viewer_access.js): guided steps over the planning graph. */
+#p-legend.acc-mode #beirut-map-controls { display: none; }
+.acc-row { display: grid; grid-template-columns: 56px 1fr; gap: 8px; align-items: center; margin: 6px 0; }
+.acc-row .k { font-size: 11.5px; color: var(--ink-3); }
+.acc-row .seg { flex-wrap: wrap; justify-self: start; background: var(--control); }
+.acc-row .seg button { padding: 4px 9px; color: var(--ink-2); }
+.acc-steps { display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 0 6px; }
+.acc-steps button { min-width: 28px; height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--control); color: var(--ink-2); font-size: 12px; cursor: pointer; }
+.acc-steps button[aria-current="step"] { background: var(--tab-on-bg); color: var(--tab-on-ink); border-color: transparent; font-weight: 600; }
+.acc-card { margin: 6px 0 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--panel); }
+.acc-kicker { font-size: 11.5px; color: var(--ink-3); }
+.acc-card h3 { margin: 1px 0 4px; font-size: 15px; font-weight: 600; color: var(--ink); }
+.acc-text { margin: 0 0 8px; font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+.acc-stat { display: grid; grid-template-columns: 84px 1fr auto; gap: 8px; align-items: center; padding: 2px 0; font-size: 12px; color: var(--ink-2); }
+.acc-stat.on { color: var(--ink); font-weight: 600; }
+.acc-stat .v { min-width: 74px; text-align: right; font-variant-numeric: tabular-nums; }
+.acc-bar { position: relative; height: 8px; border-radius: 4px; background: var(--control); overflow: hidden; }
+.acc-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; }
+.acc-bar .b1 { background: var(--acc-c, var(--accent)); }
+.acc-bar .b0 { background: var(--ink-3); opacity: .35; z-index: 1; }
+.acc-next { margin: 4px 0 0; padding-left: 16px; font-size: 12px; line-height: 1.5; color: var(--ink-2); }
+.acc-next li { margin: 3px 0; }
+.acc-nav { display: flex; gap: 8px; justify-content: space-between; margin: 4px 0 8px; }
+.acc-nav button { padding: 6px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--control); color: var(--ink); font-size: 12px; cursor: pointer; }
+.acc-nav button.primary { background: var(--accent); border-color: transparent; color: #fff; font-weight: 600; }
+.acc-nav button:disabled { opacity: .45; cursor: default; }
+.acc-legend { margin-top: 4px; }
+.acc-legend .legend-row { padding: 2px 0; }
+.acc-loading { padding: 8px 0; font-size: 12px; color: var(--ink-2); }
 
 </style>
 </head>
@@ -558,6 +587,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
   <div class="tabs" role="tablist" aria-label="Map lens">
     <button class="tab" role="tab" data-lens="observed" aria-selected="true">Observed</button>
     <button class="tab" role="tab" data-lens="key" aria-selected="false" hidden>Key buildings</button>
+    <button class="tab" role="tab" data-lens="access" aria-selected="false" hidden>Access plans</button>
     <button class="tab" role="tab" data-lens="forecast" aria-selected="false">Forecast +2y</button>
     <button class="tab" role="tab" data-lens="change" aria-selected="false">Change risk</button>
     <button class="tab" role="tab" data-lens="delta" aria-selected="false" hidden>Δ vs baseline</button>
@@ -759,6 +789,7 @@ function fill(b) {
   if (ui.lens === 'observed') {
     if (ui.statusColours) rgb = mix(rgb, hex(STATES[b.state].color), 0.6);
   } else if (ui.lens === 'key') rgb = keyBuildingColour(b);
+  else if (ui.lens === 'access') rgb = accessBuildingColour();
   else if (ui.lens === 'forecast') { const p = activeP(b); rgb = p ? hex(STATES[argmax(p)].color) : hex(NO_DATA); }
   else if (ui.lens === 'change') { const p = activeP(b); rgb = p ? rampColor(leaveProb(p, b.state)) : hex(NO_DATA); }
   else { const d = deltaFor(b); rgb = d === null ? hex(NO_DATA) : divergeColor(d); }
@@ -1446,6 +1477,8 @@ function dataSources() {
   add('Traffic speeds and roads', 'Traffic simulation', DATA.traffic?.source);
   if (DATA.traffic?.stations?.length) add('Traffic counts', 'Peak-hour volumes for the simulation', DATA.traffic.volume_source);
   if (cloudActive()) add('Point cloud', '3D survey points', `${pointCloud.metadata.name}; source RGB; display Z offset, datum unverified.`);
+  const accessCredit = accessSource();
+  if (accessCredit) add(...accessCredit);
   return out;
 }
 function attributionShort() {
@@ -1544,7 +1577,7 @@ function drawFx() {
   if (!deckgl || plan2d.hidden) return;
   const now = performance.now();
   refreshCameraGeometry(now);
-  deckgl.setProps({ layers: plan2dFlatten([...baseLayers, ...streetDetailLayers(), ...intersectionDetailLayers(), ...planningLayers(), ...carLayers(now), ...pedestrianLayers(now), ...mobilityLayers(), ...osmPlaceLayers(), ...facilityLayers()]) });
+  deckgl.setProps({ layers: plan2dFlatten([...baseLayers, ...streetDetailLayers(), ...intersectionDetailLayers(), ...planningLayers(), ...carLayers(now), ...pedestrianLayers(now), ...mobilityLayers(), ...osmPlaceLayers(), ...facilityLayers(), ...accessLayers(now)]) });
 }
 function animate() {
   cancelAnimationFrame(fxRaf);
@@ -1566,7 +1599,7 @@ function animate() {
         frames = 0; drawMs = 0; measuredAt = performance.now();
       }
     }
-    if (!calm.matches && (ui.traffic || (mobilityLab.people && DATA.pedestrians))) fxRaf = requestAnimationFrame(frame);
+    if (!calm.matches && (ui.traffic || (mobilityLab.people && DATA.pedestrians) || accessAnimating())) fxRaf = requestAnimationFrame(frame);
   };
   frame();
 }
@@ -3486,7 +3519,7 @@ const deckProps = () => ({
   onHover: showTip,
   // Roads are thin; a few pixels of slack makes them clickable.
   pickingRadius: 6,
-  onClick: ({ object, coordinate }) => { if (object?.canopyCandidate) { ui.canopyCandidate = object.id; renderCanopyReviewPanel(); return; } if (object?.beirutModel != null || (beirutOverlay.data && object?.b)) { showBeirutRecord(object,true); return; } if (object?.bus || object?.survey || object?.feature || object?.signal || object?.signalJunction || object?.properties?.kind || object?.properties?.facility || object?.bridgeStructure) return; if (object?.r) { if (ui.roadTool === 'lane') changeLanes(object.i, 1); else if (ui.roadTool) toggleRoadEvent(object.i, coordinate); else selectRoad(object.i); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
+  onClick: ({ object, coordinate }) => { if (object?.canopyCandidate) { ui.canopyCandidate = object.id; renderCanopyReviewPanel(); return; } if (object?.beirutModel != null || (beirutOverlay.data && object?.b)) { showBeirutRecord(object,true); return; } if (object?.bus || object?.survey || object?.feature || object?.signal || object?.signalJunction || object?.accessKind || object?.properties?.kind || object?.properties?.facility || object?.bridgeStructure) return; if (object?.r) { if (ui.roadTool === 'lane') changeLanes(object.i, 1); else if (ui.roadTool) toggleRoadEvent(object.i, coordinate); else selectRoad(object.i); return; } ui.selected = object ? object.b.id : null; renderInspector(); render(); },
 });
 
 function linkedMapCamera() {
@@ -3645,6 +3678,11 @@ function showTip({ object, x, y }) {
   }
   if(object.feature?.properties?.context_group)object=object.feature;
   if (object.beirutModel != null || (beirutOverlay.data && object.b)) { heightTip(tip, object, x, y); return; }
+  if(object.accessKind) {
+    tip.innerHTML=accessTip(object);
+    tip.hidden=false;tip.style.left=`${Math.max(8,Math.min(x+16,innerWidth-tip.offsetWidth-10))}px`;
+    tip.style.top=`${Math.max(8,Math.min(y+16,innerHeight-tip.offsetHeight-10))}px`;return;
+  }
   if(object.properties?.facility) {
     tip.innerHTML=facilityTip(object);
     tip.hidden=false;tip.style.left=`${Math.max(8,Math.min(x+16,innerWidth-tip.offsetWidth-10))}px`;
@@ -3731,7 +3769,7 @@ function bandNote(f) {
 function renderStatus() {
   const f = ui.scenario?.forecast ?? DATA.forecast;
   const assumed = f?.evidence_level === 'assumption_based_scenario';
-  const label = ui.lens === 'observed' ? 'Observed records' : ui.lens === 'key' ? 'Mapped and listed services' : f ? evidenceLabel(f) : 'No model prediction';
+  const label = ui.lens === 'observed' ? 'Observed records' : ui.lens === 'key' ? 'Mapped and listed services' : ui.lens === 'access' ? accessStatusLabel() : f ? evidenceLabel(f) : 'No model prediction';
   $('status').innerHTML = `<span class="badge ${assumed ? 'assumed' : ''}"><i></i>${label}</span>`;
 }
 
@@ -3742,11 +3780,15 @@ function counts(fn) {
 }
 function renderLegend() {
   if ($('p-legend').hidden) return;
+  // The access plans tell a story in this panel; the building-model controls wait in the other lenses.
+  $('p-legend').classList.toggle('acc-mode', ui.lens === 'access');
   // The building-model controls above it are static; only the legend is redrawn.
   const el = $('legend-body');
   let body = '';
   if (ui.lens === 'key') {
     body = keyBuildingsLegend();
+  } else if (ui.lens === 'access') {
+    body = accessPanel();
   } else if (ui.lens === 'observed' || ui.lens === 'forecast') {
     const c = ui.lens === 'observed' ? counts((b) => b.state) : counts((b) => { const p = activeP(b); return p ? argmax(p) : null; });
     const title = ui.lens === 'observed' ? `Recorded building states` : `Most likely state in 2 years${ui.scenario ? ' · scenario' : ''}`;
@@ -3791,7 +3833,7 @@ function fmtChange(value, unit) {
 }
 function renderDock() {
   const dock = $('dock');
-  dock.hidden = (ui.lens === 'observed' || ui.lens === 'key') && $('p-kpis').hidden;
+  dock.hidden = (ui.lens === 'observed' || ui.lens === 'key' || ui.lens === 'access') && $('p-kpis').hidden;
   if (!baselineForecast()) { dock.innerHTML = '<span class="empty">Run a scenario to see its forecast and baseline comparison.</span>'; return; }
   const horizons = [...new Set(baselineForecast().kpis.map((k) => k.year_offset))].sort((a, b) => a - b);
   if (!horizons.includes(ui.horizon)) ui.horizon = horizons[0];
@@ -3920,6 +3962,8 @@ function setLens(lens) {
   renderStatus(); renderLegend(); renderDock(); render();
   // The key-buildings colours mean nothing without their legend and toggles.
   if (lens === 'key') togglePanel('p-legend', $('t-legend'), true);
+  // The access plans are told through their panel: steps, controls and legend.
+  if (lens === 'access') { togglePanel('p-legend', $('t-legend'), true); accessActivate(); animate(); }
 }
 function togglePanel(id, button, force) {
   const el = $(id);
@@ -4179,6 +4223,7 @@ function wire() {
   // Picking a date switches the satellite view on with that imagery.
   $('sat-source').onchange = (e) => setSatellite(true, Number(e.target.value));
   $('t-legend').onclick = (e) => togglePanel('p-legend', e.currentTarget);
+  $('p-legend').addEventListener('click', accessPanelClick);
   $('p-legend').addEventListener('change', (e) => {
     const kind = e.target.dataset?.facility;
     if (!kind) return;
@@ -4303,6 +4348,7 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
   renderSources();
   if (!DATA.forecast) document.querySelectorAll('[data-lens="forecast"],[data-lens="change"]').forEach((t) => (t.hidden = true));
   document.querySelector('[data-lens="key"]').hidden = !DATA.facilities;
+  document.querySelector('[data-lens="access"]').hidden = !(DATA.access && DATA.api);
   // Detail panels start collapsed so the city stays visible.
   $('t-traffic').hidden = !DATA.traffic;
   $('t-people').hidden = !DATA.pedestrians;

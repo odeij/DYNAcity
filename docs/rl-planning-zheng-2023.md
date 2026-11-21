@@ -229,6 +229,16 @@ New dependencies go in an `rl` extra: `torch`, `pymoo`, and `libsumo` for the tr
 
 ## Progress
 
+### The planning graph in the 3D viewer (21 November 2026)
+
+The results can now be seen: the viewer's **Access plans** lens (`dynacity build-access-view`, `serve
+--access-view`) draws homes, mapped services, candidate sites and the reviewed walking links as a graph
+above the corridor. Each home is joined to its nearest provider within 500 m, through the link its walk
+crosses. Guided steps cover today, the choices, the proven best plan, what the links add, how close each
+search method gets, and what comes next, followed by free controls over every result. Every home's walk is
+checked against the scorer before the page gets it (within 0.021 mm over 241 scenarios per site set). See
+the [work log](beirut-simulation-work-log.md).
+
 ### Joint search over land uses and links, phase B of the GPU plan (21 November 2026)
 
 `access_joint.py` (`dynacity search-joint`) searches land uses and the reviewed walking links

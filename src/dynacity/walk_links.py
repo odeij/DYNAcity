@@ -308,11 +308,10 @@ def build_links(graph: WalkGraph, homes: Homes, places: list[Place], sites: list
     return model, ends
 
 
-def full_dijkstra(ends: EndPoints, homes: Homes, places: list[Place], sites: list[dict], services: tuple[str, ...],
-                  active: Iterable[int], original: WalkGraph) -> np.ndarray:
-    """(T, H) by plain Dijkstra on the split network with the active links added: the check on LinkModel."""
+def augmented_graph(ends: EndPoints, active: Iterable[int]) -> tuple[WalkGraph, np.ndarray]:
+    """The split network with the active links added as edges, and the graph vertex of every end point.
 
-    from scipy.spatial import cKDTree
+    Vertices: the split network's (original nodes first, then split nodes), then the free end points."""
 
     g = ends.graph
     free = np.flatnonzero(ends.vertex < 0)
@@ -324,7 +323,16 @@ def full_dijkstra(ends: EndPoints, homes: Homes, places: list[Place], sites: lis
         source.append(np.array([a, b])), target.append(np.array([b, a]))
         length.append(np.array([ends.length[link]] * 2))
     xy = np.vstack([g.xy, ends.xy[free]])
-    augmented = WalkGraph(xy, np.concatenate(source), np.concatenate(target), np.concatenate(length))
+    return WalkGraph(xy, np.concatenate(source), np.concatenate(target), np.concatenate(length)), vertex
+
+
+def full_dijkstra(ends: EndPoints, homes: Homes, places: list[Place], sites: list[dict], services: tuple[str, ...],
+                  active: Iterable[int], original: WalkGraph) -> np.ndarray:
+    """(T, H) by plain Dijkstra on the split network with the active links added: the check on LinkModel."""
+
+    from scipy.spatial import cKDTree
+
+    augmented, _ = augmented_graph(ends, active)
     tree = cKDTree(original.xy)
     home_snap, home_node = tree.query(homes.xy)
     rows = _targets(places, services, sites, tree, augmented)
