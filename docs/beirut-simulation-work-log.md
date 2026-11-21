@@ -2907,3 +2907,17 @@ Confirmed original PID35100 ended at16turncap after read-only investigation. Res
 ### 8 November 2026 — Codex usage reduction requested by user
 
 Paused the recurring automation through the app and verified its persisted PAUSED state. Its future cadence is hourly instead of every10minutes, with a compact checkpoint-first prompt, one review of a changed completed handoff, and no automatic agent launches/resumes or repair loops. Existing workerPID76968 was active and left to finish without coordinator polling. New coordination entrypoint: `D:/private/dynacity-data/web-appearance-20261108/coordinator-compact.json`. Full evidence remains intact; pilot acceptance still awaits tests and browser access. No product changes, commit, push or deployment. The user must explicitly resume the schedule.
+
+### 21 November 2026 — open data sources for the 2D planner and the Unreal corridor
+
+- Run folder: [`docs/runs/2026-11-20-open-data-sources/`](runs/2026-11-20-open-data-sources/worklog.md)
+- Branch `viewer-2d-planner-and-corridor-work`, merges `c7de310` and `b3e879b`. Not pushed.
+- Added:
+  - Meta/WRI canopy heights (2019; positions good to about 10 m)
+  - a FABDEM terrain option (CC BY-NC-SA)
+  - WorldPop 2025 resident counts and Overture places for closed streets in `/planner`, both off by default
+  - 1,006 estimated canopy trees as one reversible Unreal group
+  - a hidden FABDEM Unreal extension
+  - an Open-Meteo sky adapter, off by default
+- Every result was independently checked against raw sources.
+- Native Claude Sonnet workers, by the user's choice for this run.
