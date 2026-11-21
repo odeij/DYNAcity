@@ -3158,3 +3158,70 @@ shops +3.6%, schools +2.2%, parks +0.8%; objective +0.038 at α = 1 with no land
 
 **Next:** the joint search over land uses and links, then Gate B.
 
+### 21 November 2026 — corridor planning on the GPU: phase B, the joint search
+
+Branch `T5.1_RL-access-gpu`, rig5090, commit `579e968` (`access_joint.py`, `dynacity search-joint`),
+run overnight on both site sets with the reviewed links.
+
+**Method.** A joint plan is land uses on up to N sites plus up to K link groups (the 11 kept
+crossings and the rail-bed walkway). At 500 m seven crossings (#0–3, #5–7) never change who reaches
+what, so only five groups matter (#4, #9, #22, #24 and the walkway), and every link set gives one
+of 32 reach patterns. The exact search solves the land-use integer program for each pattern within
+the link budget (6 for K = 1, 16 for K = 2, 26 for K = 3) and keeps the best; this is exact because
+a link set acts only through its pattern. Greedy adds the best single land use or link group each
+step; NSGA-II (population 1,024, 200 generations, 204,800 evaluations per budget pair) evolves
+land uses and link groups together. Budgets N = 5–30 in steps of 5, K = 1–3, α 0.5, 1, 2, 4; the
+land-use optimum with no links gives the links' value.
+
+**Results.** All 144 joint solves and the 48 solves without links were proven optimal; the exact
+search took under two minutes per site set (whole runs: 10 and 9.6 minutes, mostly NSGA-II). Gap to
+the optimum, over 72 cases per site set:
+
+| Method | With rail bed: median / worst | Without: median / worst | Cases over 1% |
+|---|---|---|---|
+| Greedy | 0.63% / 1.17% | 0.42% / 2.05% | 4% and 25% |
+| NSGA-II | 0.20% / 0.96% | 0.14% / 0.50% | 0% and 0% |
+
+NSGA-II finds the optimum at N = 5 and comes within 0.1% at N = 10; its gap grows with the budget
+(median about 0.4% at N = 20). Greedy exceeds 1% with the rail bed only at α = 4 and N = 30; without
+it, at every budget, mostly at α = 4.
+
+**What the links are worth.** With the land uses re-optimised around them, the best links raise the
+objective by a median 0.5%, 0.9% and 1.1% for K = 1, 2, 3 with the rail bed, and 0.8%, 1.4% and 1.7%
+without (at most 3.9%). That is the size of greedy's gap: greedy's joint plan scores below the
+best plan with no links at all in 21 of 72 cases with the rail bed and 11 without (NSGA-II: 8 and
+0). Example, N = 10, K = 2, α = 1, with the rail bed: crossings #9 and #24 with 3 clinics and 7
+parks bring medical care within 500 m to 59.2% of residents, against 54.2% for the best plan with
+no links; schools 64.2% against 62.4%, shops 69.6% against 67.1%.
+
+**Which links.** The optima use four groups: the rail-bed walkway (54 and 56 of 72 cases), crossing
+#9 at Joseph Chader (51 and 45), #4 at Charles Helou (25 and 34) and #24 at Joseph Chader (14 and 9).
+#22 on Fouad Chehab Avenue never enters an optimum. With one link and the rail bed, #9 is best up to
+N = 15 and the walkway from N = 20; with two links, #4 and the walkway are best at N = 25–30 on both
+sets. The walkway is chosen without the rail-bed sites too: it shortens walks on its own.
+
+**Reading.** At this link set the joint problem is solved exactly in under two minutes, as the
+land-use problem was in phase A1, so Gate B has a known optimum: every method is measured by its
+gap, and none can beat it. NSGA-II stays within 1% everywhere; greedy does not, and its gap can
+cancel what the links add.
+
+**Bayesian optimisation did not finish.** The second job (rail-bed set, N = 10 and 20, K = 2, all α,
+full and reduced encodings, cap 200 iterations) stopped after an hour with a CUDA out-of-memory
+error in its first case (N = 10, K = 2, α = 0.5, full encoding: 400 binary inputs, 388 (site, use)
+pairs and 12 link groups) and wrote no results. The settings are not the cause. Measured on the rig
+afterwards with the same model set-up, one iteration with the screen in blocks of 512 plans peaks at
+4.6 GiB with 1,000 training plans and 14.0 GiB with 3,000, the most a 200-iteration cap allows
+(fitting under 0.8 GiB, the qLogEI pick 3.5 GiB). The failed request (4.48 GiB) puts the training
+set near 2,930 plans, about iteration 190 of 200. At that point PyTorch held 9.1 GiB reserved but
+unused: the training set grows by 10 plans each iteration, so each screen's tensors are slightly
+larger than the cached blocks. Another process held 4.0 GiB of the card. `run_joint` saves only at
+the end, so the failure lost the whole job.
+
+**Outputs:** `~/private/dynacity-data/access/gpu-20261120/joint-{railbed,no-railbed}.{json,md,log}`,
+`joint-bo-railbed.log` (the failure), `joint-status.txt`, `joint.nvidia-smi.csv` and the launch
+script `run-joint.sh`.
+
+**Next:** rerun Bayesian optimisation with the same settings and
+`PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`; then decide whether RL is still worth building
+when the joint optimum is known.
+

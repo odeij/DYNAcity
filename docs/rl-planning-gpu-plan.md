@@ -271,7 +271,8 @@ the person who reviewed it.
   within 500 m of a service (medical care +5.4% of residents, shops +3.6%, schools +2.2%).
   `build-links` on the reviewed file: 90 links, 106 end points; 1,000 random sets match a full
   Dijkstra to 0.24 mm on both site sets.
-- **Next:** the joint search (land uses plus links) and Gate B.
+- **Joint search (21 November 2026):** exact, greedy and NSGA-II run on both site sets; see the
+  Gate B status below.
 
 **Joint search.** A plan is land uses plus links, under a budget on the count of each.
 - greedy and NSGA-II;
@@ -294,6 +295,18 @@ the person who reviewed it.
 held-out weights, across five seeds? This is the first place where the repository's rule (RL must
 beat Bayesian optimisation and a genetic algorithm on the same evaluator) is a real test. Losing to
 either one is reported as such.
+
+**Gate B status (rig5090, 21 November 2026).** The optimum turned out to be known after all: with
+the reviewed links, seven crossings never change access at 500 m, the other five groups give only 32
+reach patterns, and an integer program per pattern solves the joint problem exactly (every case
+proven optimal, under two minutes per site set). Against it (N = 5–30, K = 1–3, α 0.5–4, both site
+sets), NSGA-II is within 1% everywhere (median 0.20% with the rail bed and 0.14% without, worst
+0.96%). Greedy is not (median 0.63% and 0.42%, worst 2.05%, over 1% in 4% and 25% of cases), and in
+21 and 11 of 72 cases it scores below the best plan with no links at all. The best links add a
+median 0.5–1.7% to the objective. Bayesian optimisation has not finished: the first run ran out of
+GPU memory near the end of its first case (unused cached memory and another process on the card,
+not its settings) and is to be rerun. RL is not built. Details:
+[work log](beirut-simulation-work-log.md).
 
 ## Phase C: plans staged over the years (later; it needs inputs)
 
