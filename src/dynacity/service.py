@@ -93,6 +93,7 @@ def create_app(
     point_cloud: Any | None = None,
     beirut001: dict | None = None,
     planner_context: Any | None = None,
+    planner_trees: dict | None = None,
 ) -> FastAPI:
     def spend_llm_call() -> None:
         # Checked before any model call; a refused request costs nothing.
@@ -316,6 +317,11 @@ def create_app(
             if "roads" not in planner_cache:
                 planner_cache["roads"] = planner_roads(viewer_traffic)
             return planner_cache["roads"]
+
+        # Mapped trees (planner.planner_trees); an empty collection without `serve --landscape`.
+        @app.get("/v1/planner/trees")
+        def planner_tree_list() -> dict:
+            return planner_trees or {"type": "FeatureCollection", "features": []}
 
         # Optional context layers (WorldPop residents, Overture places): only when `serve`
         # was given their files. Without them neither route exists.

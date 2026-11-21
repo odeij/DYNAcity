@@ -2803,7 +2803,9 @@ function landscapeLayers() {
     getColor:f=>[...shade(fill(f).map(v=>Math.round(v*.78)),night,.55),105],
     getWidth:.18,widthUnits:'meters',widthMinPixels:.6,widthMaxPixels:1.2,
     capRounded:true,jointRounded:true,pickable:false,updateTriggers:{getColor:night}}));
-  if(zoom>=16.5&&centre) {
+  // Real trees at every zoom: zooming out they simply shrink with the city, as from a plane;
+  // no stand-in dots. (1,498 instances; one mesh draw call.)
+  if(centre) {
     // Show every mapped tree in view, without silently truncating dense parks.
     // Row-derived instances carry explicit position provenance in their tooltip.
     // Culled to the snapped view box, so the array (and deck's instance buffers) stays put while panning.
@@ -2818,9 +2820,7 @@ function landscapeLayers() {
       getScale:f=>[f.properties.height_m/6,f.properties.height_m/6,f.properties.height_m/6],
       getOrientation:f=>[0,[...String(f.properties.id??f.geometry.coordinates)].reduce((h,c)=>(h*31+c.charCodeAt(0))>>>0,0)%360,0],
       getColor:[255,255,255],material:{ambient:.5,diffuse:.7,shininess:1,specularColor:[4,6,3]},pickable:true}));
-  } else if(landscapeLayers.trees.length)out.push(new deck.ScatterplotLayer({id:'mapped-tree-overview',data:landscapeLayers.trees,
-    getPosition:f=>onGround(f.geometry.coordinates,.1),getRadius:2,radiusUnits:'meters',radiusMinPixels:1.5,radiusMaxPixels:3,
-    getFillColor:shade([68,113,62,220],night,.4),pickable:true,updateTriggers:{getFillColor:night}}));
+  }
   return out;
 }
 function mobilityLayers() {

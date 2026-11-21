@@ -45,6 +45,28 @@ def planner_roads(model: TrafficModel) -> dict[str, Any]:
     return {"type": "FeatureCollection", "features": features}
 
 
+def planner_trees(landscape: dict[str, Any] | None) -> dict[str, Any]:
+    """The same tree points the 3D viewer draws (`landscape.landscape_payload`), stripped for a 2D map.
+
+    Each point keeps only whether it is an individually mapped OSM tree (`row: 0`) or
+    one placed at illustrative spacing along a mapped tree row (`row: 1`), and its crown
+    width in metres when OSM tags one. Positions are already longitude/latitude.
+    """
+    features = []
+    for f in (landscape or {}).get("features", []):
+        p = f.get("properties", {})
+        if p.get("kind") != "tree" or f.get("geometry", {}).get("type") != "Point":
+            continue
+        props: dict[str, Any] = {"row": 1 if str(p.get("id", "")).startswith("way/") else 0}
+        if p.get("crown_diameter_m"):
+            props["crown"] = round(float(p["crown_diameter_m"]), 1)
+        lon, lat = f["geometry"]["coordinates"][:2]
+        features.append({"type": "Feature", "properties": props,
+                         "geometry": {"type": "Point", "coordinates": [round(lon, 6), round(lat, 6)]}})
+    return {"type": "FeatureCollection", "features": features,
+            "attribution": "Trees © OpenStreetMap contributors (ODbL)"}
+
+
 CONTEXT_MARK = "/*PLANNER_CONTEXT*/false"
 
 

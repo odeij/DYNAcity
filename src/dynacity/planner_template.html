@@ -749,6 +749,29 @@ map.on('load', async () => {
   map.addLayer({ id: 'detours', type: 'line', source: 'detours', layout: { 'line-cap': 'round' },
     paint: { 'line-color': '#5b3a8c', 'line-opacity': 0.6, 'line-blur': 1, 'line-width': roadWidthByW(5) } }, firstLabel);
 
+  // Mapped trees (/v1/planner/trees, the 3D viewer's OSM trees): small green crowns under the streets' ink.
+  // Trees placed along a mapped tree row are illustrative spacing, so they are drawn a little fainter.
+  map.addSource('trees', { type: 'geojson', data: empty() });
+  // Crowns at their real size on the ground, like trees on an aerial photo: specks from far up,
+  // soft-edged canopies close in, never a fixed-size marker. At Beirut's latitude one pixel is
+  // ~129,900 / 2^zoom metres, so a crown of radius r metres is r * 2^zoom / 129,900 pixels; an
+  // exponential base-2 interpolation between two zooms reproduces that exactly. Unmapped crowns: 6 m.
+  const crownR = (z) => ['*', ['/', ['coalesce', ['get', 'crown'], 6], 2], 2 ** z / 129900];
+  map.addLayer({ id: 'trees', type: 'circle', source: 'trees', minzoom: 14,
+    paint: {
+      'circle-radius': ['interpolate', ['exponential', 2], ['zoom'], 14, crownR(14), 20, crownR(20)],
+      'circle-color': '#5d7f45', 'circle-blur': 0.35,
+      // Fade in while zooming, so nothing pops; row trees (illustrative spacing) stay a little lighter.
+      'circle-opacity': ['interpolate', ['linear'], ['zoom'], 14, 0, 15.5, ['case', ['==', ['get', 'row'], 1], 0.5, 0.7]],
+    } }, firstLabel);
+  fetch('/v1/planner/trees').then((r) => (r.ok ? r.json() : null)).then((trees) => {
+    if (!trees?.features?.length) return;
+    map.getSource('trees').setData(trees);
+    map.removeControl(attribCtl);
+    attribCtl = new maplibregl.AttributionControl({ compact: true, customAttribution: [BASE_CREDIT, trees.attribution] });
+    map.addControl(attribCtl, 'bottom-left');
+  }).catch(() => { /* trees are context; the planner works without them */ });
+
   // Hover and selection.
   map.addLayer({ id: 'hover', type: 'line', source: 'roads', filter: ['==', ['id'], -1], layout: { 'line-cap': 'round' },
     paint: { 'line-color': '#2b1a0e', 'line-opacity': 0.35, 'line-width': roadWidth(9) } }, firstLabel);

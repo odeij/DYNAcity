@@ -743,6 +743,7 @@ def command_serve(args: argparse.Namespace) -> None:
         point_cloud=point_cloud,
         beirut001=_beirut001_payload(args.beirut001, args.bbed, focus),
         planner_context=planner_context,
+        planner_trees=_planner_trees(landscape),
     )
     print(f"language-model requests capped at {args.llm_request_limit} per run, "
           f"{args.llm_requests_per_minute} a minute")
@@ -756,6 +757,13 @@ def command_serve(args: argparse.Namespace) -> None:
         print('Traffic network ready in memory' if retained else
               'Traffic network exceeds the in-memory cache; first connection will convert it again')
     uvicorn.run(app, host=args.host, port=args.port)
+
+
+def _planner_trees(landscape: dict | None) -> dict | None:
+    if not landscape:
+        return None
+    from .planner import planner_trees
+    return planner_trees(landscape)
 
 
 def build_parser() -> argparse.ArgumentParser:
