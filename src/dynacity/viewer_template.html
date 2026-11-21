@@ -4213,12 +4213,11 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
     const tab = hashLens && document.querySelector(`.tab[data-lens="${CSS.escape(hashLens)}"]:not([hidden])`);
     setLens(tab ? hashLens : ui.lens);
     if(DATA.api && DATA.traffic && new URLSearchParams(location.search).get('traffic')==='1')setTraffic(true);
-    // Every data layer the server has is shown from the start (traffic, bus routes,
-    // pedestrians); their detail panels stay closed so the city stays in view.
-    // `#layers=off` starts with them off.
+    // Traffic is shown from the start, its detail panel closed so the city stays in view. Bus
+    // routes and pedestrians start off (the user's choice): the traffic panel's checkbox and the
+    // walker rail button turn them on. `#layers=off` starts with traffic off too.
     else if (!/(^|&)layers=off/.test(location.hash.slice(1))) {
-      if (DATA.traffic) { ui.buses = !!DATA.traffic.bus_routes?.length; setTraffic(true); $('p-traffic').hidden = true; }
-      if (DATA.pedestrians && typeof setPeople === 'function') setPeople(true);
+      if (DATA.traffic) { setTraffic(true); $('p-traffic').hidden = true; }
     }
     if (corridorMode()) togglePanel('p-corridor', $('t-corridor'), true);
   });
