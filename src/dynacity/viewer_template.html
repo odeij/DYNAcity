@@ -2135,7 +2135,9 @@ function advanceCars(now) {
 function roadHeightAt(i, lon, lat) {
   const road = DATA.traffic?.roads?.[i];
   if (!road) return null;
-  if (!(road.lvl > 0) && i !== 0 && !road.lifted) return groundZ(lon, lat);
+  // On terrain every street carries its drawn heights (dips are bridged by grade limits), so cars
+  // follow those, not the raw ground, or they sink below the road where the ground dips.
+  if (!(road.lvl > 0) && i !== 0 && !road.lifted && road.path[0]?.[2] === undefined) return groundZ(lon, lat);
   let best = Infinity, z = 0;
   const sx=111320*Math.cos(lat*Math.PI/180);
   for(let j=1;j<road.path.length;j++) {
@@ -2155,7 +2157,7 @@ function vehicleRoadPitch(c) {
   if(!road)return null;
   const [lon,lat]=c.pose.position,sx=111320*Math.cos(lat*Math.PI/180);
   const heading=(c.pose.orientation?.[1]??0)*Math.PI/180;
-  if(!(road.lvl>0)&&c.i!==0&&!road.lifted) {
+  if(!(road.lvl>0)&&c.i!==0&&!road.lifted&&road.path[0]?.[2]===undefined) {
     // On the ground: the relief's grade along the heading, over 8 m (under a grid cell, so no spikes).
     const dlon=Math.cos(heading)*4/sx,dlat=Math.sin(heading)*4/111320;
     return -Math.atan((groundZ(lon+dlon,lat+dlat)-groundZ(lon-dlon,lat-dlat))/8)*180/Math.PI;
