@@ -2910,7 +2910,7 @@ Paused the recurring automation through the app and verified its persisted PAUSE
 
 ### 21 November 2026 — open data sources for the 2D planner and the Unreal corridor
 
-- Run folder: [`docs/runs/2026-11-20-open-data-sources/`](runs/2026-11-20-open-data-sources/worklog.md)
+- Run folder (local only, not committed): `docs/runs/2026-11-20-open-data-sources/`
 - Branch `viewer-2d-planner-and-corridor-work`, merges `c7de310` and `b3e879b`. Not pushed.
 - Added:
   - Meta/WRI canopy heights (2019; positions good to about 10 m)
