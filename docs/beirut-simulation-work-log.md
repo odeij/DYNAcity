@@ -3214,11 +3214,13 @@ afterwards with the same model set-up, one iteration with the screen in blocks o
 (fitting under 0.8 GiB, the qLogEI pick 3.5 GiB). The failed request (4.48 GiB) puts the training
 set near 2,930 plans, about iteration 190 of 200. At that point PyTorch held 9.1 GiB reserved but
 unused: the training set grows by 10 plans each iteration, so each screen's tensors are slightly
-larger than the cached blocks. Another process held 4.0 GiB of the card. `run_joint` saves only at
-the end, so the failure lost the whole job.
+larger than the cached blocks. Another process held 4.0 GiB of the card. `run_joint` saved only at
+the end, so the failure lost the whole job. It now saves after each method and each Bayesian
+optimisation case (`complete` stays false until the end), and Bayesian optimisation logs its best
+objective every 25 iterations.
 
 **Outputs:** `~/private/dynacity-data/access/gpu-20261120/joint-{railbed,no-railbed}.{json,md,log}`,
-`joint-bo-railbed.log` (the failure), `joint-status.txt`, `joint.nvidia-smi.csv` and the launch
+`joint-bo-railbed.oom.log` (the failure), `joint-status.txt`, `joint.nvidia-smi.csv` and the launch
 script `run-joint.sh`.
 
 **Next:** rerun Bayesian optimisation with the same settings and

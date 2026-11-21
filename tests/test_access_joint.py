@@ -9,7 +9,7 @@ torch = pytest.importorskip("torch")
 from dynacity.access import Homes, Place, WalkGraph, build_access  # noqa: E402
 from dynacity.access_gpu import BatchScorer  # noqa: E402
 from dynacity.access_joint import (  # noqa: E402
-    JointScorer, bo_joint, exact_joint, greedy_joint, link_groups, nsga2_joint,
+    JointScorer, bo_joint, exact_joint, greedy_joint, link_groups, nsga2_joint, run_joint,
 )
 from dynacity.cli import main  # noqa: E402
 from dynacity.walk_links import Link, build_links  # noqa: E402
@@ -137,6 +137,20 @@ def test_greedy_nsga2_and_bo_stay_feasible_and_below_the_optimum(setup):
         assert b["evaluations"] >= (12 if reduced is None else 1), "the reduced space has only a few distinct plans"
 
 
+def test_run_joint_saves_after_each_method_and_bo_case(setup):
+    model, blocks = setup
+    seen = []
+
+    def checkpoint(out):
+        searched = [r for r in out["results"] if r["method"] != "exact_no_links"]
+        seen.append((len(out["results"]), all("gap_pct" in r for r in searched)))
+
+    out = run_joint(model, blocks, ["exact", "greedy", "bo"], [2], [1], [1.0], bo_reduced=3, bo_max_iterations=2,
+                    device="cpu", log=lambda *_: None, checkpoint=checkpoint)
+    # exact (with and without links), greedy, then Bayesian optimisation full and reduced
+    assert seen == [(2, True), (3, True), (4, True), (5, True)] and len(out["results"]) == 5
+
+
 def test_search_joint_runs_from_the_command_line(setup, tmp_path):
     model, blocks = setup
     model.save(tmp_path / "access.npz")
@@ -148,4 +162,5 @@ def test_search_joint_runs_from_the_command_line(setup, tmp_path):
     result = json.loads(out.read_text())
     gaps = {r["method"]: r["gap_pct"] for r in result["results"] if "gap_pct" in r}
     assert gaps["exact"] == 0 and min(gaps.values()) >= -1e-9 and result["inert_groups"] == ["duplicate"]
+    assert result["complete"] is True
     assert "no links" in md.read_text()

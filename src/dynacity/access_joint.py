@@ -553,7 +553,10 @@ def bo_joint(js: JointScorer, N: int, K: int, alpha: float, *, reduced: int | No
 def run_joint(model: AccessModel, links: LinkModel, methods: list[str], budgets: list[int], link_budgets: list[int],
               alphas: list[float], *, bo_budgets: list[int] | None = None, bo_link_budgets: list[int] | None = None,
               bo_reduced: int = 40, bo_max_iterations: int = 300, population: int = 1024, generations: int = 200,
-              device: str = "cuda", seed: int = 0, log=print) -> dict:
+              device: str = "cuda", seed: int = 0, log=print, checkpoint=None) -> dict:
+    """Every requested method on every budget, link budget and alpha. `checkpoint(out)`, if given, is
+    called after each method and after each Bayesian optimisation case, with the gaps filled in so far,
+    so that a long run that fails keeps what it finished."""
     started = time.perf_counter()
     js = JointScorer(model, links, device)
     log(f"{js.G} link groups, {js.n_patterns} distinct reach patterns; groups that never change reach: "
@@ -569,12 +572,18 @@ def run_joint(model: AccessModel, links: LinkModel, methods: list[str], budgets:
         out["results"].append({"method": method, "budget": N, "link_budget": K, "alpha": a,
                                **js.describe(plan, s, a), **extra})
 
+    def save():
+        if checkpoint:
+            _fill_gaps(out)
+            checkpoint(out)
+
     if "exact" in methods:
         for (N, K, a), r in exact_joint(js, budgets, link_budgets, alphas, log=log).items():
             add("exact", N, K, a, r["plan"], r["set"], optimal=r["all_optimal"], patterns_compared=r["patterns_compared"])
         # land uses only (no links), for the value of the links
         for (N, _, a), r in exact_joint(js, budgets, [0], alphas, log=lambda *_: None).items():
             add("exact_no_links", N, 0, a, r["plan"], r["set"], optimal=r["all_optimal"])
+        save()
     if "greedy" in methods:
         for N in budgets:
             for K in link_budgets:
@@ -582,6 +591,7 @@ def run_joint(model: AccessModel, links: LinkModel, methods: list[str], budgets:
                     plan, s, steps = greedy_joint(js, N, K, a)
                     add("greedy", N, K, a, plan, s, steps=steps)
         log("greedy done")
+        save()
     if "nsga2" in methods:
         for N in budgets:
             for K in link_budgets:
@@ -591,25 +601,32 @@ def run_joint(model: AccessModel, links: LinkModel, methods: list[str], budgets:
                     add("nsga2", N, K, a, r["plans"][i], int(r["sets"][i]), evaluations=r["evaluations"],
                         population=population, generations=generations, seed=seed, seconds=round(r["seconds"], 1))
                 log(f"nsga2 N={N} K={K}: {r['seconds']:.0f} s")
+        save()
     if "bo" in methods:
         for N in bo_budgets or budgets:
             for K in bo_link_budgets or link_budgets:
                 for a in alphas:
                     for reduced in (None, bo_reduced):
-                        r = bo_joint(js, N, K, a, reduced=reduced, max_iterations=bo_max_iterations, seed=seed)
+                        r = bo_joint(js, N, K, a, reduced=reduced, max_iterations=bo_max_iterations, seed=seed,
+                                     log=log)
                         add("bo_reduced" if reduced else "bo", N, K, a, r["plan"], r["set"],
                             **{k: r[k] for k in ("evaluations", "iterations", "stopped", "inputs", "reduced",
                                                  "fit_failures")},
                             seconds=round(r["seconds"], 1), seed=seed)
                         log(f"bo{' reduced' if reduced else ''} N={N} K={K} a={a}: {r['objective']:.4f} after "
                             f"{r['evaluations']} evaluations ({r['stopped']}, {r['seconds']:.0f} s)")
+                        save()
+    _fill_gaps(out)
+    out["wall_seconds"] = round(time.perf_counter() - started, 1)
+    return out
+
+
+def _fill_gaps(out: dict) -> None:
     best = {(r["budget"], r["link_budget"], r["alpha"]): r["objective"] for r in out["results"] if r["method"] == "exact"}
     for r in out["results"]:
         opt = best.get((r["budget"], r["link_budget"], r["alpha"]))
         if opt is not None and r["method"] != "exact_no_links":
             r["gap_pct"] = round(100 * (opt - r["objective"]) / opt, 4)
-    out["wall_seconds"] = round(time.perf_counter() - started, 1)
-    return out
 
 
 def joint_table(out: dict, label: str) -> str:

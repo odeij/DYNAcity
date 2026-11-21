@@ -842,18 +842,25 @@ def command_search_joint(args: argparse.Namespace) -> None:
     if links.targets != list(model.services) + list(model.site_ids):
         raise SystemExit(f"{args.links} was not built on {args.model} (targets differ)")
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    links_sha256 = hashlib.sha256(Path(args.links).read_bytes()).hexdigest()
+
+    def write(out: dict, complete: bool) -> None:
+        # rewritten after each method and Bayesian optimisation case; `complete` is false until the end
+        out["complete"] = complete
+        out["record"] = run_record(args.model, time.perf_counter() - started, seeds=[args.seed], methods=args.method,
+                                   device=device, links=str(args.links), links_sha256=links_sha256)
+        destination.write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding="utf-8")
+        if args.summary:
+            Path(args.summary).write_text(joint_table(out, args.label or Path(args.model).stem), encoding="utf-8")
+
     out = run_joint(model, links, args.method, args.budgets, args.link_budgets, args.alpha, bo_budgets=args.bo_budgets,
                     bo_link_budgets=args.bo_link_budgets, bo_reduced=args.bo_reduced,
                     bo_max_iterations=args.bo_max_iterations, population=args.population,
-                    generations=args.generations, device=device, seed=args.seed)
-    out["record"] = run_record(args.model, time.perf_counter() - started, seeds=[args.seed], methods=args.method,
-                               device=device, links=str(args.links),
-                               links_sha256=hashlib.sha256(Path(args.links).read_bytes()).hexdigest())
-    destination = Path(args.output)
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(out, indent=1, ensure_ascii=False), encoding="utf-8")
-    if args.summary:
-        Path(args.summary).write_text(joint_table(out, args.label or Path(args.model).stem), encoding="utf-8")
+                    generations=args.generations, device=device, seed=args.seed,
+                    checkpoint=lambda partial: write(partial, False))
+    write(out, True)
     print(f"joint -> {args.output} ({len(out['results'])} results, {out['record']['wall_seconds']} s)")
 
 
