@@ -229,6 +229,17 @@ New dependencies go in an `rl` extra: `torch`, `pymoo`, and `libsumo` for the tr
 
 ## Progress
 
+### Joint search over land uses and links, phase B of the GPU plan (21 November 2026)
+
+`access_joint.py` (`dynacity search-joint`) searches land uses and the reviewed walking links
+together. Only five link groups change access at 500 m, giving 32 reach patterns, so an integer
+program per pattern finds the exact optimum in under two minutes per site set. NSGA-II is within
+1% of it everywhere (median 0.2%); greedy is not (worst 2.05%). The best links add a median
+0.5–1.7% to the objective, mostly through the rail-bed walkway and the Joseph Chader crossing (#9).
+Bayesian optimisation is being rerun after running out of GPU memory. As in phase A1, RL on this
+problem could only match the optimum; see
+[rl-planning-gpu-plan.md](rl-planning-gpu-plan.md#phase-b-street-measures-and-the-walking-network-walk_linkspy).
+
 ### Exact optimum and baselines, phase A1 of the GPU plan (20 November 2026)
 
 `access_search.py` solves the land-use problem exactly as a coverage integer program (scipy HiGHS,
