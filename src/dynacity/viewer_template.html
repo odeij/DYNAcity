@@ -3448,6 +3448,18 @@ function initScene() {
           if (!map.getSource('terrain-dem')) map.addSource('terrain-dem', { type: 'raster-dem', encoding: 'terrarium', tileSize: 256, maxzoom: 14,
             tiles: [location.origin + DATA.terrain.tiles], attribution: '' });
           map.setTerrain({ source: 'terrain-dem', exaggeration: 1 });
+          // With the country-wide relief (`serve --relief`) the mountains need shading to read at all on the
+          // flat-coloured basemap. It has its own DEM source (MapLibre's advice for hillshade beside terrain),
+          // sits under the labels, and fades out by street zoom so the city itself looks as before.
+          if (DATA.terrain.relief && !map.getLayer('relief-hillshade')) {
+            map.addSource('relief-dem', { type: 'raster-dem', encoding: 'terrarium', tileSize: 256, maxzoom: 14,
+              tiles: [location.origin + DATA.terrain.tiles], attribution: '' });
+            const firstLabel = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
+            map.addLayer({ id: 'relief-hillshade', type: 'hillshade', source: 'relief-dem', paint: {
+              'hillshade-exaggeration': ['interpolate', ['linear'], ['zoom'], 9, 0.45, 13, 0.3, 15, 0],
+              'hillshade-shadow-color': isDark() ? '#000000' : '#5a6470', 'hillshade-highlight-color': isDark() ? '#3a4450' : '#ffffff',
+              'hillshade-illumination-direction': 315 } }, firstLabel);
+          }
         } catch (err) { console.warn('MapLibre terrain failed', err); }
       }
       // The basemap's own flat building fills sit under our 3D buildings.

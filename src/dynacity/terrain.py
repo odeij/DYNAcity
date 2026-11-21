@@ -311,5 +311,48 @@ def fetch_ground_model(
     return GroundModel(crs=snapshot.crs, x0=float(x0), y0=float(y1), cell_m=cell_m, ground=ground)
 
 
+# All of Lebanon (35.10-36.62 E, 33.05-34.69 N) with a few km to spare.
+LEBANON_BBOX = (35.0, 33.0, 36.75, 34.75)
+
+
+def fetch_relief(bbox: Sequence[float] = LEBANON_BBOX, *, step: int = 1):
+    """Raw Copernicus GLO-30 over a lon/lat box → `terrain_viewer.ReliefGrid` for the basemap's relief tiles.
+
+    Unlike `fetch_ground_model` this keeps the surface model as published (no bare-earth filter, which would
+    shave mountain ridges): it is scenery beyond the city, where roofs and canopy are lost in the relief.
+    `step` > 1 averages step x step source cells (2 gives ~60 m). Sea and voids become 0 m.
+    """
+
+    import rasterio
+    from rasterio.enums import Resampling
+    from rasterio.windows import from_bounds
+
+    from .terrain_viewer import ReliefGrid
+
+    west, south, east, north = (float(v) for v in bbox)
+    cell = step / 3600.0
+    cols, rows = int(round((east - west) / cell)), int(round((north - south) / cell))
+    dm = np.zeros((rows, cols), dtype=np.int16)
+    for lat in range(math.floor(south), math.ceil(north)):
+        for lon in range(math.floor(west), math.ceil(east)):
+            url = COPERNICUS_TILE_URL.format(lat=_hemi(lat, "N", "S", 2), lon=_hemi(lon, "E", "W", 3))
+            lo_w, lo_e = max(west, lon), min(east, lon + 1)
+            la_s, la_n = max(south, lat), min(north, lat + 1)
+            c0, c1 = int(round((lo_w - west) / cell)), int(round((lo_e - west) / cell))
+            r0, r1 = int(round((north - la_n) / cell)), int(round((north - la_s) / cell))
+            if c1 <= c0 or r1 <= r0:
+                continue
+            with rasterio.open(url) as src:
+                window = from_bounds(lo_w, la_s, lo_e, la_n, src.transform).round_offsets().round_lengths()
+                block = src.read(1, window=window, out_shape=(r1 - r0, c1 - c0), boundless=True, fill_value=0,
+                                 resampling=Resampling.average if step > 1 else Resampling.nearest)
+            block = np.where(np.isfinite(block) & (block > SEA_LEVEL_M), block, 0.0)
+            dm[r0:r1, c0:c1] = np.clip(np.rint(block * 10.0), 0, 32767).astype(np.int16)
+            print(f"  {url.rsplit('/', 1)[-1]}: {r1 - r0}x{c1 - c0} cells, max {float(block.max()):.0f} m")
+    # Cell centres: the first row/column sits half a cell inside the box.
+    return ReliefGrid(west=west + cell / 2, north=north - cell / 2, cell_deg=cell, dm=dm,
+                      source=ATTRIBUTION + " Raw surface model (not bare earth) beyond the city; approximate.")
+
+
 def _hemi(value: int, positive: str, negative: str, width: int) -> str:
     return f"{positive if value >= 0 else negative}{abs(value):0{width}d}"

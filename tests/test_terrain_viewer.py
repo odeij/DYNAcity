@@ -136,3 +136,61 @@ def test_service_serves_the_grid_and_tiles_only_when_a_terrain_is_loaded():
     assert client.get("/v1/viewer/terrain/3/9/0.png").status_code == 404  # x outside 2**z
     bare = TestClient(create_app(engine_fixture()))
     assert bare.get("/v1/viewer/terrain.bin").status_code == 404
+
+
+def test_relief_backdrop_takes_over_beyond_the_city_grid_and_feathers_at_its_edge(tmp_path):
+    from dataclasses import replace
+
+    from dynacity.terrain_viewer import RELIEF_FEATHER_DEG, ReliefGrid
+
+    # A 6 km city grid, so its centre lies well inside the feather band.
+    x = 733000.0 + (np.arange(600) + 0.5) * 10.0
+    city = GroundModel(crs="EPSG:32636", x0=733000.0, y0=3755000.0, cell_m=10.0,
+                       ground=np.tile(0.05 * (x - 733000.0), (600, 1)), source="synthetic hill")
+    terrain = ViewerTerrain.from_ground(city)
+    west, south, east, north = terrain.meta("", "")["bounds"]
+    # A flat 1500 m plateau over a much wider box, saved and loaded the way serve --relief reads it.
+    relief = ReliefGrid(west=west - 1.0, north=north + 1.0, cell_deg=1 / 3600, source="synthetic plateau",
+                        dm=np.full((int(2.2 * 3600), int(2.2 * 3600)), 15000, dtype=np.int16))
+    relief.save(tmp_path / "relief.npz")
+    relief = ReliefGrid.load(tmp_path / "relief.npz")
+    assert relief.sample(west - 0.5, north + 0.5) == pytest.approx(1500.0)
+
+    both = replace(terrain, backdrop=relief)
+    centre = ((west + east) / 2, (south + north) / 2)
+    # Deep inside the city grid nothing changes; far beyond it the country relief shows; halfway into the band it is a mix.
+    assert both.relief(*centre) == pytest.approx(terrain.sample(*centre))
+    assert both.relief(west - 0.3, centre[1]) == pytest.approx(1500.0)
+    edge = both.relief(east - RELIEF_FEATHER_DEG / 2, centre[1])
+    assert edge == pytest.approx(0.5 * terrain.sample(east - RELIEF_FEATHER_DEG / 2, centre[1]) + 750.0, abs=0.5)
+    # The page's own sampler never sees the backdrop: the city grid's edge value holds out there.
+    assert both.sample(west - 0.3, centre[1]) == terrain.sample(west - 0.3, centre[1])
+    # And the Terrarium tiles carry it.
+    z = 9
+    n = 2 ** z
+    x = int((west - 0.3 + 180.0) / 360.0 * n)
+    lat_rad = math.radians(centre[1])
+    y = int((1.0 - math.asinh(math.tan(lat_rad)) / math.pi) / 2.0 * n)
+    rgb = decode_png(both.terrarium_tile(z, x, y)).astype(np.float64)
+    heights = rgb[..., 0] * 256 + rgb[..., 1] + rgb[..., 2] / 256 - 32768
+    assert heights.max() == pytest.approx(1500.0, abs=0.1)
+
+
+def test_relief_fades_into_a_smoothed_edge_beyond_its_grid():
+    from dynacity.terrain_viewer import RELIEF_OUTER_FADE_DEG, ReliefGrid
+
+    # Alternating 0 / 1000 m columns: clamped, the east edge would streak outwards forever.
+    dm = np.zeros((600, 600), dtype=np.int16)
+    dm[:, ::2] = 10000
+    relief = ReliefGrid(west=35.0, north=34.0, cell_deg=1 / 3600, dm=dm)
+    west, south, east, north = relief.bounds
+    lat = np.linspace(south + 0.02, north - 0.02, 50)
+    at_edge = relief.sample(np.full(50, east), lat)
+    beyond = relief.sample(np.full(50, east + 2 * RELIEF_OUTER_FADE_DEG), lat)
+    assert at_edge.std() < 1.0  # one column: constant along it
+    assert beyond == pytest.approx(500.0, abs=5.0)  # the mean, not one column's value
+    # Inside the grid it is exact.
+    assert relief.sample(35.0, 34.0) == pytest.approx(1000.0)
+    # Halfway through the fade it is a mix of the two.
+    mid = relief.sample(east + RELIEF_OUTER_FADE_DEG / 2, (south + north) / 2)
+    assert mid == pytest.approx(0.5 * at_edge[25] + 0.5 * 500.0, abs=5.0)

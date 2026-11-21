@@ -462,6 +462,17 @@ def command_fetch_terrain(args: argparse.Namespace) -> None:
     print(f"terrain -> {args.output} ({cols}x{rows} cells of {ground.cell_m:g} m in {ground.crs})")
 
 
+def command_fetch_relief(args: argparse.Namespace) -> None:
+    from .terrain import fetch_relief
+    relief = fetch_relief(args.bbox, step=args.step)
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    relief.save(destination)
+    rows, cols = relief.dm.shape
+    print(f"relief -> {args.output} ({cols}x{rows} cells of {relief.cell_deg * 3600:g} arc-seconds, "
+          f"{destination.stat().st_size / 1e6:.1f} MB, highest {relief.dm.max() / 10:.0f} m)")
+
+
 def command_fetch_fabdem(args: argparse.Namespace) -> None:
     from .fabdem import ATTRIBUTION, FABDEM_LICENCE, FABDEM_PAGE, fabdem_ground_model, fetch_tile, lattice_tiles
     from .open_sources import record_source
@@ -556,8 +567,9 @@ def _traffic_view(traffic: TrafficModel, pack_path: str | None) -> dict:
     return view
 
 
-def _viewer_terrain(ground: GroundModel, pack_path: str | None):
-    """The page's ground: the Beirut 001 ground where it covers, GLO-30 elsewhere, on one lon/lat grid."""
+def _viewer_terrain(ground: GroundModel, pack_path: str | None, relief_path: str | None = None):
+    """The page's ground: the Beirut 001 ground where it covers, GLO-30 elsewhere, on one lon/lat grid;
+    with `relief_path` the relief tiles carry on over the whole country beyond it."""
     from .terrain import merge_ground
     from .terrain_viewer import ViewerTerrain
     if pack_path:
@@ -567,6 +579,14 @@ def _viewer_terrain(ground: GroundModel, pack_path: str | None):
             ground = merge_ground(pack_ground, ground, extrapolate_m=400.0)
             print("viewer terrain: Beirut 001 ground where it covers, GLO-30 elsewhere")
     terrain = ViewerTerrain.from_ground(ground)
+    if relief_path:
+        from dataclasses import replace
+
+        from .terrain_viewer import ReliefGrid
+        relief = ReliefGrid.load(relief_path)
+        terrain = replace(terrain, backdrop=relief, attribution=terrain.attribution + " Beyond the city: " + relief.source)
+        print(f"relief beyond the city: {relief.dm.shape[1]}x{relief.dm.shape[0]} cells over "
+              + ", ".join(f"{v:.2f}" for v in relief.bounds))
     print(f"viewer terrain grid {terrain.cols}x{terrain.rows} ({len(terrain.to_bytes()) / 1e6:.2f} MB gzipped)")
     return terrain
 
@@ -651,7 +671,9 @@ def command_serve(args: argparse.Namespace) -> None:
             # Ground levels are for the viewer and traffic; the transition model never sees them.
             snapshot = attach_ground_elevation(snapshot, ground)
             print("viewer terrain loaded from " + args.terrain)
-    viewer_terrain = _viewer_terrain(ground, args.beirut001) if ground is not None else None
+    if getattr(args, "relief", None) and ground is None:
+        raise SystemExit("--relief needs --terrain (the city ground it extends)")
+    viewer_terrain = _viewer_terrain(ground, args.beirut001, getattr(args, "relief", None)) if ground is not None else None
     if traffic is not None and snapshot is not None and corridor is None:
         covered = building_coverage(traffic, snapshot)
         if covered is not None and covered < 0.5:
@@ -857,6 +879,13 @@ def build_parser() -> argparse.ArgumentParser:
     terrain.add_argument("--margin-m", type=float, default=1500.0, help="ground beyond the outermost building or road")
     terrain.set_defaults(func=command_fetch_terrain)
 
+    relief = subparsers.add_parser("fetch-relief", help="country-wide GLO-30 relief for the viewer's basemap (default: Lebanon)")
+    relief.add_argument("--output", required=True)
+    relief.add_argument("--bbox", type=float, nargs=4, metavar=("WEST", "SOUTH", "EAST", "NORTH"),
+                        default=[35.0, 33.0, 36.75, 34.75])
+    relief.add_argument("--step", type=int, default=1, help="average step x step 1-arc-second cells (2 ~ 60 m)")
+    relief.set_defaults(func=command_fetch_relief)
+
     fabdem = subparsers.add_parser("fetch-fabdem", help="FABDEM V1-2 bare-earth ground on the lattice of an existing terrain .npz")
     fabdem.add_argument("--like", required=True, help="terrain .npz from fetch-terrain; FABDEM takes its CRS, extent and cell size")
     fabdem.add_argument("--output", required=True)
@@ -983,6 +1012,7 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("--forecast")
     serve.add_argument("--evidence")
     serve.add_argument("--terrain", help="ground model from fetch-terrain")
+    serve.add_argument("--relief", help="country-wide relief from fetch-relief; the basemap's hills continue beyond the city")
     serve.add_argument("--beirut001", help="private pack from pack-beirut001; the map then draws its buildings")
     serve.add_argument("--point-cloud-dir", help="private export-point-cloud directory for local RGB point viewing")
     serve.add_argument("--traffic", help="traffic model from build-traffic; closures and crashes then reroute traffic")
