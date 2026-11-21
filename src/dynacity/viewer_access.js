@@ -435,6 +435,8 @@ async function accessLoad(i) {
 function accessActivate() {
   if(!DATA.access||!DATA.api)return;
   const p=new URLSearchParams(location.hash.slice(1)).get('step');
+  const hp=new URLSearchParams(location.hash.slice(1));
+  if(!access.focused){if(ACC_USES[hp.get('service')])access.service=hp.get('service');if(['tiered','map'].includes(hp.get('layout')))access.layout=hp.get('layout');if(hp.get('view'))access.view=Number(hp.get('view'))||0;}
   if(p&&!access.focused)access.step=p==='explore'?'explore':Math.max(0,Math.min(ACC_STEPS.length-1,(Number(p)||1)-1));
   accessLoad(access.view).then((v)=>{
     access.error=null;
