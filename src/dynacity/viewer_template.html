@@ -657,6 +657,7 @@ button:focus-visible, summary:focus-visible, input:focus-visible, select:focus-v
 <script>
 const DATA = /*__DYNACITY_DATA__*/null;
 const IMPORTED_CARS = __DYNACITY_CARS__;
+const IMPORTED_PEOPLE = __DYNACITY_PEOPLE__;
 // Opt-in diagnostics for local performance checks; no extra product UI.
 const trafficDebug = new URLSearchParams(location.search).has('trafficStats');
 const simpleTraffic = new URLSearchParams(location.search).get('trafficDetail') === 'simple';
@@ -707,9 +708,9 @@ const metres = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round
 const ui = { lens: 'observed', horizon: 2, selected: null, highlight: null, scenario: null, busy: false, topDown: false, satellite: false, imagery: 0, mode: 'scenario', answer: null, answerIds: null, traffic: false, hour: 8, roadHighlight: null, buses: false, stationsOpen: false,
   trafficImpact: null, trafficStyle: 'street', mobilityMap: true, showSignals: true, mixed: false,
   shadows: !/(^|&)shadows=off/.test(location.hash.slice(1)),
-  // Observed view: tint BBED-linked buildings by their recorded state. On by default, like every
-  // data layer; `#status=off` (or `#layers=off`) shows plain stone.
-  statusColours: !/(^|&)(status|layers)=off/.test(location.hash.slice(1)),
+  // Observed view: tint BBED-linked buildings by their recorded state. Off by default (plain
+  // stone), as the user decided; turn on under ••• or with `#status=on`.
+  statusColours: /(^|&)status=on/.test(location.hash.slice(1)),
   canopyReview: false, canopyCandidate: null, graniteOverlay: false, granitePanel: false,
   roadTool: null, closedRoads: new Set(), crashes: new Set(), crashSites: new Map(), planning: new Map(), selectedRoad: null, planSearch: '',
   addedLanes: new Map(), laneRevision: 0,
@@ -2209,7 +2210,9 @@ function jamLayers() {
 function roadHeightAt(i, lon, lat) {
   const road = DATA.traffic?.roads?.[i];
   if (!road) return null;
-  if (!(road.lvl > 0) && i !== 0 && !road.lifted) return groundZ(lon, lat);
+  // On terrain every street carries its drawn heights (dips are bridged by grade limits), so cars
+  // follow those, not the raw ground, or they sink below the road where the ground dips.
+  if (!(road.lvl > 0) && i !== 0 && !road.lifted && road.path[0]?.[2] === undefined) return groundZ(lon, lat);
   let best = Infinity, z = 0;
   const sx=111320*Math.cos(lat*Math.PI/180);
   for(let j=1;j<road.path.length;j++) {
@@ -2229,7 +2232,7 @@ function vehicleRoadPitch(c) {
   if(!road)return null;
   const [lon,lat]=c.pose.position,sx=111320*Math.cos(lat*Math.PI/180);
   const heading=(c.pose.orientation?.[1]??0)*Math.PI/180;
-  if(!(road.lvl>0)&&c.i!==0&&!road.lifted) {
+  if(!(road.lvl>0)&&c.i!==0&&!road.lifted&&road.path[0]?.[2]===undefined) {
     // On the ground: the relief's grade along the heading, over 8 m (under a grid cell, so no spikes).
     const dlon=Math.cos(heading)*4/sx,dlat=Math.sin(heading)*4/111320;
     return -Math.atan((groundZ(lon+dlon,lat+dlat)-groundZ(lon-dlon,lat-dlat))/8)*180/Math.PI;
@@ -2879,7 +2882,9 @@ function landscapeLayers() {
     getColor:f=>[...shade(fill(f).map(v=>Math.round(v*.78)),night,.55),105],
     getWidth:.18,widthUnits:'meters',widthMinPixels:.6,widthMaxPixels:1.2,
     capRounded:true,jointRounded:true,pickable:false,updateTriggers:{getColor:night}}));
-  if(zoom>=16.5&&centre) {
+  // Real trees at every zoom: zooming out they simply shrink with the city, as from a plane;
+  // no stand-in dots. (1,498 instances; one mesh draw call.)
+  if(centre) {
     // Show every mapped tree in view, without silently truncating dense parks.
     // Row-derived instances carry explicit position provenance in their tooltip.
     // Culled to the snapped view box, so the array (and deck's instance buffers) stays put while panning.
@@ -2894,9 +2899,7 @@ function landscapeLayers() {
       getScale:f=>[f.properties.height_m/6,f.properties.height_m/6,f.properties.height_m/6],
       getOrientation:f=>[0,[...String(f.properties.id??f.geometry.coordinates)].reduce((h,c)=>(h*31+c.charCodeAt(0))>>>0,0)%360,0],
       getColor:[255,255,255],material:{ambient:.5,diffuse:.7,shininess:1,specularColor:[4,6,3]},pickable:true}));
-  } else if(landscapeLayers.trees.length)out.push(new deck.ScatterplotLayer({id:'mapped-tree-overview',data:landscapeLayers.trees,
-    getPosition:f=>onGround(f.geometry.coordinates,.1),getRadius:2,radiusUnits:'meters',radiusMinPixels:1.5,radiusMaxPixels:3,
-    getFillColor:shade([68,113,62,220],night,.4),pickable:true,updateTriggers:{getFillColor:night}}));
+  }
   return out;
 }
 function mobilityLayers() {
@@ -3548,6 +3551,18 @@ function initScene() {
           if (!map.getSource('terrain-dem')) map.addSource('terrain-dem', { type: 'raster-dem', encoding: 'terrarium', tileSize: 256, maxzoom: 14,
             tiles: [location.origin + DATA.terrain.tiles], attribution: '' });
           map.setTerrain({ source: 'terrain-dem', exaggeration: 1 });
+          // With the country-wide relief (`serve --relief`) the mountains need shading to read at all on the
+          // flat-coloured basemap. It has its own DEM source (MapLibre's advice for hillshade beside terrain),
+          // sits under the labels, and fades out by street zoom so the city itself looks as before.
+          if (DATA.terrain.relief && !map.getLayer('relief-hillshade')) {
+            map.addSource('relief-dem', { type: 'raster-dem', encoding: 'terrarium', tileSize: 256, maxzoom: 14,
+              tiles: [location.origin + DATA.terrain.tiles], attribution: '' });
+            const firstLabel = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
+            map.addLayer({ id: 'relief-hillshade', type: 'hillshade', source: 'relief-dem', paint: {
+              'hillshade-exaggeration': ['interpolate', ['linear'], ['zoom'], 9, 0.45, 13, 0.3, 15, 0],
+              'hillshade-shadow-color': isDark() ? '#000000' : '#5a6470', 'hillshade-highlight-color': isDark() ? '#3a4450' : '#ffffff',
+              'hillshade-illumination-direction': 315 } }, firstLabel);
+          }
         } catch (err) { console.warn('MapLibre terrain failed', err); }
       }
       // The basemap's own flat building fills sit under our 3D buildings.
@@ -4322,12 +4337,11 @@ if (!DATA || !DATA.buildings?.length || typeof deck === 'undefined') {
     const tab = hashLens && document.querySelector(`.tab[data-lens="${CSS.escape(hashLens)}"]:not([hidden])`);
     setLens(tab ? hashLens : ui.lens);
     if(DATA.api && DATA.traffic && new URLSearchParams(location.search).get('traffic')==='1')setTraffic(true);
-    // Every data layer the server has is shown from the start (traffic, bus routes,
-    // pedestrians); their detail panels stay closed so the city stays in view.
-    // `#layers=off` starts with them off.
+    // Traffic is shown from the start, its detail panel closed so the city stays in view. Bus
+    // routes and pedestrians start off (the user's choice): the traffic panel's checkbox and the
+    // walker rail button turn them on. `#layers=off` starts with traffic off too.
     else if (!/(^|&)layers=off/.test(location.hash.slice(1))) {
-      if (DATA.traffic) { ui.buses = !!DATA.traffic.bus_routes?.length; setTraffic(true); $('p-traffic').hidden = true; }
-      if (DATA.pedestrians && typeof setPeople === 'function') setPeople(true);
+      if (DATA.traffic) { setTraffic(true); $('p-traffic').hidden = true; }
     }
     if (corridorMode()) togglePanel('p-corridor', $('t-corridor'), true);
   });

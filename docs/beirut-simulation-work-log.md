@@ -3158,3 +3158,16 @@ shops +3.6%, schools +2.2%, parks +0.8%; objective +0.038 at α = 1 with no land
 
 **Next:** the joint search over land uses and links, then Gate B.
 
+### 21 November 2026 — open data sources for the 2D planner and the Unreal corridor
+
+- Run folder (local only, not committed): `docs/runs/2026-11-20-open-data-sources/`
+- Branch `viewer-2d-planner-and-corridor-work`, merges `c7de310` and `b3e879b`. Not pushed.
+- Added:
+  - Meta/WRI canopy heights (2019; positions good to about 10 m)
+  - a FABDEM terrain option (CC BY-NC-SA)
+  - WorldPop 2025 resident counts and Overture places for closed streets in `/planner`, both off by default
+  - 1,006 estimated canopy trees as one reversible Unreal group
+  - a hidden FABDEM Unreal extension
+  - an Open-Meteo sky adapter, off by default
+- Every result was independently checked against raw sources.
+- Native Claude Sonnet workers, by the user's choice for this run.

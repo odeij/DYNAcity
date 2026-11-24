@@ -84,9 +84,10 @@ test('cars sit .04 m above the ground, keep their height above it through a junc
   const c = scene();
   c.DATA.traffic.roads = [{u: 1, v: 2, path: [[lonAt(2), LAT], [lonAt(30), LAT]]}, {u: 2, v: 3, path: [[lonAt(30), LAT], [lonAt(38), LAT]]}];
   run(c, 'elevateRoads()');
-  const car = {i: 1, pose: {position: [lonAt(15), LAT], orientation: [0, 0, 0]}};
+  // The car stands on its own road (road 1 runs from column 30 to 38).
+  const car = {i: 1, pose: {position: [lonAt(34), LAT], orientation: [0, 0, 0]}};
   c.carPose(car);
-  assert.ok(Math.abs(car.pose.position[2] - (c.groundZ(lonAt(15), LAT) + .04)) < 1e-9);
+  assert.ok(Math.abs(car.pose.position[2] - (c.groundZ(lonAt(34), LAT) + .04)) < 1e-9);
   // Heading east (0 deg) goes uphill here: the nose rises, which is negative deck.gl pitch.
   const grade = 1 / (CELL * mPerLon(LAT));
   assert.ok(Math.abs(car.pose.orientation[0] + Math.atan(grade) * 180 / Math.PI) < 0.05);
@@ -95,7 +96,7 @@ test('cars sit .04 m above the ground, keep their height above it through a junc
   car.pose.position[0] = lonAt(20);
   c.carPose(car);
   assert.ok(Math.abs(car.pose.position[2] - (c.groundZ(lonAt(20), LAT) + .04)) < 1e-9);
-  assert.equal(c.roadHeightAt(1, lonAt(15), LAT), c.groundZ(lonAt(15), LAT));
+  assert.ok(Math.abs(c.roadHeightAt(1, lonAt(34), LAT) - c.groundZ(lonAt(34), LAT)) < 1e-9);
 });
 
 test('sidewalk and kerb strips follow the road level and are skipped on bridges by their height above ground', () => {
@@ -169,4 +170,23 @@ test('on terrain a bridge ramps from the level at its ends, not from the ground 
   for (let i = 1; i < bridge.length; i++) assert.ok(Math.abs(bridge[i][2] - bridge[i - 1][2]) / metresBetween(bridge[i - 1], bridge[i]) <= run(c, 'BRIDGE_TERRAIN_GRADE') + 1e-9);
   // Over the valley floor it stands high above the ground, so piers are drawn.
   assert.ok(Math.max(...bridge.map((p) => p[3])) > 18);
+});
+
+test('a car in a side lane on a hillside sits on the road, not on the lower ground beside the centre line', () => {
+  const c = scene();
+  // The ground falls 1 m per cell (about 11 m) going north; the street runs east-west across the slope.
+  const grid = new Int16Array(COLS * ROWS);
+  for (let r = 0; r < ROWS; r++) for (let k = 0; k < COLS; k++) grid[r * COLS + k] = r * 100;
+  c.setGrid(grid);
+  const Y = NORTH - 20 * CELL; // a row inside the grid
+  // Road 0 is a stand-in: index 0 is treated as a junction by the page.
+  c.DATA.traffic.roads = [{u: 8, v: 9, path: [[lonAt(0), Y], [lonAt(1), Y]]}, {u: 1, v: 2, path: [[lonAt(10), Y], [lonAt(30), Y]]}];
+  run(c, 'elevateRoads()');
+  const centre = c.groundZ(lonAt(20), Y);
+  // A lane 3 m north of the centre line, on the downhill side.
+  const lane = [lonAt(20), Y + 3 / 111320];
+  assert.ok(c.groundZ(...lane) < centre - 0.2, 'the ground under the lane is lower than the road');
+  const car = {i: 1, pose: {position: [...lane], orientation: [0, 0, 0]}};
+  c.carPose(car);
+  assert.ok(Math.abs(car.pose.position[2] - (centre + .04)) < 1e-6, 'the car sits on the road surface');
 });

@@ -18,6 +18,35 @@ Opened on its own, `/planner#lon=…&lat=…&zoom=…` starts at that spot and k
 
 **Hiding the interface.** The eye button in the viewer's rail, or **H**, hides every panel and leaves the city, the credits line the basemap licence requires, and one eye button in the corner to bring them back. In the planner the same button (or **H**) slides away the paper panel, title and compass. The choice carries across when switching between 3D and 2D.
 
+## Optional context layers: residents and shops (off by default)
+
+The planning table can show who lives near a street and what is on it. Both layers are off unless `serve` is given their files; without the flags `/planner` and `/v1/planner/roads` behave exactly as before, no extra request is made, and the two context routes do not exist.
+
+```sh
+python scripts/prepare_planner_context.py population --tif lbn_pop_2025_CN_100m_R2025A_v1.tif --source-url <worldpop url> --output population-beirut.json
+overturemaps download --bbox=35.4655,33.8270,35.5745,33.9085 -f geojson -t place -r 2026-11-18.0 -o places-beirut.geojson
+python scripts/prepare_planner_context.py places --geojson places-beirut.geojson --release 2026-11-18.0 --output places-beirut.json
+dynacity serve ... --traffic <model> --population population-beirut.json --places places-beirut.json
+```
+
+Raw downloads and the prepared files stay outside the repository (private data boundary). The prepared files hold only what the page needs; `planner_context.py` joins them to the served road model at start-up, so road indices always match the model in use, citywide or cut to a corridor.
+
+| Layer | Source and licence | What the page says |
+| --- | --- | --- |
+| Residents | WorldPop Global 2015-2030, release R2025A v1, constrained top-down, 100 m, Lebanon, year 2025 ([data.worldpop.org](https://data.worldpop.org/GIS/Population/Global_2015_2030/R2025A/2025/LBN/v1/100m/constrained/lbn_pop_2025_CN_100m_R2025A_v1.tif)). CC BY 4.0, cited as Bondarenko et al. (2025), doi 10.5258/SOTON/WP00840 | On a selected street: "About N residents within 200 m". Under "Your changes": "About N residents live within 200 m of the streets you changed". Always labelled a WorldPop modelled estimate for 2025; Lebanon has had no census since 1932 |
+| Shops and services | Overture Maps places, release 2026-11-18.0. Overture states a licence per provider rather than one for the theme: most are CDLA Permissive 2.0, Foursquare is Apache 2.0, AllThePlaces is CC0 1.0 (no ODbL component in Places) | On a selected street: "N shops and services on this street", the commonest categories and up to eight names. Under "Your changes": the total on the changed streets. Optional small dots at street zoom (15 and closer), with a name and category on hover; a checkbox turns them off |
+
+The credits line under the map and a block at the end of the panel name both sources, their licences and the attribution text. On phones the map's credits line is hidden by the existing layout, so the panel block is the visible credit there.
+
+**How the counts are made.** Each 100 m WorldPop cell is split into 4 x 4 sub-cells of about 25 m, each carrying a sixteenth of the cell's people; a road's residents are the sub-cells whose centre lies within 200 m of its line. For several streets the sub-cells are united before they are summed, so someone living near two changed streets is counted once. Places count for a road when within 25 m of its line; a place at a junction belongs to each street there and is counted once in a total. The numbers are rounded to the nearest 10 (under 100), 50 (under 1,000), 100 (under 10,000) or 500. Counting happens on the server (`POST /v1/planner/context/summary`, which takes road indices from `/v1/planner/roads`); `GET /v1/planner/context` gives the credits and the places on a street for the dots.
+
+**Limits.**
+- WorldPop is a model that spreads national totals over built-up cells with satellite-derived covariates. With no recent census to calibrate against, it cannot be checked street by street. Treat counts as orders of magnitude for comparing streets, not as headcounts. R2025A is flagged by WorldPop as a version that may change. The 2025 year is the latest release year; the 2026-2030 files are projections.
+- A 200 m circle around a road is a distance, not a walking catchment: it ignores barriers such as the Beirut River, motorways and the railway.
+- Overture places are a merge of provider data (mostly Meta). Some are closed, mislocated, or stacked at a single building (several can share one point). Only places with confidence 0.5 or more and a category are kept. Categories are Overture's own and include non-retail places such as schools, hospitals and places of worship, hence "shops and services" is a loose label. The list can be out of date or incomplete and is not a business census.
+- Only the allowlisted place fields are read from the download (id, primary name, primary category, confidence, point). Phone numbers, emails, social links, websites, addresses and brand fields are never copied into the prepared file.
+- The layers do not feed the traffic model, the SUMO comparison or any forecast; they only describe the streets a planner has selected or changed.
+
 ## Decisions and consequences
 
 | Decision | Traffic solver | Pedestrian display and indicators |

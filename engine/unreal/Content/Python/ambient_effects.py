@@ -137,7 +137,22 @@ def configure_cloud_layer(pawn):
         volume.set_sky_light_cloud_bottom_occlusion(.25)
         stock = unreal.load_asset('/Engine/EngineSky/VolumetricClouds/m_SimpleVolumetricCloud_Inst')
         if stock is not None:
+            coverage, density = -.12, .012
+            # Open-Meteo weather is OFF by default: play_parameters() then returns these same illustrative values and
+            # the sky is exactly as before. When enabled (weather_open_meteo.set_enabled) it returns the mapped weather,
+            # or the same illustrative values if the network is unreachable.
+            try:
+                import weather_open_meteo
+                weather = weather_open_meteo.play_parameters()
+            except Exception as error:  # a weather problem must never stop driving
+                unreal.log_warning('Weather adapter skipped: %r' % (error,))
+                weather = None
+            if weather and weather.get('source') == 'open-meteo mapping':
+                coverage, density = weather['cloud_global_coverage'], weather['cloud_global_density']
+                volume.set_layer_bottom_altitude(float(weather['layer_bottom_km']))
+                volume.set_layer_height(float(weather['layer_height_km']))
+                unreal.log('Sky weather: %s' % weather.get('attribution'))
             material = unreal.MaterialLibrary.create_dynamic_material_instance(pawn, stock)
-            material.set_scalar_parameter_value('Cloud_GlobalCoverage', -.12)
-            material.set_scalar_parameter_value('Cloud_GlobalDensity', .012)
+            material.set_scalar_parameter_value('Cloud_GlobalCoverage', coverage)
+            material.set_scalar_parameter_value('Cloud_GlobalDensity', density)
             volume.set_material(material)
