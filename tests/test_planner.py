@@ -2,7 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from dynacity.planner import planner_page, planner_roads
+from dynacity.planner import planner_page, planner_roads, planner_trees
 from dynacity.service import create_app
 from dynacity.traffic import TrafficModel, build_traffic_model, lane_counts
 
@@ -42,6 +42,26 @@ def test_planner_routes_serve_the_page_and_roads(model):
     assert len(roads["features"]) == len(model)
     # The page drives the existing SUMO routes.
     assert "/v1/viewer/traffic/simulation" in page.text
+
+
+def test_planner_draws_the_viewers_mapped_trees_without_their_tags(model):
+    tree = lambda id_, crown=None: {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.5123456789, 33.8912345678]},
+                                     "properties": {"id": id_, "kind": "tree", "crown_diameter_m": crown, "tags": {"natural": "tree"}}}
+    landscape = {"type": "FeatureCollection", "features": [
+        tree("node/1"), tree("way/2", 9.04),
+        {"type": "Feature", "geometry": {"type": "Point", "coordinates": [35.5, 33.9]}, "properties": {"id": "node/3", "kind": "street_lamp"}},
+    ]}
+    trees = planner_trees(landscape)
+    assert [f["properties"] for f in trees["features"]] == [{"row": 0}, {"row": 1, "crown": 9.0}]
+    assert trees["features"][0]["geometry"]["coordinates"] == [35.512346, 33.891235]
+    assert "OpenStreetMap" in trees["attribution"]
+
+    client = TestClient(create_app(engine_fixture(), viewer_snapshot=snapshot(), viewer_traffic=model, planner_trees=trees))
+    assert client.get("/v1/planner/trees").json() == trees
+    assert "/v1/planner/trees" in client.get("/planner").text
+    # Without `serve --landscape` the route answers with no trees, and the page simply draws none.
+    bare = TestClient(create_app(engine_fixture(), viewer_snapshot=snapshot(), viewer_traffic=model))
+    assert bare.get("/v1/planner/trees").json()["features"] == []
 
 
 def test_planner_needs_a_traffic_model():

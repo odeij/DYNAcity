@@ -145,9 +145,10 @@ function osmGapBuildingLayers() {
   if(buildings.length) {
     const occlusion=cameraOcclusion();
     out.push(new deck.SolidPolygonLayer({id:'osm-gap-buildings',data:buildings,getPolygon:f=>(f.g??=groundedPolygon(f.geometry.coordinates)),
-      extruded:true,getElevation:f=>f.properties.height_m??6,getFillColor:f=>cameraSafeColour([192,196,190],'osm',f.properties.id,occlusion),
+      extruded:true,getElevation:f=>f.properties.height_m??6,// Same warm stone as the Beirut 001 buildings, so the city reads as one material.
+      getFillColor:f=>cameraSafeColour(baseBeirutColor(`o${f.properties.id}`),'osm',f.properties.id,occlusion),
       // Recolour only when the set of buildings blocking the camera changes; per-pan recolouring stalls panning.
-      material:MATERIAL,pickable:true,...nightWindowProps(f=>nightInfo('unknown',`o${f.properties.id}`),[HAZE_EXT]),updateTriggers:{getFillColor:occlusion.signature}}));
+      material:MATERIAL,pickable:true,...nightWindowProps(f=>nightInfo('unknown',`o${f.properties.id}`),[HAZE_EXT]),updateTriggers:{getFillColor:[occlusion.signature,isDark()]}}));
   }
   return out;
 }

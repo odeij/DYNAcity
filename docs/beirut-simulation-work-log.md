@@ -3311,3 +3311,16 @@ done
 - **In the running app:** checked with headless-Chrome screenshots of each step, on a second server
   (127.0.0.1:8014) with the same inputs as the main one.
 
+### 21 November 2026 — open data sources for the 2D planner and the Unreal corridor
+
+- Run folder (local only, not committed): `docs/runs/2026-11-20-open-data-sources/`
+- Branch `viewer-2d-planner-and-corridor-work`, merges `c7de310` and `b3e879b`. Not pushed.
+- Added:
+  - Meta/WRI canopy heights (2019; positions good to about 10 m)
+  - a FABDEM terrain option (CC BY-NC-SA)
+  - WorldPop 2025 resident counts and Overture places for closed streets in `/planner`, both off by default
+  - 1,006 estimated canopy trees as one reversible Unreal group
+  - a hidden FABDEM Unreal extension
+  - an Open-Meteo sky adapter, off by default
+- Every result was independently checked against raw sources.
+- Native Claude Sonnet workers, by the user's choice for this run.

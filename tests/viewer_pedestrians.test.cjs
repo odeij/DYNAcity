@@ -278,3 +278,34 @@ test('highways cannot be pedestrianised',()=>{
   run('selectRoad(0);togglePedestrianise(0)');
   assert.equal(run('ui.closedRoads.has(0)'),true,'other streets still can');
 });
+test('walkers are Rocketbox people in one layer; pose follows the distance walked',()=>{
+  const {run,c}=fixture();
+  // A two-person, two-pose stand-in: one triangle each, int16 millimetres.
+  const tri=z=>Buffer.from(new Int16Array([0,0,z, 100,0,z, 0,100,z+1000]).buffer).toString('base64');
+  const person=(z,n=1)=>({name:'p',sex:'f',vertices:3*n,colors:Buffer.from(Array(9*n).fill(0).map((_,i)=>[200,150,100][i%3])).toString('base64'),
+    frames:[0,10].map(dz=>Buffer.concat(Array.from({length:n},()=>Buffer.from(tri(z+dz),'base64'))).toString('base64'))});
+  c.IMPORTED_PEOPLE={frames_per_cycle:2,cycle_s:1,people:[person(0),person(5,2)]};
+  run('mobilityLab.people=true');c.atob=s=>Buffer.from(s,'base64').toString('binary');
+  const walkers=run('pedestrianLayers(0)').filter(l=>/^pedestrian-walkers/.test(l.id));
+  assert.equal(walkers.length,1); // one draw for every walker, whatever person or pose
+  assert.equal(walkers[0].data.length,8);
+  assert.equal(walkers[0].frames,2);
+  assert.ok(walkers[0].data.every(r=>r.person>=0&&r.person<2&&r.pose>=0&&r.pose<2));
+  // Pose textures: rows person*FRAMES+frame, columns vertices, padded to the largest person.
+  const a=run('peopleAtlas()');
+  assert.deepEqual([a.W,a.P,a.F],[6,2,2]);
+  assert.deepEqual(Array.from(a.pos.slice((1*a.W+0)*4,(1*a.W+0)*4+3)).map(v=>Math.round(v*1000)),[0,0,10]); // person 0, pose 1
+  assert.deepEqual(Array.from(a.pos.slice((0*a.W+3)*4,(0*a.W+3)*4+4)),[0,0,0,0]); // padding: zero-area
+  assert.ok(Math.abs(Math.hypot(...a.nor.slice(0,3))-1)<1e-6);
+  assert.deepEqual(Array.from(a.col.slice(0,4)),[200,150,100,255]);
+  // Same walker, half a stride further on: the pose has moved on by half the cycle.
+  const before=run('pedestrianRows(null)').map(r=>r.pose);
+  run('preparePedestrianPaths().forEach(s=>s.phase+=walkStrideM(0)/2)');
+  const rows=run('pedestrianRows(null)');
+  rows.forEach((r,i)=>{if(r.person===0)assert.ok(Math.abs(((r.pose-before[i]+2)%2)-1)<1e-6);});
+});
+test('without people models the walkers keep the simple figure',()=>{
+  const {run}=fixture();run('mobilityLab.people=true');
+  const ids=run('pedestrianLayers(0)').map(l=>l.id);
+  assert.ok(ids.includes('pedestrian-walkers'));
+});

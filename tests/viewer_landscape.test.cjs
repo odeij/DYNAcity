@@ -30,14 +30,16 @@ test('landscape renders mapped surfaces and only mapped tree points, with satell
  context.ui.satellite=true;assert.equal(layers().length,0);
 });
 
-test('all mapped trees in view survive dense areas and remain visible at overview zoom',()=>{
+test('all mapped trees in view survive dense areas and stay real trees when zoomed out',()=>{
  class Layer {constructor(props){Object.assign(this,props);}}
  const features=Array.from({length:700},(_,i)=>({geometry:{type:'Point',coordinates:[35.5,33.9]},properties:{kind:'tree',id:`node/${i}`,height_m:6}}));
  const context=vm.createContext({DATA:{landscape:{features}},ui:{satellite:false},map:{getZoom:()=>18,getCenter:()=>({toArray:()=>[35.5,33.9]}),getBounds:()=>({toArray:()=>[[35.49,33.89],[35.51,33.91]]})},nightLevel:()=>0,shade:x=>x,metresBetween:()=>0,mesh:()=>({}),mappedTreeMesh:()=>{},SOFT:{depthWriteEnabled:false},deck:{SimpleMeshLayer:Layer,SolidPolygonLayer:Layer,PathLayer:Layer,ScatterplotLayer:Layer}});
  vm.runInContext(viewCells,context);vm.runInContext(html.slice(html.indexOf('function landscapeLayers()'),html.indexOf('function mobilityLayers()')),context);
  assert.equal(context.landscapeLayers().find(l=>l.id==='mapped-tree-canopies').data.length,700);
  context.map.getZoom=()=>14;
- assert.equal(context.landscapeLayers().find(l=>l.id==='mapped-tree-overview').data.length,700);
+ // Zoomed out the same 3D trees just look smaller; no stand-in dots.
+ assert.equal(context.landscapeLayers().find(l=>l.id==='mapped-tree-canopies').data.length,700);
+ assert.equal(context.landscapeLayers().some(l=>l.id==='mapped-tree-overview'),false);
 });
 
 test('generic tree crown has round trunk, multiple lobes, exact fallback height and finite normals',()=>{

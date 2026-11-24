@@ -14,7 +14,7 @@ function scene(features,extra={}) {
  const c={DATA:{landscape:{features},traffic:{roads:[{source_way:7}]}},ui:{satellite:false},beirutOverlay:{active:false},
  map:{getZoom:()=>19,getCenter:()=>({toArray:()=>centre}),getBounds:()=>({toArray:()=>[p(-300,-300),p(300,300)]})},
  nightLevel:()=>0,nightWindowProps:()=>({}),nightInfo:()=>[0,1],shade:x=>x,mesh:()=>({}),blockMesh:()=>{},MATERIAL:{},HAZE_EXT:{},ON_TOP:{depthCompare:'always',depthWriteEnabled:false},coveredByBbed:()=>false,
- cameraOcclusion:()=>({model:new Set(),bbed:new Set(),osm:new Set()}),cameraSafeColour:x=>x,sceneCameraKey:()=>'',
+ cameraOcclusion:()=>({model:new Set(),bbed:new Set(),osm:new Set()}),cameraSafeColour:x=>x,isDark:()=>false,baseBeirutColor:()=>[218,206,183],sceneCameraKey:()=>'',
  metresBetween:(a,b)=>Math.hypot((a[0]-b[0])*sx,(a[1]-b[1])*sy),
  ringBox:r=>[Math.min(...r.map(p=>p[0])),Math.min(...r.map(p=>p[1])),Math.max(...r.map(p=>p[0])),Math.max(...r.map(p=>p[1]))],
  centroid:r=>r.reduce((s,p)=>[s[0]+p[0]/r.length,s[1]+p[1]/r.length],[0,0]),esc:s=>String(s),

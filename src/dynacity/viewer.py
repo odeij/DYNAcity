@@ -363,12 +363,16 @@ def render_viewer(payload: dict[str, Any], *, title: str = "DynaCITY · Beirut")
     if _PLACEHOLDER not in template:
         raise RuntimeError("viewer template is missing its data placeholder")
     car_models = files("dynacity").joinpath("assets/cars/meshes.json").read_text(encoding="utf-8") if payload.get("traffic") else "{}"
+    # Rocketbox walkers (assets/people, scripts/prepare_people_models.py); only pages with pedestrians carry them.
+    people = files("dynacity").joinpath("assets/people/meshes.json")
+    people_models = people.read_text(encoding="utf-8") if payload.get("pedestrians") and people.is_file() else "null"
     # Inline detail modules so exported viewers remain a single portable HTML file.
     details = "\n".join(
         files("dynacity").joinpath(name).read_text(encoding="utf-8")
         for name in ("viewer_street_edges.js", "viewer_intersections.js", "viewer_building_details.js", "viewer_osm_context.js", "viewer_facilities.js", "viewer_access.js", "viewer_camera.js", "viewer_pedestrians.js", "viewer_night.js", "viewer_canopy_review.js", "viewer_granite_overlay.js", "viewer_plan2d.js")
     )
     return (template.replace(_PLACEHOLDER, data).replace("__DYNACITY_CARS__", car_models)
+            .replace("__DYNACITY_PEOPLE__", people_models)
             .replace("/*__DYNACITY_DETAILS__*/", details).replace("__DYNACITY_TITLE__", title)
             .replace("__DYNACITY_LOGO__", _brand_image("dynacity-logo.webp"))
             .replace("__DYNACITY_ICON__", _brand_image("favicon.webp")))

@@ -54,6 +54,13 @@ class ViewerScenarioRequest(BaseModel):
 MAX_CLOSED_ROADS = 1000
 
 
+class PlannerContextRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Road indices from /v1/planner/roads: the streets selected or changed.
+    roads: list[int] = Field(default_factory=list, max_length=5000)
+
+
 class ViewerTrafficRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -86,6 +93,8 @@ def create_app(
     point_cloud: Any | None = None,
     beirut001: dict | None = None,
     access_views: list[tuple[str, bytes]] | None = None,
+    planner_context: Any | None = None,
+    planner_trees: dict | None = None,
 ) -> FastAPI:
     def spend_llm_call() -> None:
         # Checked before any model call; a refused request costs nothing.
@@ -316,13 +325,33 @@ def create_app(
         @app.get("/planner", response_class=HTMLResponse, include_in_schema=False)
         def planner() -> HTMLResponse:
             # Revalidate every load, so an edited page is never served from a stale browser cache.
-            return HTMLResponse(planner_page(), headers={"Cache-Control": "no-cache"})
+            return HTMLResponse(planner_page(context=planner_context is not None),
+                                headers={"Cache-Control": "no-cache"})
 
         @app.get("/v1/planner/roads")
         def planner_road_list() -> dict:
             if "roads" not in planner_cache:
                 planner_cache["roads"] = planner_roads(viewer_traffic)
             return planner_cache["roads"]
+
+        # Mapped trees (planner.planner_trees); an empty collection without `serve --landscape`.
+        @app.get("/v1/planner/trees")
+        def planner_tree_list() -> dict:
+            return planner_trees or {"type": "FeatureCollection", "features": []}
+
+        # Optional context layers (WorldPop residents, Overture places): only when `serve`
+        # was given their files. Without them neither route exists.
+        if planner_context is not None:
+            @app.get("/v1/planner/context")
+            def planner_context_meta() -> dict:
+                if "meta" not in planner_cache:
+                    planner_cache["meta"] = planner_context.meta()
+                return planner_cache["meta"]
+
+            @app.post("/v1/planner/context/summary")
+            def planner_context_summary(request: PlannerContextRequest) -> dict:
+                return planner_context.summary(request.roads)
+
         @app.post("/v1/viewer/traffic")
         def viewer_traffic_impact(request: ViewerTrafficRequest) -> dict:
             try:
