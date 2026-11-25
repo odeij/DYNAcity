@@ -378,6 +378,10 @@ class Encoding:
         return x
 
 
+# elements (float64) of the expanded training block allowed per acquisition batch: 2**26 = 512 MiB
+_ACQ_BLOCK_ELEMENTS = 2 ** 26
+
+
 def bo_joint(js: JointScorer, N: int, K: int, alpha: float, *, reduced: int | None = None, initial: int = 1000,
              q: int = 10, window: int = 100, max_iterations: int = 300, refit_every: int = 10, pool: int = 4000,
              screen: int = 200, seed: int = 0, log=None) -> dict:
@@ -522,10 +526,14 @@ def bo_joint(js: JointScorer, N: int, K: int, alpha: float, *, reduced: int | No
         pool_x = torch.as_tensor(np.array(fresh_x), **dkw)
         with torch.no_grad():
             single = LogExpectedImprovement(model, best_f=train_y.max())
-            scores = torch.cat([single(block[:, None, :]) for block in pool_x.split(512)])
+            # each candidate in a block gets its own copy of the training inputs inside gpytorch
+            # (block x n_train x d doubles), so size the blocks by memory, not by count: a fixed 512 asked
+            # for ~4 GiB at n_train ~2,800 and ran the card out on 21 November. Same numbers, smaller pieces.
+            per = max(1, _ACQ_BLOCK_ELEMENTS // (len(train_x) * d))
+            scores = torch.cat([single(block[:, None, :]) for block in pool_x.split(per)])
         keep = scores.topk(min(screen, len(fresh))).indices
         acq = qLogExpectedImprovement(model, best_f=train_y.max())
-        chosen, _ = optimize_acqf_discrete(acq, q=min(q, len(keep)), choices=pool_x[keep], max_batch_size=128,
+        chosen, _ = optimize_acqf_discrete(acq, q=min(q, len(keep)), choices=pool_x[keep], max_batch_size=max(1, min(128, _ACQ_BLOCK_ELEMENTS // ((len(train_x) + q) * d))),
                                            unique=True)
         index = {x.astype(np.uint8).tobytes(): i for i, x in enumerate(fresh_x)}
         picked = [fresh[index[row.round().cpu().numpy().astype(np.uint8).tobytes()]] for row in chosen]
